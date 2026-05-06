@@ -8,21 +8,19 @@ import * as THREE from 'three';
  *
  * Modifier matrix:
  *   Shift + drag             → camera-aligned plane (full XYZ via orbit)
- *   Shift + Alt + drag       → Y-lock: only world Y updates from cursor's
- *                              vertical motion; X/Z stay put. Useful for
- *                              touchpad users who can't easily mouse-wheel
- *                              while dragging.
- *   Shift + drag + wheel     → push/pull along camera gaze (mouse only)
+ *   Shift + Alt + drag       → depth mode: cursor's vertical motion pushes
+ *                              the object along the camera's gaze
+ *                              direction. Cursor up = closer to viewer,
+ *                              cursor down = farther. Press/release Alt
+ *                              freely mid-drag — the gesture re-anchors so
+ *                              there's no snap.
+ *   Shift + drag + wheel     → push/pull along camera gaze (mouse-only
+ *                              shortcut for the same depth motion)
  *
  * Plane intersection: at drag-start we drop a plane through the object that's
  * perpendicular to the camera's gaze direction. The pointer ray is intersected
  * with that plane each move, giving a 3D world point that tracks under the
  * cursor.
- *
- * Wheel handling: a window-level listener (installed at drag-start, torn
- * down at drag-end) translates the object along the camera's gaze direction.
- * Window-level rather than mesh-level so cursor-off-mesh trackpad swipes
- * still register.
  *
  * Without the Shift modifier, OrbitControls keeps working as normal.
  */
@@ -51,6 +49,10 @@ export function useDragMove(opts: {
   const offset = useRef(new THREE.Vector3());
   const captureTarget = useRef<HTMLElement | null>(null);
   const wheelHandlerRef = useRef<((e: WheelEvent) => void) | null>(null);
+  // Depth-mode (Alt-held) state. We track when Alt transitions on/off so we
+  // can re-anchor the in-plane offset and avoid snap on release.
+  const altActive = useRef(false);
+  const lastClientY = useRef(0);
   const { controls, camera } = useThree();
 
   /** Intersect the pointer ray with the drag plane. */
@@ -133,28 +135,63 @@ export function useDragMove(opts: {
   const onPointerMove = (e: ThreeEvent<PointerEvent>) => {
     if (!dragging.current) return;
     e.stopPropagation();
+    const altNow = e.altKey;
+    const cy = e.nativeEvent.clientY;
+
+    // --- mode transitions ---
+    if (altNow && !altActive.current) {
+      // Alt just pressed: enter depth mode. Snapshot the current cursor Y
+      // so subsequent moves can compute a delta. Don't move the object on
+      // the transition frame — it would snap.
+      altActive.current = true;
+      lastClientY.current = cy;
+      return;
+    }
+    if (!altNow && altActive.current) {
+      // Alt just released: re-anchor the drag plane and offset to the
+      // object's current position so subsequent in-plane motion picks up
+      // smoothly without snapping back to where the drag started.
+      altActive.current = false;
+      const cur = getPosition();
+      planePoint.current.set(cur[0], cur[1], cur[2]);
+      const hit = intersect(e.ray);
+      if (hit) {
+        offset.current.set(cur[0] - hit.x, cur[1] - hit.y, cur[2] - hit.z);
+      }
+      return;
+    }
+
+    if (altNow) {
+      // Depth mode: cursor's vertical screen motion pushes the object along
+      // the camera's gaze direction. Up = closer (toward viewer), down =
+      // farther. ~1m per 100px of cursor motion.
+      const dy = cy - lastClientY.current;
+      lastClientY.current = cy;
+      const step = dy * 0.01;
+      planePoint.current.addScaledVector(planeNormal.current, step);
+      const c = getPosition();
+      setPosition([
+        c[0] + planeNormal.current.x * step,
+        c[1] + planeNormal.current.y * step,
+        c[2] + planeNormal.current.z * step,
+      ]);
+      return;
+    }
+
+    // Plain in-plane drag.
     const hit = intersect(e.ray);
     if (!hit) return;
-    if (e.altKey) {
-      // Y-lock: ignore horizontal cursor motion, only apply vertical.
-      // The cursor's intersection with the camera-facing plane gives a
-      // hit.y that tracks vertical screen motion well from any angle
-      // (even top-down — there hit.y barely changes, which is correct
-      // since you can't tell vertical motion from a top-down view).
-      const cur = getPosition();
-      setPosition([cur[0], hit.y + offset.current.y, cur[2]]);
-    } else {
-      setPosition([
-        hit.x + offset.current.x,
-        hit.y + offset.current.y,
-        hit.z + offset.current.z,
-      ]);
-    }
+    setPosition([
+      hit.x + offset.current.x,
+      hit.y + offset.current.y,
+      hit.z + offset.current.z,
+    ]);
   };
 
   const endDrag = (e: ThreeEvent<PointerEvent>) => {
     if (!dragging.current) return;
     dragging.current = false;
+    altActive.current = false;
     if (controls) (controls as unknown as { enabled: boolean }).enabled = true;
 
     if (wheelHandlerRef.current) {
