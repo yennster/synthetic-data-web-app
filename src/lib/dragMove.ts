@@ -4,26 +4,34 @@ import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 
 /**
- * Build pointer-event handlers that let the user drag a mesh anywhere in
- * 3D world space using a single Shift+drag gesture.
+ * Build pointer-event handlers for moving objects in 3D with the mouse.
+ *
+ * Modifier matrix:
+ *   Shift + drag             → camera-aligned plane (full XYZ via orbit)
+ *   Shift + Alt + drag       → Y-lock: only world Y updates from cursor's
+ *                              vertical motion; X/Z stay put. Useful for
+ *                              touchpad users who can't easily mouse-wheel
+ *                              while dragging.
+ *   Shift + drag + wheel     → push/pull along camera gaze (mouse only)
  *
  * Plane intersection: at drag-start we drop a plane through the object that's
  * perpendicular to the camera's gaze direction. The pointer ray is intersected
  * with that plane each move, giving a 3D world point that tracks under the
  * cursor.
  *
- * Result:
- *   - Cursor right → object moves along camera's right
- *   - Cursor up    → object moves along camera's up
- *   - Mouse wheel  → object moves along camera's gaze (closer / farther)
+ * Wheel handling: a window-level listener (installed at drag-start, torn
+ * down at drag-end) translates the object along the camera's gaze direction.
+ * Window-level rather than mesh-level so cursor-off-mesh trackpad swipes
+ * still register.
  *
- * Combine with orbit and you have full XYZ control without ever leaving the
- * Shift+drag gesture: orbit to expose the axis you want, drag for the
- * in-plane component, scroll for the depth component.
- *
- * Without the Shift modifier, OrbitControls keeps working as normal — wheel
- * is its zoom, drag is its orbit/pan.
+ * Without the Shift modifier, OrbitControls keeps working as normal.
  */
+
+// Wheel sensitivity. Values around 0.008 give:
+//   trackpad two-finger scroll (deltaY ≈ 4 per event) → ~1 m/s
+//   mouse wheel notch (deltaY ≈ 100 per notch)        → ~0.8 m/notch
+const WHEEL_STEP = 0.008;
+
 export function useDragMove(opts: {
   /** Read current world position of the dragged object. */
   getPosition: () => [number, number, number];
@@ -35,7 +43,6 @@ export function useDragMove(opts: {
   onPointerDown: (e: ThreeEvent<PointerEvent>) => void;
   onPointerMove: (e: ThreeEvent<PointerEvent>) => void;
   onPointerUp: (e: ThreeEvent<PointerEvent>) => void;
-  onWheel: (e: ThreeEvent<WheelEvent>) => void;
 } {
   const { getPosition, setPosition, enabled = true } = opts;
   const dragging = useRef(false);
@@ -43,6 +50,7 @@ export function useDragMove(opts: {
   const planePoint = useRef(new THREE.Vector3());
   const offset = useRef(new THREE.Vector3());
   const captureTarget = useRef<HTMLElement | null>(null);
+  const wheelHandlerRef = useRef<((e: WheelEvent) => void) | null>(null);
   const { controls, camera } = useThree();
 
   /** Intersect the pointer ray with the drag plane. */
@@ -77,6 +85,9 @@ export function useDragMove(opts: {
 
     dragging.current = true;
     if (controls) (controls as unknown as { enabled: boolean }).enabled = false;
+
+    // Pointer capture so cursor motion is delivered even if the cursor
+    // leaves the mesh's bounds.
     const tgt = e.target as HTMLElement | null;
     if (tgt && typeof tgt.setPointerCapture === 'function') {
       try {
@@ -86,6 +97,37 @@ export function useDragMove(opts: {
         // ignore
       }
     }
+
+    // Window-level wheel listener for the duration of the drag. Translates
+    // the object along the camera's gaze direction; works for mouse wheel,
+    // trackpad two-finger scroll, and trackpad pinch (which also produces
+    // wheel events with ctrlKey set).
+    const handler = (we: WheelEvent) => {
+      if (!dragging.current) return;
+      we.preventDefault();
+      we.stopPropagation();
+      // Some browsers/trackpads report deltaY in line units (deltaMode=1)
+      // or page units (deltaMode=2); normalise to pixels.
+      const dyPx =
+        we.deltaMode === 1
+          ? we.deltaY * 16
+          : we.deltaMode === 2
+            ? we.deltaY * 100
+            : we.deltaY;
+      const step = dyPx * WHEEL_STEP;
+      // Shift the drag plane along its normal and translate the object by
+      // the same amount, so the plane and the object stay in sync. Future
+      // pointermove events keep tracking correctly without snapping.
+      planePoint.current.addScaledVector(planeNormal.current, step);
+      const c = getPosition();
+      setPosition([
+        c[0] + planeNormal.current.x * step,
+        c[1] + planeNormal.current.y * step,
+        c[2] + planeNormal.current.z * step,
+      ]);
+    };
+    wheelHandlerRef.current = handler;
+    window.addEventListener('wheel', handler, { passive: false });
   };
 
   const onPointerMove = (e: ThreeEvent<PointerEvent>) => {
@@ -93,17 +135,33 @@ export function useDragMove(opts: {
     e.stopPropagation();
     const hit = intersect(e.ray);
     if (!hit) return;
-    setPosition([
-      hit.x + offset.current.x,
-      hit.y + offset.current.y,
-      hit.z + offset.current.z,
-    ]);
+    if (e.altKey) {
+      // Y-lock: ignore horizontal cursor motion, only apply vertical.
+      // The cursor's intersection with the camera-facing plane gives a
+      // hit.y that tracks vertical screen motion well from any angle
+      // (even top-down — there hit.y barely changes, which is correct
+      // since you can't tell vertical motion from a top-down view).
+      const cur = getPosition();
+      setPosition([cur[0], hit.y + offset.current.y, cur[2]]);
+    } else {
+      setPosition([
+        hit.x + offset.current.x,
+        hit.y + offset.current.y,
+        hit.z + offset.current.z,
+      ]);
+    }
   };
 
   const endDrag = (e: ThreeEvent<PointerEvent>) => {
     if (!dragging.current) return;
     dragging.current = false;
     if (controls) (controls as unknown as { enabled: boolean }).enabled = true;
+
+    if (wheelHandlerRef.current) {
+      window.removeEventListener('wheel', wheelHandlerRef.current);
+      wheelHandlerRef.current = null;
+    }
+
     const tgt = captureTarget.current;
     if (tgt && typeof tgt.releasePointerCapture === 'function') {
       try {
@@ -115,39 +173,9 @@ export function useDragMove(opts: {
     captureTarget.current = null;
   };
 
-  /**
-   * While a drag is in progress, scrolling the mouse wheel pushes the drag
-   * plane along the camera's gaze direction. The cursor keeps hitting the
-   * plane in the same screen-space position, so the object slides forward
-   * (away from camera) or backward (toward camera) by exactly the plane
-   * shift. Combined with cursor motion you get a full 3DOF translation
-   * gesture without ever leaving Shift+drag.
-   *
-   * Scroll up   = deltaY < 0 = object moves toward the camera (closer)
-   * Scroll down = deltaY > 0 = object moves away from the camera (farther)
-   */
-  const onWheel = (e: ThreeEvent<WheelEvent>) => {
-    if (!dragging.current) return;
-    e.stopPropagation();
-    e.nativeEvent.preventDefault?.();
-
-    // 0.003 per pixel of deltaY → ~0.3m per typical wheel notch (deltaY≈100).
-    const step = e.nativeEvent.deltaY * 0.003;
-    planePoint.current.addScaledVector(planeNormal.current, step);
-
-    const hit = intersect(e.ray);
-    if (!hit) return;
-    setPosition([
-      hit.x + offset.current.x,
-      hit.y + offset.current.y,
-      hit.z + offset.current.z,
-    ]);
-  };
-
   return {
     onPointerDown,
     onPointerMove,
     onPointerUp: endDrag,
-    onWheel,
   };
 }

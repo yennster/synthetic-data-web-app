@@ -35,9 +35,9 @@ export function Hud() {
       <div
         className="pill"
         style={{ background: 'rgba(20,24,29,0.6)', fontSize: 10 }}
-        title="Shift+drag moves the object in the camera-aligned plane — orbit the view to access different axes (top-down for XZ, side for XY)"
+        title="Shift+drag = camera-aligned plane (orbit for different axes). Hold Alt while dragging to lock to world Y (lift / drop). Mouse wheel during drag = push/pull along the camera gaze."
       >
-        Tip: Shift+drag to move
+        Tip: Shift+drag · Shift+Alt+drag for Y
       </div>
     </div>
   );
