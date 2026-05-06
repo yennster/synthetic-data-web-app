@@ -25,12 +25,12 @@ jobs:
       packages: write
     env:
       # Resolved tag — comes from the dispatch input or the pushed tag ref.
-      RELEASE_TAG: ${{ env.RELEASE_TAG }}
+      RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
