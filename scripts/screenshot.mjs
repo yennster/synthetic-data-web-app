@@ -84,6 +84,8 @@ try {
       await new Promise((r) => setTimeout(r, 50));
     }
 
+    // Optional: enable physics on imported USDZ (4th argv = "physics")
+    const enablePhysics = process.argv[4] === 'physics';
     // Optional: import a USDZ if a path was passed as 3rd argv
     const usdzPath = process.argv[3];
     if (usdzPath) {
@@ -130,6 +132,17 @@ try {
         }
         if (!imported) console.log('[script] USDZ import did not register');
         else console.log('[script] USDZ import succeeded');
+
+        if (enablePhysics) {
+          // Toggle the per-asset Physics checkbox on the just-imported asset.
+          await page.evaluate(() => {
+            const physChk = [...document.querySelectorAll('input[type=checkbox]')]
+              .find((c) => c.parentElement?.textContent?.includes('Physics'));
+            physChk?.click();
+          });
+          // Let physics settle.
+          await new Promise((r) => setTimeout(r, 2500));
+        }
       }
     }
 

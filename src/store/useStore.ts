@@ -21,6 +21,10 @@ export type ImportedAsset = {
   position: [number, number, number];
   rotation: [number, number, number];
   scale: number;
+  /** When true, wrap the asset in a Rapier RigidBody (convex-hull collider)
+   * so it falls under gravity, collides with other bodies, and is carried by
+   * the conveyor. Toggling remounts the body. */
+  physics: boolean;
 };
 
 // A spawned object in the scene, used in detection / anomaly modes.

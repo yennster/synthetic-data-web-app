@@ -1,0 +1,64 @@
+name: release
+
+# Triggered when a tag matching `v*` is pushed (e.g. `v0.3.0`).
+# Builds the static bundle, zips it, attaches the zip to a GitHub release,
+# and publishes the package to GitHub Packages.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      # Needed to attach files to the release.
+      contents: write
+      # Needed to publish to GitHub Packages.
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          # Configure auth for GitHub Packages so `npm publish` works.
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@yennster'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify USDZ WASM is in the build
+        run: |
+          test -f dist/usdz-wasm/emHdBindings.wasm
+          test -f dist/usdz-wasm/emHdBindings.js
+          test -f dist/usdz-wasm/emHdBindings.data
+          test -f dist/usdz-wasm/emHdBindings.worker.js
+          echo "WASM bundle OK"
+
+      - name: Zip dist bundle
+        run: |
+          cd dist
+          zip -r9q "../synthetic-data-web-app-${GITHUB_REF_NAME}.zip" .
+          cd ..
+          ls -lh "synthetic-data-web-app-${GITHUB_REF_NAME}.zip"
+
+      - name: Create / update GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: synthetic-data-web-app-${{ github.ref_name }}.zip
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+
+      - name: Publish to GitHub Packages
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

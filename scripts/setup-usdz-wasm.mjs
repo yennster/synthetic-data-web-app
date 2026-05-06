@@ -17,6 +17,15 @@ const FILES = [
   'emHdBindings.worker.js',
 ];
 
+// Only run for source checkouts. When a consumer installs this package from
+// npm, only `bin/` and `dist/` are present and the WASM is already in
+// `dist/usdz-wasm/`, so there's nothing to do.
+try {
+  await fs.access(path.join(root, 'src'));
+} catch {
+  process.exit(0);
+}
+
 try {
   await fs.access(src);
 } catch {

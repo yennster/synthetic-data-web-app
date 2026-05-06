@@ -1,14 +1,53 @@
 {
-  "name": "synthetic-data-web-app",
-  "private": true,
-  "version": "0.2.0",
+  "name": "@yennster/synthetic-data-web-app",
+  "version": "0.3.0",
   "type": "module",
+  "description": "Browser-based 3D synthetic-data studio for Edge Impulse — accelerometer, object detection, and visual anomaly modes with hand tracking, USDZ import, conveyor physics, and direct ingestion-API upload.",
+  "license": "MIT",
+  "author": "yennster",
+  "homepage": "https://github.com/yennster/synthetic-data-web-app#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yennster/synthetic-data-web-app.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yennster/synthetic-data-web-app/issues"
+  },
+  "keywords": [
+    "edge-impulse",
+    "synthetic-data",
+    "machine-learning",
+    "object-detection",
+    "anomaly-detection",
+    "accelerometer",
+    "hand-tracking",
+    "usd",
+    "usdz",
+    "openusd",
+    "three.js",
+    "react"
+  ],
+  "bin": {
+    "synthetic-data-web-app": "bin/serve.mjs"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "public"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
+    "start": "node bin/serve.mjs",
     "screenshot": "node scripts/screenshot.mjs",
-    "postinstall": "node scripts/setup-usdz-wasm.mjs"
+    "postinstall": "node scripts/setup-usdz-wasm.mjs",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.18",
@@ -29,5 +68,8 @@
     "puppeteer-core": "^24.43.0",
     "typescript": "^5.6.3",
     "vite": "^5.4.10"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }

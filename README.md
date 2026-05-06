@@ -34,7 +34,7 @@ Created with Claude Code.
 
 ### Object detection / Visual anomaly mode
 - **Multi-object spawning** — add any number of objects to the scene with custom labels and colors. Objects fall under physics onto the ground or conveyor.
-- **USDZ asset import** — drop in `.usdz` files (Pixar Universal Scene Description). Powered by a WASM build of OpenUSD, supporting both ASCII (`.usda`) and binary Crate (`.usdc`) payloads. Each imported asset gets per-instance scale / position / yaw / label controls. Bounding boxes are computed for the whole asset, not per child mesh.
+- **USDZ asset import** — drop in `.usdz` files (Pixar Universal Scene Description). Powered by a WASM build of OpenUSD, supporting both ASCII (`.usda`) and binary Crate (`.usdc`) payloads. Each imported asset gets per-instance scale / position / yaw / label controls and an opt-in **Physics** toggle that wraps it in a Rapier RigidBody with a convex-hull collider — toggle it on and the asset falls under gravity, collides with the ground / belt / other bodies, and rides the conveyor like the spawned primitives. Bounding boxes are computed for the whole asset, not per child mesh.
 - **Conveyor belt prop** — animated scrolling belt with rails, end rollers, and supports. **Actually transports spawned objects** along its length — drop a cube on it and it rides off the end. Speed-tunable from −2 m/s to +2 m/s (negative reverses direction).
 - **Virtual capture camera** — fully positionable (XYZ + target + FOV), with a frustum gizmo drawn into the scene so you can orbit around and see exactly what it sees.
 - **Live capture preview** in the corner overlay.
@@ -60,7 +60,29 @@ Created with Claude Code.
 
 ## Quick start
 
+Pick whichever fits:
+
+### Option A — run the published package (no clone)
+
 ```bash
+# Authenticate to GitHub Packages once (paste a personal access token with read:packages):
+echo "//npm.pkg.github.com/:_authToken=YOUR_TOKEN" >> ~/.npmrc
+
+# Then:
+npx @yennster/synthetic-data-web-app
+```
+
+Opens on http://localhost:5173 with COOP/COEP preconfigured. Add `--port 8080` to change port, `--no-coep` to disable cross-origin isolation (USDZ import will then fail but everything else works).
+
+### Option B — download the release zip
+
+Grab the latest `synthetic-data-web-app-vX.Y.Z.zip` from [Releases](https://github.com/yennster/synthetic-data-web-app/releases), unzip, and serve from any static host. The bundle includes a `_headers` file preconfigured for Netlify and Cloudflare Pages.
+
+### Option C — clone and run
+
+```bash
+git clone https://github.com/yennster/synthetic-data-web-app
+cd synthetic-data-web-app
 npm install
 npm run dev
 ```

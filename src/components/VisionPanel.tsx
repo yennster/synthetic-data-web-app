@@ -88,6 +88,7 @@ export function VisionPanel() {
           ],
           rotation: [0, 0, 0],
           scale: initialScale,
+          physics: false,
         });
         count += 1;
       } catch (e) {
@@ -390,6 +391,26 @@ export function VisionPanel() {
                         })
                       }
                     />
+                  </label>
+                  <label
+                    className="field"
+                    style={{
+                      gap: 2,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={a.physics}
+                      onChange={(e) =>
+                        updateAsset(a.id, { physics: e.target.checked })
+                      }
+                      style={{ width: 'auto', flex: 'none' }}
+                    />
+                    <span style={{ flex: 1, textTransform: 'none', letterSpacing: 0 }}>
+                      Physics (falls, collides, rides belt)
+                    </span>
                   </label>
                 </div>
               ))}
