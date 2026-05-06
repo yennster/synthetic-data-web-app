@@ -4,6 +4,10 @@ A browser-based 3D tool for generating synthetic IMU / accelerometer training da
 
 Pinch a virtual cube (or sphere / phone / capsule) in 3D space using your bare hand, throw it onto the ground, and the physics engine generates realistic 3-axis accelerometer data — the same kind of signal a real IMU strapped to that object would produce. Record, label, and ship to Edge Impulse with one click.
 
+Created with Claude Code.
+
+![Synthetic Accelerometer Data Studio](docs/screenshot.png)
+
 ## Features
 
 - **Hand tracking** via Google MediaPipe `HandLandmarker` (runs in-browser on GPU/WASM, ~60 fps).
