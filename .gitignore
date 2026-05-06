@@ -33,3 +33,6 @@ logs/
 .env
 .env.local
 .env.*.local
+
+# USDZ WASM is copied by postinstall from node_modules/three-usdz-loader
+public/usdz-wasm/

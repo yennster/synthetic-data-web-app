@@ -16,6 +16,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { useStore, type ObjectKind } from '../store/useStore';
 import { Conveyor } from './Conveyor';
+import { ImportedAssets } from './ImportedAssets';
 import { SpawnedObjects } from './SpawnedObjects';
 import { VirtualCamera } from './VirtualCamera';
 
@@ -306,6 +307,7 @@ export function Scene({
           <>
             {showConveyor && <Conveyor />}
             <SpawnedObjects />
+            <ImportedAssets />
           </>
         )}
       </Physics>

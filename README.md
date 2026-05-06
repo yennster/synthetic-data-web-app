@@ -34,6 +34,7 @@ Created with Claude Code.
 
 ### Object detection / Visual anomaly mode
 - **Multi-object spawning** — add any number of objects to the scene with custom labels and colors. Objects fall under physics onto the ground or conveyor.
+- **USDZ asset import** — drop in `.usdz` files (Pixar Universal Scene Description). Powered by a WASM build of OpenUSD, supporting both ASCII (`.usda`) and binary Crate (`.usdc`) payloads. Each imported asset gets per-instance scale / position / yaw / label controls. Bounding boxes are computed for the whole asset, not per child mesh.
 - **Conveyor belt prop** — animated scrolling belt with rails, end rollers, and supports. Speed-tunable. Acts as a static collider.
 - **Virtual capture camera** — fully positionable (XYZ + target + FOV), with a frustum gizmo drawn into the scene so you can orbit around and see exactly what it sees.
 - **Live capture preview** in the corner overlay.
@@ -52,6 +53,7 @@ Created with Claude Code.
 | 3D rendering | three.js + `@react-three/fiber` + `@react-three/drei` |
 | Physics | Rapier (`@react-three/rapier`) |
 | Hand tracking | `@mediapipe/tasks-vision` (HandLandmarker, GPU delegate) |
+| USDZ import | `three-usdz-loader` (OpenUSD WASM, supports Crate + ASCII) |
 | State | Zustand |
 | Disk saves | File System Access API (`showDirectoryPicker`) |
 | Upload | Fetch + WebCrypto SubtleCrypto (for HMAC) |
@@ -83,6 +85,7 @@ Open **http://localhost:5173** in a Chromium-based browser (Chrome, Edge, Brave)
 1. Switch to **Object detection** mode.
 2. (Optional) Toggle **Conveyor belt** in the Scene card.
 3. Add objects from the **Objects** card — pick a kind, type a label, hit **+ Add**. Repeat for as many objects/classes as you need. Edit the label of any object inline; remove with `×`.
+3a. (Optional) Drop `.usdz` files into the **Import (.usdz)** card to bring in real assets. Each gets its own scale / position / yaw / label.
 4. Position the **Virtual camera** in the Virtual Camera card. The orange frustum gizmo updates live in the scene; the corner preview shows the captured framing.
 5. Click **Choose directory…** and pick where the PNGs go (Chromium only). On Safari/Firefox they'll just download.
 6. Click **📸 Capture frame** for one image, or set a batch count + randomization toggles and click **⚡ Capture batch (N)**.
@@ -161,14 +164,48 @@ src/
 │   ├── VisionPanel.tsx           // Detection / Anomaly controls
 │   ├── Conveyor.tsx              // Animated conveyor belt prop
 │   ├── SpawnedObjects.tsx        // Multi-object spawn renderer
+│   ├── ImportedAssets.tsx        // USDZ asset renderer with transforms + bbox tags
 │   └── VirtualCamera.tsx         // Capture camera, frustum gizmo, batch logic
 ├── lib/
 │   ├── handTracking.ts           // HandLandmarker + pinch math
+│   ├── usdz.ts                   // OpenUSD WASM loader wrapper, dispose helper
 │   ├── capture.ts                // Off-screen render, bbox projection, FS Access
 │   └── edgeImpulse.ts            // Ingestion API: motion + image+bbox uploads
 └── store/
     └── useStore.ts               // Zustand store (single source of truth)
 ```
+
+## USDZ import — what's supported
+
+The app uses `three-usdz-loader`, which bundles a WASM build of Pixar / NVIDIA's OpenUSD and supports the formats most production tools emit:
+
+- ✅ `.usdz` containing **ASCII USD** (`.usda`) — exported by Blender's "USD" exporter, Maya, Houdini.
+- ✅ `.usdz` containing **binary Crate USD** (`.usdc`) — what NVIDIA Omniverse, Reality Composer, and Apple's tools produce by default. *This is what most modern `.usdz` files are.*
+- ⚠️ Plain `.usd`, `.usda`, `.usdc` files (not zipped) — convert to `.usdz` first (see below).
+
+### Converting `.usd` / `.usda` / `.usdc` to `.usdz`
+
+If you have a non-zipped USD file, you can package it with the OpenUSD CLI tools:
+
+```bash
+# Install: pip install usd-core
+usdzip my_scene.usdz my_scene.usda
+```
+
+Or in Blender: **File → Export → Universal Scene Description (.usd)**, then choose `.usdz` as the extension.
+
+Or via NVIDIA Omniverse: **File → Save As → .usdz**.
+
+### Cross-origin isolation requirement
+
+The OpenUSD WASM uses `SharedArrayBuffer`, which requires the page to be served with **cross-origin isolation** headers:
+
+```
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: credentialless
+```
+
+The Vite dev server is preconfigured to send these. If you self-host the production build, your static host needs to send them too — Netlify, Vercel, and Cloudflare Pages all support this via headers config.
 
 ## How the accelerometer signal is computed
 
@@ -224,6 +261,10 @@ Result: tight axis-aligned 2D boxes in pixel coordinates with top-left origin �
 **Directory picker doesn't appear** — Use Chrome / Edge / Brave. Safari/Firefox don't yet support `showDirectoryPicker`; you'll get per-file downloads.
 
 **Bounding boxes look wrong** — Make sure the object is fully on-screen in the virtual camera preview. Boxes are clipped at image edges, and very small / occluded objects are dropped.
+
+**USDZ import: "module could not initialize"** — the page isn't cross-origin-isolated. Check that your static host is sending `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: credentialless`. The dev server already does.
+
+**USDZ import: file imported but invisible** — the asset may have been auto-scaled too small; drag the **Scale** slider in its row, or check the **Y** position (e.g. lift it onto the belt at `y = 0.1`).
 
 **Edge Impulse 401 / 403** — API key missing or invalid. Double-check **Dashboard → Keys** in your project.
 

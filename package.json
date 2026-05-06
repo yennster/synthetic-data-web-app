@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "screenshot": "node scripts/screenshot.mjs"
+    "screenshot": "node scripts/screenshot.mjs",
+    "postinstall": "node scripts/setup-usdz-wasm.mjs"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.18",
@@ -17,6 +18,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "three": "^0.169.0",
+    "three-usdz-loader": "^1.0.9",
     "zustand": "^5.0.1"
   },
   "devDependencies": {

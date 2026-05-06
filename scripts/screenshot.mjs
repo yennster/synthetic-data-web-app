@@ -28,6 +28,10 @@ const browser = await puppeteer.launch({
 
 try {
   const page = await browser.newPage();
+  page.on('console', (msg) =>
+    console.log(`[browser ${msg.type()}]`, msg.text()),
+  );
+  page.on('pageerror', (err) => console.log('[browser pageerror]', err));
   await page.goto('http://localhost:5173', {
     waitUntil: 'networkidle0',
     timeout: 30000,
@@ -80,8 +84,57 @@ try {
       await new Promise((r) => setTimeout(r, 50));
     }
 
+    // Optional: import a USDZ if a path was passed as 3rd argv
+    const usdzPath = process.argv[3];
+    if (usdzPath) {
+      const fileInput = await page.$('input[type=file][accept=".usdz"]');
+      if (fileInput) {
+        await fileInput.evaluate((el) =>
+          el.scrollIntoView({ block: 'center' }),
+        );
+        // Read the local file → base64 → install via DataTransfer in the page.
+        const fs = await import('node:fs/promises');
+        const buf = await fs.readFile(usdzPath);
+        const b64 = buf.toString('base64');
+        const fileName = usdzPath.split('/').pop();
+        await page.evaluate(
+          async (b64, name) => {
+            const bin = atob(b64);
+            const arr = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+            const file = new File([arr], name, { type: 'model/vnd.usdz+zip' });
+            const dt = new DataTransfer();
+            dt.items.add(file);
+            const input = document.querySelector(
+              'input[type=file][accept=".usdz"]',
+            );
+            input.files = dt.files;
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+          },
+          b64,
+          fileName,
+        );
+        // Poll until the asset count appears.
+        let imported = false;
+        for (let i = 0; i < 40; i++) {
+          imported = await page.evaluate(() => {
+            const h = [...document.querySelectorAll('h3')].find((el) =>
+              el.textContent?.startsWith('Import'),
+            );
+            // Match the count parens: e.g. "Import (.usdz) (1)" → 1
+            const m = h?.textContent?.match(/\((\d+)\)\s*$/);
+            return !!(m && parseInt(m[1], 10) > 0);
+          });
+          if (imported) break;
+          await new Promise((r) => setTimeout(r, 250));
+        }
+        if (!imported) console.log('[script] USDZ import did not register');
+        else console.log('[script] USDZ import succeeded');
+      }
+    }
+
     // Let physics settle and shadows render.
-    await new Promise((r) => setTimeout(r, 2000));
+    await new Promise((r) => setTimeout(r, 2500));
   } else {
     await new Promise((r) => setTimeout(r, 2500));
   }

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { Group } from 'three';
 
 export type ObjectKind = 'cube' | 'sphere' | 'phone' | 'capsule' | 'cylinder' | 'cone' | 'torus';
 
@@ -9,6 +10,17 @@ export type AccelSample = {
   ax: number;
   ay: number;
   az: number;
+};
+
+/** An imported `.usdz` asset, treated as a single labelled unit for bbox. */
+export type ImportedAsset = {
+  id: string;
+  name: string;
+  label: string;
+  object: Group; // three.js group; rendered via <primitive>
+  position: [number, number, number];
+  rotation: [number, number, number];
+  scale: number;
 };
 
 // A spawned object in the scene, used in detection / anomaly modes.
@@ -110,6 +122,13 @@ type State = {
   conveyorSpeed: number;
   setConveyorSpeed: (n: number) => void;
 
+  // Imported USDZ assets
+  assets: ImportedAsset[];
+  addAsset: (a: ImportedAsset) => void;
+  removeAsset: (id: string) => void;
+  updateAsset: (id: string, patch: Partial<ImportedAsset>) => void;
+  clearAssets: () => void;
+
   // ---------- Virtual camera & capture ----------
   capture: CaptureSettings;
   setCapture: (patch: Partial<CaptureSettings>) => void;
@@ -200,6 +219,16 @@ export const useStore = create<State>((set) => ({
   setShowConveyor: (b) => set({ showConveyor: b }),
   conveyorSpeed: 0.5,
   setConveyorSpeed: (n) => set({ conveyorSpeed: n }),
+
+  assets: [],
+  addAsset: (a) => set((s) => ({ assets: [...s.assets, a] })),
+  removeAsset: (id) =>
+    set((s) => ({ assets: s.assets.filter((a) => a.id !== id) })),
+  updateAsset: (id, patch) =>
+    set((s) => ({
+      assets: s.assets.map((a) => (a.id === id ? { ...a, ...patch } : a)),
+    })),
+  clearAssets: () => set({ assets: [] }),
 
   // capture
   capture: {

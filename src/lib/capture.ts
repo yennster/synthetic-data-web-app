@@ -59,8 +59,17 @@ export async function captureFrame(opts: {
 }
 
 /**
- * Project the 8 corners of every labelled mesh's world AABB into screen space
- * and emit a tight 2D bounding box, clipped to the image.
+ * Find every labelled object in the scene and emit one tight 2D bounding box
+ * per labelled subtree. A "labelled subtree" is rooted at any Object3D with
+ * `userData.label` set; its descendant meshes contribute their AABB corners.
+ *
+ * This means: a single labelled `<mesh>` produces one box, and an imported
+ * USDZ Group with many child meshes labelled at the root also produces one
+ * box (not one per child).
+ *
+ * Per-mesh labelling (the original case) is preserved by tagging only the
+ * specific mesh; the projector picks the deepest non-overlapping labelled
+ * ancestor.
  */
 function computeBoundingBoxes(
   scene: THREE.Scene,
@@ -70,55 +79,67 @@ function computeBoundingBoxes(
 ): BoundingBox[] {
   const boxes: BoundingBox[] = [];
   const tmp = new THREE.Vector3();
-  const localBox = new THREE.Box3();
   const corners: THREE.Vector3[] = Array.from({ length: 8 }, () => new THREE.Vector3());
 
+  // Find the topmost labelled ancestor for each labelled object — any descendants
+  // that are also labelled with the same value are absorbed into the parent's box.
+  const labelRoots: THREE.Object3D[] = [];
   scene.traverse((obj) => {
-    if (!(obj as THREE.Mesh).isMesh) return;
-    const mesh = obj as THREE.Mesh;
-    const label = (mesh.userData?.label as string | undefined) ?? undefined;
+    const label = obj.userData?.label as string | undefined;
     if (!label) return;
-    if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
-    if (!mesh.geometry.boundingBox) return;
+    // Skip if any ancestor already has the same label — we'll be processed as part of that root.
+    let p = obj.parent;
+    while (p) {
+      if (p.userData?.label === label) return;
+      p = p.parent;
+    }
+    labelRoots.push(obj);
+  });
 
-    localBox.copy(mesh.geometry.boundingBox);
-    const { min, max } = localBox;
-    corners[0].set(min.x, min.y, min.z);
-    corners[1].set(min.x, min.y, max.z);
-    corners[2].set(min.x, max.y, min.z);
-    corners[3].set(min.x, max.y, max.z);
-    corners[4].set(max.x, min.y, min.z);
-    corners[5].set(max.x, min.y, max.z);
-    corners[6].set(max.x, max.y, min.z);
-    corners[7].set(max.x, max.y, max.z);
-
+  for (const root of labelRoots) {
+    const label = root.userData.label as string;
     let minX = Infinity,
       minY = Infinity,
       maxX = -Infinity,
       maxY = -Infinity;
     let anyInFront = false;
 
-    for (const c of corners) {
-      tmp.copy(c).applyMatrix4(mesh.matrixWorld).project(camera);
-      // tmp.z in [-1, 1] when in front of camera; > 1 means behind near plane in Three's projection convention.
-      if (tmp.z > 1) continue;
-      anyInFront = true;
-      const sx = (tmp.x * 0.5 + 0.5) * width;
-      const sy = (1 - (tmp.y * 0.5 + 0.5)) * height;
-      if (sx < minX) minX = sx;
-      if (sy < minY) minY = sy;
-      if (sx > maxX) maxX = sx;
-      if (sy > maxY) maxY = sy;
-    }
+    root.traverse((child) => {
+      const mesh = child as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+      if (!mesh.geometry.boundingBox) return;
+      const { min, max } = mesh.geometry.boundingBox;
+      corners[0].set(min.x, min.y, min.z);
+      corners[1].set(min.x, min.y, max.z);
+      corners[2].set(min.x, max.y, min.z);
+      corners[3].set(min.x, max.y, max.z);
+      corners[4].set(max.x, min.y, min.z);
+      corners[5].set(max.x, min.y, max.z);
+      corners[6].set(max.x, max.y, min.z);
+      corners[7].set(max.x, max.y, max.z);
 
-    if (!anyInFront) return;
+      for (const c of corners) {
+        tmp.copy(c).applyMatrix4(mesh.matrixWorld).project(camera);
+        if (tmp.z > 1) continue; // behind camera
+        anyInFront = true;
+        const sx = (tmp.x * 0.5 + 0.5) * width;
+        const sy = (1 - (tmp.y * 0.5 + 0.5)) * height;
+        if (sx < minX) minX = sx;
+        if (sy < minY) minY = sy;
+        if (sx > maxX) maxX = sx;
+        if (sy > maxY) maxY = sy;
+      }
+    });
+
+    if (!anyInFront) continue;
     minX = Math.max(0, Math.min(width, minX));
     minY = Math.max(0, Math.min(height, minY));
     maxX = Math.max(0, Math.min(width, maxX));
     maxY = Math.max(0, Math.min(height, maxY));
     const w = Math.round(maxX - minX);
     const h = Math.round(maxY - minY);
-    if (w < 4 || h < 4) return; // ignore degenerate / fully-occluded
+    if (w < 4 || h < 4) continue;
     boxes.push({
       label,
       x: Math.round(minX),
@@ -126,7 +147,7 @@ function computeBoundingBoxes(
       width: w,
       height: h,
     });
-  });
+  }
 
   return boxes;
 }

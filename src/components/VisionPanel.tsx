@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useStore, type ObjectKind } from '../store/useStore';
 import {
   buildBoundingBoxLabelsFile,
@@ -7,6 +7,7 @@ import {
   saveBlob,
 } from '../lib/capture';
 import { uploadCaptures } from '../lib/edgeImpulse';
+import { disposeUsdz, loadUsdz } from '../lib/usdz';
 
 const OBJECT_OPTIONS: ObjectKind[] = [
   'cube',
@@ -30,6 +31,11 @@ export function VisionPanel() {
     setShowConveyor,
     conveyorSpeed,
     setConveyorSpeed,
+    assets,
+    addAsset,
+    removeAsset,
+    updateAsset,
+    clearAssets,
     capture: cs,
     setCapture,
     captures,
@@ -48,6 +54,60 @@ export function VisionPanel() {
 
   const [newKind, setNewKind] = useState<ObjectKind>('cube');
   const [newLabel, setNewLabel] = useState('cube');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importLabel, setImportLabel] = useState('');
+
+  const onImportFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setStatus('busy', `Importing ${files.length} asset(s)…`);
+    let count = 0;
+    for (const file of Array.from(files)) {
+      if (!file.name.toLowerCase().endsWith('.usdz')) {
+        setStatus(
+          'err',
+          `${file.name}: only .usdz files are supported (see README for .usd conversion).`,
+        );
+        continue;
+      }
+      try {
+        const { object, maxDim } = await loadUsdz(file);
+        // Normalise to a roughly belt-friendly size.
+        const targetSize = 1.0;
+        const initialScale = targetSize / maxDim;
+        const id = crypto.randomUUID();
+        const baseName = file.name.replace(/\.usdz$/i, '');
+        addAsset({
+          id,
+          name: baseName,
+          label: importLabel.trim() || baseName,
+          object,
+          position: [
+            (assets.length + count) * 1.0 - 1.5,
+            0,
+            0,
+          ],
+          rotation: [0, 0, 0],
+          scale: initialScale,
+        });
+        count += 1;
+      } catch (e) {
+        setStatus('err', `${file.name}: ${(e as Error).message}`);
+      }
+    }
+    setStatus('ok', `Imported ${count} asset(s)`);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const onRemoveAsset = (id: string) => {
+    const a = assets.find((x) => x.id === id);
+    if (a) disposeUsdz(a.object);
+    removeAsset(id);
+  };
+
+  const onClearAssets = () => {
+    for (const a of assets) disposeUsdz(a.object);
+    clearAssets();
+  };
 
   const onPickDir = async () => {
     try {
@@ -205,6 +265,142 @@ export function VisionPanel() {
             ))}
           </div>
         )}
+      </div>
+
+      <div className="card">
+        <h3>Import (.usdz) ({assets.length})</h3>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".usdz"
+          multiple
+          onChange={(e) => onImportFiles(e.target.files)}
+          style={{ fontSize: 11 }}
+        />
+        <label className="field">
+          Default label
+          <input
+            value={importLabel}
+            onChange={(e) => setImportLabel(e.target.value)}
+            placeholder="(uses filename if blank)"
+          />
+        </label>
+        {assets.length > 0 && (
+          <>
+            <button onClick={onClearAssets}>Clear all</button>
+            <div
+              style={{
+                maxHeight: 220,
+                overflowY: 'auto',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+              }}
+            >
+              {assets.map((a) => (
+                <div
+                  key={a.id}
+                  style={{
+                    border: '1px solid var(--border)',
+                    borderRadius: 6,
+                    padding: 6,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 4,
+                    fontSize: 11,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <span
+                      style={{
+                        color: 'var(--muted)',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                      title={a.name}
+                    >
+                      {a.name}.usdz
+                    </span>
+                    <button
+                      onClick={() => onRemoveAsset(a.id)}
+                      style={{ padding: '2px 6px' }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <input
+                    value={a.label}
+                    onChange={(e) => updateAsset(a.id, { label: e.target.value })}
+                    placeholder="label"
+                    style={{ padding: '3px 6px' }}
+                  />
+                  <label className="field" style={{ gap: 2 }}>
+                    Scale {a.scale.toFixed(2)}
+                    <input
+                      type="range"
+                      min={0.001}
+                      max={5}
+                      step={0.01}
+                      value={a.scale}
+                      onChange={(e) =>
+                        updateAsset(a.id, { scale: Number(e.target.value) })
+                      }
+                    />
+                  </label>
+                  <div className="row">
+                    {(['X', 'Y', 'Z'] as const).map((axis, i) => (
+                      <label className="field" key={axis} style={{ gap: 2 }}>
+                        {axis}
+                        <input
+                          type="number"
+                          step={0.1}
+                          value={a.position[i]}
+                          onChange={(e) => {
+                            const next = [...a.position] as [number, number, number];
+                            next[i] = Number(e.target.value);
+                            updateAsset(a.id, { position: next });
+                          }}
+                          style={{ padding: '3px 6px' }}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                  <label className="field" style={{ gap: 2 }}>
+                    Yaw {((a.rotation[1] * 180) / Math.PI).toFixed(0)}°
+                    <input
+                      type="range"
+                      min={-Math.PI}
+                      max={Math.PI}
+                      step={0.05}
+                      value={a.rotation[1]}
+                      onChange={(e) =>
+                        updateAsset(a.id, {
+                          rotation: [
+                            a.rotation[0],
+                            Number(e.target.value),
+                            a.rotation[2],
+                          ],
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+        <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+          Drop in <code>.usdz</code> files (zipped USD). For{' '}
+          <code>.usd</code> / <code>.usda</code> / <code>.usdc</code>, convert
+          first via Blender, Omniverse, or <code>usdcat</code> (see README).
+        </div>
       </div>
 
       <div className="card">
