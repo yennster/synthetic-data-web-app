@@ -25,9 +25,16 @@ export function Hud() {
     );
   }
 
+  const modeLabel =
+    mode === 'detection'
+      ? 'object detection'
+      : mode === 'anomaly'
+        ? 'visual anomaly'
+        : mode;
+
   return (
     <div className="hud">
-      <div className="pill">Mode: {mode}</div>
+      <div className="pill">Mode: {modeLabel}</div>
       <div className="pill">Objects: {sceneObjects.length}</div>
       <div className={`pill ${captures.length > 0 ? 'live' : ''}`}>
         Captures: {captures.length}
