@@ -174,7 +174,9 @@ const defaultObject = (kind: ObjectKind, idx: number): SceneObject => ({
   id: crypto.randomUUID(),
   kind,
   label: kind,
-  position: [(idx % 5) * 0.9 - 1.8, 0.5, Math.floor(idx / 5) * -0.9],
+  // Spawn above belt-top + a little headroom so they fall onto whatever
+  // surface is under them (belt or ground) without interpenetrating.
+  position: [(idx % 5) * 0.9 - 1.8, 1.2, Math.floor(idx / 5) * -0.9],
   rotation: [0, Math.random() * Math.PI * 2, 0],
   scale: 1,
   color: ['#f59e0b', '#38bdf8', '#a78bfa', '#34d399', '#f472b6'][idx % 5],

@@ -6,6 +6,7 @@ import {
   BELT_COLLIDER_DEPTH,
   BELT_HEIGHT,
   BELT_LENGTH,
+  BELT_TOP_Y,
   BELT_TRANSPORTABLES,
   BELT_WIDTH,
   isOnBelt,
@@ -13,15 +14,30 @@ import {
 import { useStore } from '../store/useStore';
 
 /**
- * A conveyor belt: a static collider at y=0 with a scrolling striped texture.
- * Bodies registered in `BELT_TRANSPORTABLES` and currently resting on top of
- * the belt are pushed in the belt direction every frame (rapier in our
+ * A conveyor belt: a static collider with a scrolling striped texture and
+ * support legs that stand on the ground (y=0). The belt slab sits at
+ * BELT_TOP_Y so the legs are visible above the floor instead of clipping
+ * through it.
+ *
+ * Bodies registered in `BELT_TRANSPORTABLES` and currently resting on top
+ * of the belt are pushed in the belt direction every frame (rapier in our
  * version doesn't natively support per-collider surface velocity, so we
- * simulate it by overriding the Z component of velocity on contacted bodies).
+ * simulate it by overriding the Z component of velocity on contacted
+ * bodies).
  *
  * Direction: positive `conveyorSpeed` moves objects in +Z and the visual
  * stripes scroll the same way, so the user sees a coherent transport.
  */
+
+// Layout (all in world Y):
+//   ground top:           0
+//   leg bottom:           0
+//   leg top / belt bottom: BELT_TOP_Y - BELT_HEIGHT  = 0.4
+//   belt top:             BELT_TOP_Y                = 0.5
+const BELT_BOTTOM_Y = BELT_TOP_Y - BELT_HEIGHT;
+const LEG_HEIGHT = BELT_BOTTOM_Y;
+const LEG_CENTER_Y = LEG_HEIGHT / 2;
+
 export function Conveyor() {
   const speed = useStore((s) => s.conveyorSpeed);
   const matRef = useRef<THREE.MeshStandardMaterial>(null);
@@ -73,13 +89,17 @@ export function Conveyor() {
     <group position={[0, 0, 0]}>
       {/* Belt surface — collider extends below the visual mesh so objects
           can't tunnel through the thin top slab on fast falls. The top
-          surface still sits at y=BELT_HEIGHT for the on-belt detection. */}
+          surface sits at y=BELT_TOP_Y for the on-belt detection. */}
       <RigidBody type="fixed" colliders={false} friction={0.9} restitution={0.1}>
         <CuboidCollider
           args={[BELT_WIDTH / 2, BELT_COLLIDER_DEPTH / 2, BELT_LENGTH / 2]}
-          position={[0, BELT_HEIGHT - BELT_COLLIDER_DEPTH / 2, 0]}
+          position={[0, BELT_TOP_Y - BELT_COLLIDER_DEPTH / 2, 0]}
         />
-        <mesh position={[0, BELT_HEIGHT / 2, 0]} receiveShadow castShadow>
+        <mesh
+          position={[0, BELT_TOP_Y - BELT_HEIGHT / 2, 0]}
+          receiveShadow
+          castShadow
+        >
           <boxGeometry args={[BELT_WIDTH, BELT_HEIGHT, BELT_LENGTH]} />
           <meshStandardMaterial
             ref={matRef}
@@ -90,11 +110,15 @@ export function Conveyor() {
         </mesh>
       </RigidBody>
 
-      {/* Side rails */}
+      {/* Side rails — sit just above the belt slab on its outer edges. */}
       {[-1, 1].map((side) => (
         <mesh
           key={side}
-          position={[side * (BELT_WIDTH / 2 + 0.06), 0.18, 0]}
+          position={[
+            side * (BELT_WIDTH / 2 + 0.06),
+            BELT_TOP_Y + 0.18,
+            0,
+          ]}
           castShadow
         >
           <boxGeometry args={[0.08, 0.36, BELT_LENGTH]} />
@@ -102,11 +126,15 @@ export function Conveyor() {
         </mesh>
       ))}
 
-      {/* End caps with rollers */}
+      {/* End-cap rollers, centered on the belt's mid-height. */}
       {[-1, 1].map((end) => (
         <mesh
           key={end}
-          position={[0, BELT_HEIGHT / 2, end * (BELT_LENGTH / 2)]}
+          position={[
+            0,
+            BELT_TOP_Y - BELT_HEIGHT / 2,
+            end * (BELT_LENGTH / 2),
+          ]}
           rotation={[0, 0, Math.PI / 2]}
           castShadow
         >
@@ -115,15 +143,16 @@ export function Conveyor() {
         </mesh>
       ))}
 
-      {/* Support legs */}
+      {/* Support legs — bottoms sit on the ground (y=0), tops support the
+          underside of the belt slab at y=BELT_BOTTOM_Y. */}
       {[
         [-BELT_WIDTH / 2 - 0.1, -BELT_LENGTH / 2 + 0.4],
         [BELT_WIDTH / 2 + 0.1, -BELT_LENGTH / 2 + 0.4],
         [-BELT_WIDTH / 2 - 0.1, BELT_LENGTH / 2 - 0.4],
         [BELT_WIDTH / 2 + 0.1, BELT_LENGTH / 2 - 0.4],
       ].map(([x, z], i) => (
-        <mesh key={i} position={[x, -0.4, z]}>
-          <boxGeometry args={[0.06, 0.8, 0.06]} />
+        <mesh key={i} position={[x, LEG_CENTER_Y, z]} castShadow>
+          <boxGeometry args={[0.06, LEG_HEIGHT, 0.06]} />
           <meshStandardMaterial color="#4b5563" roughness={0.5} metalness={0.5} />
         </mesh>
       ))}
