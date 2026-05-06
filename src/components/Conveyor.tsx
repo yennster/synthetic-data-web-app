@@ -143,15 +143,45 @@ export function Conveyor() {
         </mesh>
       ))}
 
-      {/* Support legs — bottoms sit on the ground (y=0), tops support the
-          underside of the belt slab at y=BELT_BOTTOM_Y. */}
+      {/* Frame: cross-beams running the length of the belt under each
+          outer edge, and short crossbars connecting them at each end.
+          This is what the legs actually attach to and what carries the
+          belt's load — much more believable than free-floating legs. */}
+      {[-1, 1].map((side) => (
+        <mesh
+          key={`rail-${side}`}
+          position={[
+            side * (BELT_WIDTH / 2 - 0.04),
+            BELT_BOTTOM_Y - 0.04,
+            0,
+          ]}
+          castShadow
+        >
+          <boxGeometry args={[0.06, 0.08, BELT_LENGTH - 0.2]} />
+          <meshStandardMaterial color="#4b5563" roughness={0.5} metalness={0.5} />
+        </mesh>
+      ))}
+      {[-1, 1].map((end) => (
+        <mesh
+          key={`crossbar-${end}`}
+          position={[0, BELT_BOTTOM_Y - 0.04, end * (BELT_LENGTH / 2 - 0.4)]}
+          castShadow
+        >
+          <boxGeometry args={[BELT_WIDTH - 0.04, 0.06, 0.06]} />
+          <meshStandardMaterial color="#4b5563" roughness={0.5} metalness={0.5} />
+        </mesh>
+      ))}
+
+      {/* Support legs — bottoms sit on the ground (y=0), tops attach to
+          the corners of the frame above. Tucked just inside the belt's
+          XZ footprint so they look attached, not floating. */}
       {[
-        [-BELT_WIDTH / 2 - 0.1, -BELT_LENGTH / 2 + 0.4],
-        [BELT_WIDTH / 2 + 0.1, -BELT_LENGTH / 2 + 0.4],
-        [-BELT_WIDTH / 2 - 0.1, BELT_LENGTH / 2 - 0.4],
-        [BELT_WIDTH / 2 + 0.1, BELT_LENGTH / 2 - 0.4],
+        [-(BELT_WIDTH / 2 - 0.04), -(BELT_LENGTH / 2 - 0.4)],
+        [BELT_WIDTH / 2 - 0.04, -(BELT_LENGTH / 2 - 0.4)],
+        [-(BELT_WIDTH / 2 - 0.04), BELT_LENGTH / 2 - 0.4],
+        [BELT_WIDTH / 2 - 0.04, BELT_LENGTH / 2 - 0.4],
       ].map(([x, z], i) => (
-        <mesh key={i} position={[x, LEG_CENTER_Y, z]} castShadow>
+        <mesh key={`leg-${i}`} position={[x, LEG_CENTER_Y, z]} castShadow>
           <boxGeometry args={[0.06, LEG_HEIGHT, 0.06]} />
           <meshStandardMaterial color="#4b5563" roughness={0.5} metalness={0.5} />
         </mesh>
