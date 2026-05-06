@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { RigidBody, type RapierRigidBody } from '@react-three/rapier';
 import { BELT_TRANSPORTABLES } from '../lib/beltDynamics';
@@ -105,6 +105,10 @@ function VisualAsset({ asset }: { asset: ImportedAsset }) {
 function PhysicsAsset({ asset }: { asset: ImportedAsset }) {
   const bodyRef = useRef<RapierRigidBody>(null);
   const updateAsset = useStore((s) => s.updateAsset);
+  // Same reason as SpawnedMesh: rapier re-applies every mutable prop on
+  // each position change, so we drive the body type declaratively instead
+  // of imperatively (which would get clobbered back to "dynamic" mid-drag).
+  const [isDragging, setIsDragging] = useState(false);
   useLabelTagging(asset);
   useMaterialOverride(asset);
 
@@ -149,23 +153,19 @@ function PhysicsAsset({ asset }: { asset: ImportedAsset }) {
     // Kinematic while held so gravity doesn't yank the asset down between
     // drag samples — same reason as the spawned-object path.
     onDragStart: () => {
+      setIsDragging(true);
       const body = bodyRef.current;
       if (!body) return;
-      body.setBodyType(2 /* KinematicPositionBased */, true);
       body.setLinvel({ x: 0, y: 0, z: 0 }, true);
       body.setAngvel({ x: 0, y: 0, z: 0 }, true);
     },
-    onDragEnd: () => {
-      const body = bodyRef.current;
-      if (!body) return;
-      body.setBodyType(0 /* Dynamic */, true);
-    },
+    onDragEnd: () => setIsDragging(false),
   });
 
   return (
     <RigidBody
       ref={bodyRef}
-      type="dynamic"
+      type={isDragging ? 'kinematicPosition' : 'dynamic'}
       colliders="hull"
       position={asset.position}
       rotation={asset.rotation}
