@@ -25,6 +25,14 @@ export function CameraFeed() {
   const landmarkerRef = useRef<HandLandmarker | null>(null);
   const grabRef = useRef(false);
   const rafRef = useRef<number | null>(null);
+  // When the hand briefly disappears, keep the last grab+target alive for a
+  // grace period so a tiny tracking dropout doesn't make the held object fall.
+  const lastSeenMs = useRef(0);
+  const HAND_LOST_GRACE_MS = 350;
+  // Smoothed scene-space pinch target. We low-pass MediaPipe's noisy output
+  // so the cursor moves steadily instead of jittering, and so brief tracking
+  // dropouts don't snap the target to (null) → cube falls.
+  const smoothedTarget = useRef<[number, number, number] | null>(null);
 
   const setHandDetected = useStore((s) => s.setHandDetected);
   const setPinchStrength = useStore((s) => s.setPinchStrength);
@@ -87,6 +95,7 @@ export function CameraFeed() {
 
           setHandDetected(true);
           setPinchStrength(pinch);
+          lastSeenMs.current = performance.now();
 
           // hysteresis on pinch
           if (!grabRef.current && pinch > PINCH_ON) {
@@ -98,11 +107,26 @@ export function CameraFeed() {
           }
 
           // Mirror x because video is flipped for natural interaction.
-          // Map normalized image coords to scene coords.
-          // Scene x: -3..3, y: -1.5..3.5, z: depth ~ -0.5..1.5
-          const sx = (1 - c.x - 0.5) * 6; // mirrored
-          const sy = (0.5 - c.y) * 5 + 1; // higher = up
-          const sz = -c.z * 8; // mediapipe z (smaller = closer)
+          // Scene mapping:
+          //   x: ±3 across the webcam frame
+          //   y: ground level near c.y=0.85 down to ~3 high near c.y=0.05
+          //      so a small downward motion of the hand actually reaches the
+          //      cube on the ground (was much harder before with the previous
+          //      mapping that maxed out at y=1)
+          //   z: small range around 0; MediaPipe's z is noisy so we keep the
+          //      multiplier modest and clamp.
+          const rawX = (1 - c.x - 0.5) * 6;
+          const rawY = (0.85 - c.y) * 5;
+          const rawZ = Math.max(-1.5, Math.min(1.5, -c.z * 4));
+
+          // Exponential smoothing — heavier on Z (noisiest) than X/Y.
+          const A_XY = 0.35;
+          const A_Z = 0.18;
+          const prev = smoothedTarget.current;
+          const sx = prev ? prev[0] + (rawX - prev[0]) * A_XY : rawX;
+          const sy = prev ? prev[1] + (rawY - prev[1]) * A_XY : rawY;
+          const sz = prev ? prev[2] + (rawZ - prev[2]) * A_Z : rawZ;
+          smoothedTarget.current = [sx, sy, sz];
           setPinchTarget([sx, sy, sz]);
 
           // Draw skeleton
@@ -135,13 +159,22 @@ export function CameraFeed() {
           );
           ctx.stroke();
         } else {
+          // Hand not detected this frame. If we just lost it (within the
+          // grace window), keep the held object frozen at its last target
+          // instead of releasing — small dropouts shouldn't drop the cube.
           setHandDetected(false);
-          setPinchStrength(0);
-          if (grabRef.current) {
-            grabRef.current = false;
-            setGrabbed(false);
+          const sinceSeen = performance.now() - lastSeenMs.current;
+          if (sinceSeen > HAND_LOST_GRACE_MS) {
+            setPinchStrength(0);
+            if (grabRef.current) {
+              grabRef.current = false;
+              setGrabbed(false);
+            }
+            setPinchTarget(null);
+            smoothedTarget.current = null;
           }
-          setPinchTarget(null);
+          // else: leave isGrabbed and pinchTarget intact; physics body keeps
+          // following the last smoothed target.
         }
       };
 

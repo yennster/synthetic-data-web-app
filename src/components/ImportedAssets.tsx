@@ -18,11 +18,58 @@ function useLabelTagging(asset: ImportedAsset) {
   }, [asset.label, asset.id, asset.object]);
 }
 
+/**
+ * Apply / unapply the user's material override. When `overrideMaterial` is
+ * on, every mesh in the asset gets its material replaced with a plain
+ * MeshStandardMaterial of the override color. When toggled off, we restore
+ * the original materials. Used to rescue Omniverse USDZ exports whose MDL
+ * materials don't translate to three.js (they render as flat magenta).
+ */
+function useMaterialOverride(asset: ImportedAsset) {
+  // Cache the original material per mesh so we can restore on toggle off.
+  const originalMats = useRef(new WeakMap<THREE.Mesh, THREE.Material | THREE.Material[]>());
+
+  useEffect(() => {
+    const overrideMat = new THREE.MeshStandardMaterial({
+      color: asset.overrideColor,
+      roughness: asset.overrideRoughness,
+      metalness: asset.overrideMetalness,
+    });
+
+    asset.object.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      if (asset.overrideMaterial) {
+        if (!originalMats.current.has(mesh)) {
+          originalMats.current.set(mesh, mesh.material);
+        }
+        mesh.material = overrideMat;
+      } else {
+        const orig = originalMats.current.get(mesh);
+        if (orig) mesh.material = orig;
+      }
+    });
+
+    return () => {
+      // Don't dispose `overrideMat` here — Three.js still references it on
+      // meshes that haven't been swapped back. Vite HMR / unmount handles
+      // cleanup via disposeUsdz when the asset is removed.
+    };
+  }, [
+    asset.object,
+    asset.overrideMaterial,
+    asset.overrideColor,
+    asset.overrideRoughness,
+    asset.overrideMetalness,
+  ]);
+}
+
 /** Visual-only path: transforms applied via parent group. */
 function VisualAsset({ asset }: { asset: ImportedAsset }) {
   const groupRef = useRef<THREE.Group>(null);
   const updateAsset = useStore((s) => s.updateAsset);
   useLabelTagging(asset);
+  useMaterialOverride(asset);
   useEffect(() => {
     if (groupRef.current) {
       groupRef.current.userData.label = asset.label;
@@ -59,6 +106,7 @@ function PhysicsAsset({ asset }: { asset: ImportedAsset }) {
   const bodyRef = useRef<RapierRigidBody>(null);
   const updateAsset = useStore((s) => s.updateAsset);
   useLabelTagging(asset);
+  useMaterialOverride(asset);
 
   // Register with the belt transport set
   useEffect(() => {

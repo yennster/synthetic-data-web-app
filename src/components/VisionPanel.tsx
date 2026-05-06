@@ -100,6 +100,10 @@ export function VisionPanel() {
           rotation: [0, 0, 0],
           scale: initialScale,
           physics: false,
+          overrideMaterial: false,
+          overrideColor: '#a78bfa',
+          overrideRoughness: 0.5,
+          overrideMetalness: 0.1,
         });
         count += 1;
       } catch (e) {
@@ -423,6 +427,68 @@ export function VisionPanel() {
                       Physics (falls, collides, rides belt)
                     </span>
                   </label>
+                  <label
+                    className="field"
+                    style={{
+                      gap: 2,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={a.overrideMaterial}
+                      onChange={(e) =>
+                        updateAsset(a.id, { overrideMaterial: e.target.checked })
+                      }
+                      style={{ width: 'auto', flex: 'none' }}
+                    />
+                    <span style={{ flex: 1, textTransform: 'none', letterSpacing: 0 }}>
+                      Override material (use if it&apos;s pink)
+                    </span>
+                  </label>
+                  {a.overrideMaterial && (
+                    <div className="row" style={{ alignItems: 'center', gap: 6 }}>
+                      <input
+                        type="color"
+                        value={a.overrideColor}
+                        onChange={(e) =>
+                          updateAsset(a.id, { overrideColor: e.target.value })
+                        }
+                        style={{ flex: 'none', width: 32, height: 28, padding: 0 }}
+                      />
+                      <label className="field" style={{ gap: 0, flex: 1 }}>
+                        Rough
+                        <input
+                          type="range"
+                          min={0}
+                          max={1}
+                          step={0.05}
+                          value={a.overrideRoughness}
+                          onChange={(e) =>
+                            updateAsset(a.id, {
+                              overrideRoughness: Number(e.target.value),
+                            })
+                          }
+                        />
+                      </label>
+                      <label className="field" style={{ gap: 0, flex: 1 }}>
+                        Metal
+                        <input
+                          type="range"
+                          min={0}
+                          max={1}
+                          step={0.05}
+                          value={a.overrideMetalness}
+                          onChange={(e) =>
+                            updateAsset(a.id, {
+                              overrideMetalness: Number(e.target.value),
+                            })
+                          }
+                        />
+                      </label>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

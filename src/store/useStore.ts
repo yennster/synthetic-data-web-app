@@ -25,6 +25,14 @@ export type ImportedAsset = {
    * so it falls under gravity, collides with other bodies, and is carried by
    * the conveyor. Toggling remounts the body. */
   physics: boolean;
+  /** When true, replace all materials on the imported geometry with a plain
+   * MeshStandardMaterial of `overrideColor`. Useful when a USDZ from
+   * Omniverse arrives with MDL materials (which can't be translated to
+   * three.js) and would otherwise render as flat magenta. */
+  overrideMaterial: boolean;
+  overrideColor: string;
+  overrideRoughness: number;
+  overrideMetalness: number;
 };
 
 // A spawned object in the scene, used in detection / anomaly modes.

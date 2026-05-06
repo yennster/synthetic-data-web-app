@@ -124,6 +124,9 @@ function ManipulatedObject() {
       position={[0, 2, 0]}
       linearDamping={0.05}
       angularDamping={0.1}
+      // Continuous collision detection so a fast release / lost-hand drop
+      // doesn't tunnel through the thin ground plane.
+      ccd
     >
       <ManipulatedMesh kind={objectKind} meshRef={meshRef} />
     </RigidBody>
@@ -184,9 +187,12 @@ function ManipulatedMesh({
 }
 
 function Ground({ visible = true }: { visible?: boolean }) {
+  // Visual ground stays thin (0.1) so the surface is visually flush with y=0,
+  // but the collider is much thicker (extends 1m down) so fast-falling objects
+  // can never tunnel through it even without CCD.
   return (
     <RigidBody type="fixed" colliders={false} friction={0.8} restitution={0.3}>
-      <CuboidCollider args={[20, 0.05, 20]} position={[0, -0.05, 0]} />
+      <CuboidCollider args={[20, 0.5, 20]} position={[0, -0.5, 0]} />
       {visible && (
         <mesh position={[0, -0.05, 0]} receiveShadow>
           <boxGeometry args={[40, 0.1, 40]} />

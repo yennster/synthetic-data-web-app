@@ -221,6 +221,20 @@ Or in Blender: **File → Export → Universal Scene Description (.usd)**, then 
 
 Or via NVIDIA Omniverse: **File → Save As → .usdz**.
 
+### Asset shows up flat magenta / pink
+
+That's three.js's "no material bound" placeholder. The most common cause is **Omniverse MDL materials**: if the asset was authored in Omniverse and exported with its native MDL material network, the OpenUSD WASM runtime in the browser can't translate those materials into three.js's PBR pipeline and falls back to magenta.
+
+Fixes, in order of effort:
+
+1. **Tick "Override material" on the asset row.** This swaps every mesh in the imported subtree to a plain MeshStandardMaterial with a color/roughness/metalness you choose. You lose the original textures but the geometry is usable (and the bounding-box projection still works).
+2. **Re-export from Omniverse using USD Preview Surface materials** instead of MDL. In Omniverse, this usually means converting MDL → UsdPreviewSurface before saving, or selecting "USD Preview Surface" as the export shader.
+3. **In Blender**, just re-import the USD and re-export — Blender's USD exporter writes UsdPreviewSurface materials by default, which the WASM loader handles.
+
+### Texture missing entirely
+
+`usdzip` zips a `.usd` / `.usda` file together with referenced textures into a `.usdz`. If the original USD references a texture by **absolute path** or by a path that doesn't exist on disk at zip time, the texture won't be in the archive. Check by unzipping the `.usdz` (it's a regular zip): `unzip -l my_scene.usdz`. Re-export with relative texture paths or use the Override material toggle.
+
 ### Cross-origin isolation requirement
 
 The OpenUSD WASM uses `SharedArrayBuffer`, which requires the page to be served with **cross-origin isolation** headers:
