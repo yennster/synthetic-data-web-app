@@ -169,4 +169,4 @@ The output in `dist/` is a static bundle — host on any static host (Netlify, V
 
 ## License
 
-MIT (or whatever you want — this is your project).
+MIT
