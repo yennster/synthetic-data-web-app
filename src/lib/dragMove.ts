@@ -7,20 +7,31 @@ import * as THREE from 'three';
  * Build pointer-event handlers for moving objects in 3D with the mouse.
  *
  * Modifier matrix:
- *   Shift + drag             → camera-aligned plane (full XYZ via orbit)
- *   Shift + Alt + drag       → depth mode: cursor's vertical motion pushes
- *                              the object along the camera's gaze
- *                              direction. Cursor up = closer to viewer,
- *                              cursor down = farther. Press/release Alt
- *                              freely mid-drag — the gesture re-anchors so
- *                              there's no snap.
- *   Shift + drag + wheel     → push/pull along camera gaze (mouse-only
- *                              shortcut for the same depth motion)
+ *   Shift + drag                            → camera-aligned plane
+ *                                             (full XYZ via orbit)
+ *   Shift + (Alt|Option|Ctrl|Cmd) + drag    → depth mode: cursor's vertical
+ *                                             motion pushes the object along
+ *                                             the camera's gaze. Cursor up =
+ *                                             closer, cursor down = farther.
+ *                                             Press/release the modifier
+ *                                             freely mid-drag — the gesture
+ *                                             re-anchors so there's no snap.
+ *   Shift + drag + wheel                    → push/pull along camera gaze
+ *                                             (mouse-only shortcut)
  *
- * Plane intersection: at drag-start we drop a plane through the object that's
- * perpendicular to the camera's gaze direction. The pointer ray is intersected
- * with that plane each move, giving a 3D world point that tracks under the
- * cursor.
+ * Mac note: Alt and Option are the same physical key. We also accept Ctrl
+ * and Cmd as depth modifiers so it doesn't matter which one the user
+ * reaches for first.
+ *
+ * Plane intersection: at drag-start we drop a plane through the object
+ * that's perpendicular to the camera's gaze direction. The pointer ray is
+ * intersected with that plane each move, giving a 3D world point that
+ * tracks under the cursor.
+ *
+ * Components with physics bodies should pass onDragStart/onDragEnd to flip
+ * the body to kinematic during the drag, otherwise gravity integrates
+ * between pointer samples and the object visibly drops between cursor
+ * updates.
  *
  * Without the Shift modifier, OrbitControls keeps working as normal.
  */
@@ -37,12 +48,18 @@ export function useDragMove(opts: {
   setPosition: (p: [number, number, number]) => void;
   /** When true, the modifier is active and dragging is allowed. */
   enabled?: boolean;
+  /** Called once when a drag actually starts (after modifier check). Components
+   * with physics bodies use this to switch the body to kinematic so gravity
+   * doesn't pull it down between drag samples. */
+  onDragStart?: () => void;
+  /** Called once when the drag releases. */
+  onDragEnd?: () => void;
 }): {
   onPointerDown: (e: ThreeEvent<PointerEvent>) => void;
   onPointerMove: (e: ThreeEvent<PointerEvent>) => void;
   onPointerUp: (e: ThreeEvent<PointerEvent>) => void;
 } {
-  const { getPosition, setPosition, enabled = true } = opts;
+  const { getPosition, setPosition, enabled = true, onDragStart, onDragEnd } = opts;
   const dragging = useRef(false);
   const planeNormal = useRef(new THREE.Vector3());
   const planePoint = useRef(new THREE.Vector3());
@@ -87,6 +104,7 @@ export function useDragMove(opts: {
 
     dragging.current = true;
     if (controls) (controls as unknown as { enabled: boolean }).enabled = false;
+    onDragStart?.();
 
     // Pointer capture so cursor motion is delivered even if the cursor
     // leaves the mesh's bounds.
@@ -135,7 +153,10 @@ export function useDragMove(opts: {
   const onPointerMove = (e: ThreeEvent<PointerEvent>) => {
     if (!dragging.current) return;
     e.stopPropagation();
-    const altNow = e.altKey;
+    // Treat Alt/Option, Ctrl, and Cmd all as the depth modifier so Mac
+    // users have a working key regardless of which they reach for.
+    // Windows/Linux users keep Alt as before.
+    const altNow = e.altKey || e.ctrlKey || e.metaKey;
     const cy = e.nativeEvent.clientY;
 
     // --- mode transitions ---
@@ -193,6 +214,7 @@ export function useDragMove(opts: {
     dragging.current = false;
     altActive.current = false;
     if (controls) (controls as unknown as { enabled: boolean }).enabled = true;
+    onDragEnd?.();
 
     if (wheelHandlerRef.current) {
       window.removeEventListener('wheel', wheelHandlerRef.current);

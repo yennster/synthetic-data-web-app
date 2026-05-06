@@ -65,6 +65,21 @@ function SpawnedMesh({ obj }: { obj: SceneObject }) {
       return [t.x, t.y, t.z];
     },
     setPosition: (p) => updateSceneObject(obj.id, { position: p }),
+    // Switch the body to kinematic while held so gravity doesn't pull it
+    // down between drag samples. Back to dynamic on release so it falls
+    // / collides / rides the belt normally.
+    onDragStart: () => {
+      const body = bodyRef.current;
+      if (!body) return;
+      body.setBodyType(2 /* KinematicPositionBased */, true);
+      body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    },
+    onDragEnd: () => {
+      const body = bodyRef.current;
+      if (!body) return;
+      body.setBodyType(0 /* Dynamic */, true);
+    },
   });
 
   return (

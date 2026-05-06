@@ -42,9 +42,9 @@ export function Hud() {
       <div
         className="pill"
         style={{ background: 'rgba(20,24,29,0.6)', fontSize: 10 }}
-        title="Shift+drag = camera-aligned plane. Press/release Alt mid-drag to switch into depth mode — vertical cursor motion brings the object closer (up) or farther (down). Mouse wheel during drag does the same depth motion."
+        title="Shift+drag = camera-aligned plane. Press/release Alt/Option/Ctrl/Cmd mid-drag to switch into depth mode — vertical cursor motion brings the object closer (up) or farther (down). Mouse wheel during drag does the same depth motion."
       >
-        Tip: Shift+drag · Add Alt to push/pull
+        Tip: Shift+drag · Hold Alt/Option/Ctrl for depth
       </div>
     </div>
   );
