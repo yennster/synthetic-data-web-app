@@ -1,5 +1,5 @@
 import { RigidBody, type RapierRigidBody } from '@react-three/rapier';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { BELT_TRANSPORTABLES } from '../lib/beltDynamics';
 import { useDragMove } from '../lib/dragMove';
 import { useStore, type ObjectKind, type SceneObject } from '../store/useStore';
@@ -28,6 +28,12 @@ function SpawnedMesh({ obj }: { obj: SceneObject }) {
   const bodyRef = useRef<RapierRigidBody>(null);
   const updateSceneObject = useStore((s) => s.updateSceneObject);
   const isInitialMount = useRef(true);
+  // Drive the rapier body type via React state so @react-three/rapier's
+  // useUpdateRigidBodyOptions effect — which fires on every position change
+  // and re-applies *all* mutable props — keeps the body kinematic while
+  // dragging instead of clobbering an imperative setBodyType call back to
+  // dynamic on the next pointer move.
+  const [isDragging, setIsDragging] = useState(false);
 
   // Register with the belt-dynamics registry so the conveyor can transport us.
   useEffect(() => {
@@ -66,26 +72,22 @@ function SpawnedMesh({ obj }: { obj: SceneObject }) {
     },
     setPosition: (p) => updateSceneObject(obj.id, { position: p }),
     // Switch the body to kinematic while held so gravity doesn't pull it
-    // down between drag samples. Back to dynamic on release so it falls
-    // / collides / rides the belt normally.
+    // down between drag samples. Back to dynamic on release so it falls /
+    // collides / rides the belt normally.
     onDragStart: () => {
+      setIsDragging(true);
       const body = bodyRef.current;
       if (!body) return;
-      body.setBodyType(2 /* KinematicPositionBased */, true);
       body.setLinvel({ x: 0, y: 0, z: 0 }, true);
       body.setAngvel({ x: 0, y: 0, z: 0 }, true);
     },
-    onDragEnd: () => {
-      const body = bodyRef.current;
-      if (!body) return;
-      body.setBodyType(0 /* Dynamic */, true);
-    },
+    onDragEnd: () => setIsDragging(false),
   });
 
   return (
     <RigidBody
       ref={bodyRef}
-      type="dynamic"
+      type={isDragging ? 'kinematicPosition' : 'dynamic'}
       colliders="hull"
       position={obj.position}
       rotation={obj.rotation}
