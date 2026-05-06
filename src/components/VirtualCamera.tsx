@@ -14,7 +14,21 @@ import { captureFrame, makeFilename, saveBlob } from '../lib/capture';
  *
  * It also draws a frustum gizmo into the main scene so the user can see and
  * orbit around the capture viewpoint.
+ *
+ * Live preview implementation:
+ *   - We render the scene from the virtual camera into a WebGLRenderTarget
+ *     sized to match the preview canvas — this isolates the preview from
+ *     the main canvas, which keeps the orbit view clean and avoids
+ *     aspect-ratio / downscaling artifacts.
+ *   - We hide the CameraHelper for that render pass, otherwise its frustum
+ *     lines (rendered with depthTest off) emanate from the eye and produce
+ *     a crisscross overlay on the preview.
+ *   - We throttle to ~15 Hz; full 60 Hz preview costs extra GPU work and a
+ *     readback per frame for no perceptible benefit.
  */
+const PREVIEW_HZ = 15;
+const PREVIEW_INTERVAL_MS = 1000 / PREVIEW_HZ;
+
 export function VirtualCamera({
   previewCanvas,
 }: {
@@ -38,6 +52,25 @@ export function VirtualCamera({
     return c;
   }, []);
 
+  // Off-screen render target for the live preview. Size adapts when the
+  // preview canvas size or capture aspect changes.
+  const previewTarget = useMemo(() => {
+    const t = new THREE.WebGLRenderTarget(1, 1, {
+      type: THREE.UnsignedByteType,
+      colorSpace: THREE.SRGBColorSpace,
+    });
+    return t;
+  }, []);
+  // Pixel buffer for readback — reused across frames.
+  const pixelBuf = useRef<Uint8Array | null>(null);
+  const lastPreviewMs = useRef(0);
+
+  useEffect(() => {
+    return () => {
+      previewTarget.dispose();
+    };
+  }, [previewTarget]);
+
   useEffect(() => {
     const helper = new THREE.CameraHelper(camera);
     const mats = Array.isArray(helper.material) ? helper.material : [helper.material];
@@ -51,7 +84,8 @@ export function VirtualCamera({
     };
   }, [camera, scene]);
 
-  // Apply settings
+  // Per-frame: keep camera + helper synced to settings, and refresh the
+  // preview at PREVIEW_HZ.
   useFrame(() => {
     const cam = camera;
     cam.position.set(...cameraSettings.camPos);
@@ -61,31 +95,63 @@ export function VirtualCamera({
     cam.updateProjectionMatrix();
     helperRef.current?.update();
 
-    // Live preview render into the small overlay canvas. We re-use the main
-    // renderer but render to its dom canvas first; the overlay is updated by
-    // copying over via 2D context for speed.
-    if (previewCanvas) {
-      const ctx = previewCanvas.getContext('2d');
-      if (ctx) {
-        // Render the scene from the virtual camera into the main GL canvas,
-        // copy to preview, then the main render() call from r3f will overwrite
-        // it with the user's orbit camera view in the next frame. This is OK
-        // because r3f renders after our useFrame.
-        const prevAutoClear = gl.autoClear;
-        gl.autoClear = true;
-        gl.render(scene, cam);
-        ctx.imageSmoothingEnabled = true;
-        ctx.drawImage(
-          gl.domElement,
-          0,
-          0,
-          previewCanvas.width,
-          previewCanvas.height,
-        );
-        gl.autoClear = prevAutoClear;
-      }
-    }
+    if (!previewCanvas) return;
+    const now = performance.now();
+    if (now - lastPreviewMs.current < PREVIEW_INTERVAL_MS) return;
+    lastPreviewMs.current = now;
+
+    renderPreview();
   });
+
+  function renderPreview() {
+    if (!previewCanvas) return;
+    const ctx = previewCanvas.getContext('2d');
+    if (!ctx) return;
+
+    // Match the render target's size to the preview canvas (in CSS pixels).
+    const w = previewCanvas.width;
+    const h = previewCanvas.height;
+    if (previewTarget.width !== w || previewTarget.height !== h) {
+      previewTarget.setSize(w, h);
+      pixelBuf.current = null;
+    }
+    if (!pixelBuf.current || pixelBuf.current.length !== w * h * 4) {
+      pixelBuf.current = new Uint8Array(w * h * 4);
+    }
+
+    // Render the scene with the helper hidden so its frustum lines don't
+    // crisscross the preview.
+    const helper = helperRef.current;
+    const helperWasVisible = helper?.visible ?? true;
+    if (helper) helper.visible = false;
+
+    const prevTarget = gl.getRenderTarget();
+    gl.setRenderTarget(previewTarget);
+    gl.clear();
+    gl.render(scene, camera);
+    gl.setRenderTarget(prevTarget);
+
+    if (helper) helper.visible = helperWasVisible;
+
+    // Read back into a CPU buffer and blit to the 2D preview canvas.
+    // WebGL textures are origin bottom-left, so we flip vertically when
+    // putting into the canvas.
+    const buf = pixelBuf.current;
+    gl.readRenderTargetPixels(previewTarget, 0, 0, w, h, buf);
+
+    const img = ctx.createImageData(w, h);
+    // Flip rows: source row y → dest row (h-1-y)
+    const rowBytes = w * 4;
+    for (let y = 0; y < h; y++) {
+      const srcStart = y * rowBytes;
+      const dstStart = (h - 1 - y) * rowBytes;
+      img.data.set(
+        buf.subarray(srcStart, srcStart + rowBytes),
+        dstStart,
+      );
+    }
+    ctx.putImageData(img, 0, 0);
+  }
 
   // Single-shot capture
   useEffect(() => {
@@ -106,6 +172,12 @@ export function VirtualCamera({
     setStatus('busy', 'Capturing…');
     try {
       const { width, height } = cameraSettings;
+      // Hide helper for the capture too, so the frustum gizmo isn't burned
+      // into the saved PNG.
+      const helper = helperRef.current;
+      const helperWasVisible = helper?.visible ?? true;
+      if (helper) helper.visible = false;
+
       const { blob, boxes } = await captureFrame({
         renderer: gl as THREE.WebGLRenderer,
         scene,
@@ -113,6 +185,8 @@ export function VirtualCamera({
         width,
         height,
       });
+
+      if (helper) helper.visible = helperWasVisible;
 
       const idx = useStore.getState().captures.length;
       const labelPrefix =
