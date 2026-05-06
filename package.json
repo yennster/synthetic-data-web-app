@@ -1,6 +1,6 @@
 {
   "name": "@yennster/synthetic-data-web-app",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "type": "module",
   "description": "Browser-based 3D synthetic-data studio for Edge Impulse — accelerometer, object detection, and visual anomaly modes with hand tracking, USDZ import, conveyor physics, and direct ingestion-API upload.",
   "license": "MIT",
@@ -46,6 +46,9 @@
     "preview": "vite preview",
     "start": "node bin/serve.mjs",
     "screenshot": "node scripts/screenshot.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "postinstall": "node scripts/setup-usdz-wasm.mjs",
     "prepublishOnly": "npm run build"
   },
@@ -65,9 +68,12 @@
     "@types/react-dom": "^18.3.1",
     "@types/three": "^0.169.0",
     "@vitejs/plugin-react": "^4.3.3",
+    "@vitest/coverage-v8": "^4.1.5",
+    "happy-dom": "^20.9.0",
     "puppeteer-core": "^24.43.0",
     "typescript": "^5.6.3",
-    "vite": "^5.4.10"
+    "vite": "^5.4.10",
+    "vitest": "^4.1.5"
   },
   "engines": {
     "node": ">=18"

@@ -1,0 +1,36 @@
+name: test
+
+# Runs on every push and PR. Fast (npm ci + vitest run, ~30s on a cold
+# runner) so it's cheap to gate merges on. The release.yml workflow runs
+# separately on tag pushes and reuses the same lockfile, so green tests
+# here are an early signal before cutting a release.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          NPM_CONFIG_LEGACY_PEER_DEPS: 'true'
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Test
+        run: npm test

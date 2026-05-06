@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
@@ -20,5 +21,21 @@ export default defineConfig({
   },
   resolve: {
     dedupe: ['three'],
+  },
+  test: {
+    // happy-dom is faster than jsdom and covers everything we need (DOM,
+    // crypto.subtle is delegated to Node's WebCrypto). Tests that don't
+    // touch the DOM still benefit from a stable global env.
+    environment: 'happy-dom',
+    globals: true,
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+    // The OpenUSD WASM loader reads three-usdz-loader/external/ at runtime
+    // and the MediaPipe SDK touches the DOM aggressively. Both fail in
+    // tests because we're not wiring up their assets — exclude them.
+    server: {
+      deps: {
+        external: ['@mediapipe/tasks-vision', 'three-usdz-loader'],
+      },
+    },
   },
 });

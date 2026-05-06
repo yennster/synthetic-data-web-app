@@ -1,0 +1,40 @@
+// Pure math used by hand tracking — no MediaPipe runtime imports, so this
+// module is safe to test in a Node environment. The MediaPipe-dependent
+// loader lives in handTracking.ts and re-exports these helpers.
+
+/** Minimal landmark shape: just what the math needs. MediaPipe's
+ * NormalizedLandmark is a superset. */
+export type Landmark = { x: number; y: number; z?: number };
+
+/**
+ * Pinch strength based on thumb-tip (4) vs index-tip (8) distance, normalized
+ * by hand size (wrist 0 to middle MCP 9). 0 = open hand, 1 = closed pinch.
+ */
+export function computePinchStrength(lm: readonly Landmark[]): number {
+  const t = lm[4];
+  const i = lm[8];
+  const w = lm[0];
+  const mcp = lm[9];
+  const dist = Math.hypot(t.x - i.x, t.y - i.y, (t.z ?? 0) - (i.z ?? 0));
+  const handSize =
+    Math.hypot(w.x - mcp.x, w.y - mcp.y, (w.z ?? 0) - (mcp.z ?? 0)) || 0.1;
+  const ratio = dist / handSize; // ~1.0 = open, ~0.2 = pinched
+  // Map: ratio 0.15 -> 1.0 (closed), 0.6 -> 0.0 (open)
+  const v = 1 - (ratio - 0.15) / 0.45;
+  return Math.max(0, Math.min(1, v));
+}
+
+/** Midpoint of the thumb tip (4) and index tip (8). */
+export function pinchCentroid(lm: readonly Landmark[]): {
+  x: number;
+  y: number;
+  z: number;
+} {
+  const t = lm[4];
+  const i = lm[8];
+  return {
+    x: (t.x + i.x) / 2,
+    y: (t.y + i.y) / 2,
+    z: ((t.z ?? 0) + (i.z ?? 0)) / 2,
+  };
+}

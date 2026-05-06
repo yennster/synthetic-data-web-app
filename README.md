@@ -1,6 +1,7 @@
 # Synthetic Data Studio
 
 [![Release](https://img.shields.io/github/v/release/yennster/synthetic-data-web-app?label=release&color=5eead4)](https://github.com/yennster/synthetic-data-web-app/releases)
+[![Tests](https://img.shields.io/github/actions/workflow/status/yennster/synthetic-data-web-app/test.yml?label=tests&logo=vitest&logoColor=fff)](https://github.com/yennster/synthetic-data-web-app/actions/workflows/test.yml)
 [![CI](https://img.shields.io/github/actions/workflow/status/yennster/synthetic-data-web-app/release.yml?label=release%20pipeline)](https://github.com/yennster/synthetic-data-web-app/actions/workflows/release.yml)
 [![License: MIT](https://img.shields.io/github/license/yennster/synthetic-data-web-app?color=blue)](LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/yennster/synthetic-data-web-app?style=flat&color=f59e0b)](https://github.com/yennster/synthetic-data-web-app/stargazers)
@@ -348,6 +349,18 @@ Result: tight axis-aligned 2D boxes in pixel coordinates with top-left origin �
 **Edge Impulse 401 / 403** — API key missing or invalid. Double-check **Dashboard → Keys** in your project.
 
 **Edge Impulse "invalid signature"** (motion only) — Either fill in the HMAC key from your project, or leave it blank to send unsigned (`alg: "none"`).
+
+## Testing
+
+```bash
+npm test               # one-shot run (CI mode)
+npm run test:watch     # interactive watch mode
+npm run test:coverage  # with v8 coverage report
+```
+
+Stack: **Vitest** + **happy-dom** for the DOM-touching tests. Pure-logic libraries (`handMath`, `beltDynamics`, `capture` helpers, `edgeImpulse` payload + HMAC, store transitions) are covered. The MediaPipe / OpenUSD / Rapier wrappers are stubbed in test config since they're browser-runtime-only — those are exercised in the headless screenshot script and end-to-end manual testing.
+
+A GitHub Actions workflow ([`.github/workflows/test.yml`](.github/workflows/test.yml)) runs `tsc --noEmit` + `npm test` on every push to `main` and every PR.
 
 ## Build for production
 
