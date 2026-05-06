@@ -178,10 +178,10 @@ export function VisionPanel() {
         </label>
         {showConveyor && (
           <label className="field">
-            Belt speed
+            Belt speed {conveyorSpeed.toFixed(2)} m/s
             <input
               type="range"
-              min={0}
+              min={-2}
               max={2}
               step={0.05}
               value={conveyorSpeed}

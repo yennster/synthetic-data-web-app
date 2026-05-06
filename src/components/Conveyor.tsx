@@ -2,18 +2,24 @@ import { RigidBody, CuboidCollider } from '@react-three/rapier';
 import { useFrame } from '@react-three/fiber';
 import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
+import {
+  BELT_HEIGHT,
+  BELT_LENGTH,
+  BELT_TRANSPORTABLES,
+  BELT_WIDTH,
+  isOnBelt,
+} from '../lib/beltDynamics';
 import { useStore } from '../store/useStore';
 
-const BELT_LENGTH = 8;
-const BELT_WIDTH = 1.6;
-const BELT_HEIGHT = 0.1;
-
 /**
- * A simple conveyor belt: a static collider at y=0 with a scrolling striped
- * texture, flanked by two side rails. The belt doesn't actually transport
- * dynamic bodies (that would need surface velocity from the physics engine);
- * it's a visual prop for object-detection scenes. Motion-mode users won't
- * see it.
+ * A conveyor belt: a static collider at y=0 with a scrolling striped texture.
+ * Bodies registered in `BELT_TRANSPORTABLES` and currently resting on top of
+ * the belt are pushed in the belt direction every frame (rapier in our
+ * version doesn't natively support per-collider surface velocity, so we
+ * simulate it by overriding the Z component of velocity on contacted bodies).
+ *
+ * Direction: positive `conveyorSpeed` moves objects in +Z and the visual
+ * stripes scroll the same way, so the user sees a coherent transport.
  */
 export function Conveyor() {
   const speed = useStore((s) => s.conveyorSpeed);
@@ -42,7 +48,24 @@ export function Conveyor() {
   }, []);
 
   useFrame((_, dt) => {
-    texture.offset.y -= speed * dt;
+    // Visual scroll. Three.js box top-face V-axis is along -Z, so to make
+    // stripes visually flow in +Z we *increase* offset.y as speed > 0.
+    texture.offset.y += speed * dt;
+
+    // Transport bodies that are on top of the belt.
+    if (Math.abs(speed) < 1e-4) return;
+    for (const body of BELT_TRANSPORTABLES) {
+      const t = body.translation();
+      if (!isOnBelt(t)) continue;
+      const lv = body.linvel();
+      // Override Z velocity to match the belt speed. Damp X velocity so things
+      // don't skitter sideways forever; leave Y alone so gravity / bouncing
+      // still works naturally.
+      body.setLinvel(
+        { x: lv.x * 0.4, y: lv.y, z: speed },
+        true,
+      );
+    }
   });
 
   return (

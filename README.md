@@ -35,7 +35,7 @@ Created with Claude Code.
 ### Object detection / Visual anomaly mode
 - **Multi-object spawning** — add any number of objects to the scene with custom labels and colors. Objects fall under physics onto the ground or conveyor.
 - **USDZ asset import** — drop in `.usdz` files (Pixar Universal Scene Description). Powered by a WASM build of OpenUSD, supporting both ASCII (`.usda`) and binary Crate (`.usdc`) payloads. Each imported asset gets per-instance scale / position / yaw / label controls. Bounding boxes are computed for the whole asset, not per child mesh.
-- **Conveyor belt prop** — animated scrolling belt with rails, end rollers, and supports. Speed-tunable. Acts as a static collider.
+- **Conveyor belt prop** — animated scrolling belt with rails, end rollers, and supports. **Actually transports spawned objects** along its length — drop a cube on it and it rides off the end. Speed-tunable from −2 m/s to +2 m/s (negative reverses direction).
 - **Virtual capture camera** — fully positionable (XYZ + target + FOV), with a frustum gizmo drawn into the scene so you can orbit around and see exactly what it sees.
 - **Live capture preview** in the corner overlay.
 - **Single-shot capture** — one button, one image saved.
@@ -169,6 +169,7 @@ src/
 ├── lib/
 │   ├── handTracking.ts           // HandLandmarker + pinch math
 │   ├── usdz.ts                   // OpenUSD WASM loader wrapper, dispose helper
+│   ├── beltDynamics.ts           // Shared belt geometry + transportable-bodies set
 │   ├── capture.ts                // Off-screen render, bbox projection, FS Access
 │   └── edgeImpulse.ts            // Ingestion API: motion + image+bbox uploads
 └── store/
@@ -246,7 +247,8 @@ Result: tight axis-aligned 2D boxes in pixel coordinates with top-left origin �
 | Capture resolution | UI | 640 × 480 |
 | Camera-jitter radius (batch) | `VirtualCamera.tsx` `r` | 0.6 m |
 | Light-intensity jitter range | `VirtualCamera.tsx` | ±0.8 |
-| Conveyor belt size | `Conveyor.tsx` | 1.6 × 8 m |
+| Conveyor belt size | `beltDynamics.ts` | 1.6 × 8 m |
+| Conveyor sideways-damping factor | `Conveyor.tsx` `lv.x * 0.4` | 0.4 |
 
 ## Privacy notes
 

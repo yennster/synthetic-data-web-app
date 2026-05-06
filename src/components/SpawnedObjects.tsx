@@ -1,4 +1,6 @@
-import { RigidBody } from '@react-three/rapier';
+import { RigidBody, type RapierRigidBody } from '@react-three/rapier';
+import { useEffect, useRef } from 'react';
+import { BELT_TRANSPORTABLES } from '../lib/beltDynamics';
 import { useStore, type ObjectKind, type SceneObject } from '../store/useStore';
 
 function Geometry({ kind }: { kind: ObjectKind }) {
@@ -22,8 +24,21 @@ function Geometry({ kind }: { kind: ObjectKind }) {
 }
 
 function SpawnedMesh({ obj }: { obj: SceneObject }) {
+  const bodyRef = useRef<RapierRigidBody>(null);
+
+  // Register with the belt-dynamics registry so the conveyor can transport us.
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body) return;
+    BELT_TRANSPORTABLES.add(body);
+    return () => {
+      BELT_TRANSPORTABLES.delete(body);
+    };
+  }, []);
+
   return (
     <RigidBody
+      ref={bodyRef}
       type="dynamic"
       colliders="hull"
       position={obj.position}
