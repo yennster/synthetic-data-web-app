@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import {
   createHandLandmarker,
   computePinchStrength,
+  handSize,
   pinchCentroid,
 } from '../lib/handTracking';
 import type { HandLandmarker } from '@mediapipe/tasks-vision';
@@ -113,15 +114,25 @@ export function CameraFeed() {
           //      so a small downward motion of the hand actually reaches the
           //      cube on the ground (was much harder before with the previous
           //      mapping that maxed out at y=1)
-          //   z: small range around 0; MediaPipe's z is noisy so we keep the
-          //      multiplier modest and clamp.
+          //   z: derived from hand size (wrist→middle-MCP) — closer hand =
+          //      bigger landmark spread, so push the held object toward the
+          //      camera. Far more stable than MediaPipe's per-landmark z.
+          //      H_NEUTRAL is roughly the wrist-MCP separation observed at a
+          //      comfortable arm distance from a laptop webcam; H_RANGE
+          //      (~0.04 each direction) covers full reach without saturating.
+          const H_NEUTRAL = 0.13;
+          const H_RANGE = 0.06;
           const rawX = (1 - c.x - 0.5) * 6;
           const rawY = (0.85 - c.y) * 5;
-          const rawZ = Math.max(-1.5, Math.min(1.5, -c.z * 4));
+          const rawZ = Math.max(
+            -2.5,
+            Math.min(2.5, ((handSize(hand) - H_NEUTRAL) / H_RANGE) * 2.5),
+          );
 
-          // Exponential smoothing — heavier on Z (noisiest) than X/Y.
+          // Exponential smoothing. Z is now hand-size based (much steadier
+          // than MediaPipe's per-landmark z) so it can match X/Y.
           const A_XY = 0.35;
-          const A_Z = 0.18;
+          const A_Z = 0.3;
           const prev = smoothedTarget.current;
           const sx = prev ? prev[0] + (rawX - prev[0]) * A_XY : rawX;
           const sy = prev ? prev[1] + (rawY - prev[1]) * A_XY : rawY;

@@ -1,8 +1,34 @@
+import { useFrame } from '@react-three/fiber';
 import { RigidBody, type RapierRigidBody } from '@react-three/rapier';
 import { useEffect, useRef, useState } from 'react';
 import { BELT_TRANSPORTABLES } from '../lib/beltDynamics';
 import { useDragMove } from '../lib/dragMove';
 import { useStore, type ObjectKind, type SceneObject } from '../store/useStore';
+
+// If a body somehow tunnels through the ground (fast Shift+drag release, CCD
+// edge cases, scale change mid-fall, etc.) it would otherwise fall forever
+// off-screen. Below this Y we teleport the body back above where the user
+// last placed it (xz from the store, y = RESPAWN_Y) and zero velocities.
+const FLOOR_RESCUE_Y = -3;
+const RESPAWN_Y = 5;
+
+// Pick a collider auto-shape per kind. `cuboid`/`ball` produce primitives that
+// match the geometry exactly; the convex-hull path is used for the
+// non-primitive shapes (and adds a small contact margin that makes thin
+// slabs like "phone" hover above the floor — that's the whole reason this
+// helper exists).
+type RigidBodyAutoCollider = 'cuboid' | 'ball' | 'hull';
+function colliderForKind(kind: ObjectKind): RigidBodyAutoCollider {
+  switch (kind) {
+    case 'cube':
+    case 'phone':
+      return 'cuboid';
+    case 'sphere':
+      return 'ball';
+    default:
+      return 'hull';
+  }
+}
 
 function Geometry({ kind }: { kind: ObjectKind }) {
   switch (kind) {
@@ -44,6 +70,20 @@ function SpawnedMesh({ obj }: { obj: SceneObject }) {
       BELT_TRANSPORTABLES.delete(body);
     };
   }, []);
+
+  useFrame(() => {
+    const body = bodyRef.current;
+    if (!body || isDragging) return;
+    const t = body.translation();
+    if (t.y < FLOOR_RESCUE_Y) {
+      body.setTranslation(
+        { x: obj.position[0], y: RESPAWN_Y, z: obj.position[2] },
+        true,
+      );
+      body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    }
+  });
 
   // When obj.position changes (e.g. user drags), teleport the body. We only
   // act on subsequent changes — the initial mount uses the RigidBody position
@@ -88,7 +128,7 @@ function SpawnedMesh({ obj }: { obj: SceneObject }) {
     <RigidBody
       ref={bodyRef}
       type={isDragging ? 'kinematicPosition' : 'dynamic'}
-      colliders="hull"
+      colliders={colliderForKind(obj.kind)}
       position={obj.position}
       rotation={obj.rotation}
       restitution={0.2}

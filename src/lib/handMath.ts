@@ -38,3 +38,19 @@ export function pinchCentroid(lm: readonly Landmark[]): {
     z: ((t.z ?? 0) + (i.z ?? 0)) / 2,
   };
 }
+
+/**
+ * Distance from wrist (0) to middle-finger MCP (9) in image-normalized units
+ * (0..1). The two landmarks both sit on the palm, so their separation is
+ * roughly invariant under finger pose changes — making this a stable proxy
+ * for camera-distance: hand close to camera ⇒ bigger distance.
+ *
+ * Used as the depth signal for moving objects in motion mode, where
+ * MediaPipe's per-landmark `z` is too noisy to be useful. Typical observed
+ * range is ~0.06 (arm extended) to ~0.22 (hand near the lens).
+ */
+export function handSize(lm: readonly Landmark[]): number {
+  const w = lm[0];
+  const mcp = lm[9];
+  return Math.hypot(w.x - mcp.x, w.y - mcp.y);
+}

@@ -106,19 +106,22 @@ function ManipulatedObject() {
     }
   });
 
-  useEffect(() => {
-    const body = bodyRef.current;
-    if (!body) return;
-    body.setTranslation({ x: 0, y: 2, z: 0 }, true);
-    body.setLinvel({ x: 0, y: 0, z: 0 }, true);
-    body.setAngvel({ x: 0, y: 0, z: 0 }, true);
-    body.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
-  }, [objectKind]);
+  // Collider auto-shape is immutable on a RigidBody, so switching kinds
+  // (cube ↔ phone ↔ sphere) needs a fresh body to get the right collider.
+  // The `key` below remounts on kind change, which also resets the body's
+  // pose to the position prop — no separate translation reset needed.
+  const collider: 'cuboid' | 'ball' | 'hull' =
+    objectKind === 'cube' || objectKind === 'phone'
+      ? 'cuboid'
+      : objectKind === 'sphere'
+        ? 'ball'
+        : 'hull';
 
   return (
     <RigidBody
+      key={objectKind}
       ref={bodyRef}
-      colliders="hull"
+      colliders={collider}
       restitution={0.45}
       friction={0.6}
       position={[0, 2, 0]}

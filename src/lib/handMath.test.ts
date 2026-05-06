@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { computePinchStrength, pinchCentroid, type Landmark } from './handMath';
+import {
+  computePinchStrength,
+  handSize,
+  pinchCentroid,
+  type Landmark,
+} from './handMath';
 
 /**
  * Build a 21-landmark hand. We only populate the landmarks the math actually
@@ -85,5 +90,49 @@ describe('pinchCentroid', () => {
     hand[8] = { x: 0.4, y: 0.6 };
     const c = pinchCentroid(hand);
     expect(c.z).toBe(0);
+  });
+});
+
+describe('handSize', () => {
+  it('returns the wrist→middle-MCP distance in image-normalized units', () => {
+    const hand = makeHand({
+      wrist: [0.5, 0.8, 0],
+      middleMcp: [0.5, 0.68, 0], // 0.12 below the wrist
+      thumbTip: [0, 0, 0],
+      indexTip: [0, 0, 0],
+    });
+    expect(handSize(hand)).toBeCloseTo(0.12, 5);
+  });
+
+  it('grows when the hand is closer to the camera (landmarks more spread)', () => {
+    const far = makeHand({
+      wrist: [0.5, 0.8, 0],
+      middleMcp: [0.5, 0.74, 0], // 0.06
+      thumbTip: [0, 0, 0],
+      indexTip: [0, 0, 0],
+    });
+    const near = makeHand({
+      wrist: [0.5, 0.85, 0],
+      middleMcp: [0.5, 0.65, 0], // 0.20
+      thumbTip: [0, 0, 0],
+      indexTip: [0, 0, 0],
+    });
+    expect(handSize(near)).toBeGreaterThan(handSize(far));
+  });
+
+  it('uses xy only — ignores landmark.z so missing z is fine', () => {
+    const a = makeHand({
+      wrist: [0, 0, 0],
+      middleMcp: [0, 0.1, 0],
+      thumbTip: [0, 0, 0],
+      indexTip: [0, 0, 0],
+    });
+    const b = makeHand({
+      wrist: [0, 0, 5],
+      middleMcp: [0, 0.1, -5],
+      thumbTip: [0, 0, 0],
+      indexTip: [0, 0, 0],
+    });
+    expect(handSize(a)).toBeCloseTo(handSize(b), 5);
   });
 });

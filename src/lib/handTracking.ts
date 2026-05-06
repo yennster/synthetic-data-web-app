@@ -6,7 +6,7 @@ import {
 
 // Re-export the pure helpers from handMath so existing call sites
 // (CameraFeed.tsx, tests) keep working through this module.
-export { computePinchStrength, pinchCentroid } from './handMath';
+export { computePinchStrength, handSize, pinchCentroid } from './handMath';
 
 export type HandFrame = {
   detected: boolean;

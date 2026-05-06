@@ -1,9 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { useFrame } from '@react-three/fiber';
 import { RigidBody, type RapierRigidBody } from '@react-three/rapier';
 import { BELT_TRANSPORTABLES } from '../lib/beltDynamics';
 import { useDragMove } from '../lib/dragMove';
 import { useStore, type ImportedAsset } from '../store/useStore';
+
+// See SpawnedObjects for the rationale — same rescue, same thresholds.
+const FLOOR_RESCUE_Y = -3;
+const RESPAWN_Y = 5;
 
 /**
  * Tag every descendant of the asset object with `userData.label` so the
@@ -121,6 +126,20 @@ function PhysicsAsset({ asset }: { asset: ImportedAsset }) {
       BELT_TRANSPORTABLES.delete(body);
     };
   }, []);
+
+  useFrame(() => {
+    const body = bodyRef.current;
+    if (!body || isDragging) return;
+    const t = body.translation();
+    if (t.y < FLOOR_RESCUE_Y) {
+      body.setTranslation(
+        { x: asset.position[0], y: RESPAWN_Y, z: asset.position[2] },
+        true,
+      );
+      body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    }
+  });
 
   // Sync slider/drag changes back into the physics body (teleport).
   useEffect(() => {
