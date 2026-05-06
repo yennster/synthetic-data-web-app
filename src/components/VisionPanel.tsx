@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore, type ObjectKind } from '../store/useStore';
 import {
   buildBoundingBoxLabelsFile,
@@ -54,6 +54,17 @@ export function VisionPanel() {
 
   const [newKind, setNewKind] = useState<ObjectKind>('cube');
   const [newLabel, setNewLabel] = useState('cube');
+  // When the user picks a different kind in the dropdown, auto-update the
+  // label to match — so "sphere" gets labelled "sphere" by default instead
+  // of inheriting the previous "cube" label. Users can still type a custom
+  // label after selecting the kind.
+  const lastKindRef = useRef<ObjectKind>('cube');
+  useEffect(() => {
+    if (lastKindRef.current !== newKind) {
+      setNewLabel(newKind);
+      lastKindRef.current = newKind;
+    }
+  }, [newKind]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importLabel, setImportLabel] = useState('');
 

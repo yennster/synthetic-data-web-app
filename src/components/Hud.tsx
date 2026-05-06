@@ -32,6 +32,13 @@ export function Hud() {
       <div className={`pill ${captures.length > 0 ? 'live' : ''}`}>
         Captures: {captures.length}
       </div>
+      <div
+        className="pill"
+        style={{ background: 'rgba(20,24,29,0.6)', fontSize: 10 }}
+        title="Hold Shift and drag with the mouse to reposition objects on the floor / belt"
+      >
+        Tip: Shift+drag to move
+      </div>
     </div>
   );
 }

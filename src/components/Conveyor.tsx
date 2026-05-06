@@ -3,6 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import {
+  BELT_COLLIDER_DEPTH,
   BELT_HEIGHT,
   BELT_LENGTH,
   BELT_TRANSPORTABLES,
@@ -70,11 +71,13 @@ export function Conveyor() {
 
   return (
     <group position={[0, 0, 0]}>
-      {/* Belt surface */}
+      {/* Belt surface — collider extends below the visual mesh so objects
+          can't tunnel through the thin top slab on fast falls. The top
+          surface still sits at y=BELT_HEIGHT for the on-belt detection. */}
       <RigidBody type="fixed" colliders={false} friction={0.9} restitution={0.1}>
         <CuboidCollider
-          args={[BELT_WIDTH / 2, BELT_HEIGHT / 2, BELT_LENGTH / 2]}
-          position={[0, BELT_HEIGHT / 2, 0]}
+          args={[BELT_WIDTH / 2, BELT_COLLIDER_DEPTH / 2, BELT_LENGTH / 2]}
+          position={[0, BELT_HEIGHT - BELT_COLLIDER_DEPTH / 2, 0]}
         />
         <mesh position={[0, BELT_HEIGHT / 2, 0]} receiveShadow castShadow>
           <boxGeometry args={[BELT_WIDTH, BELT_HEIGHT, BELT_LENGTH]} />

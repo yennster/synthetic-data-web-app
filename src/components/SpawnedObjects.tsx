@@ -1,6 +1,7 @@
 import { RigidBody, type RapierRigidBody } from '@react-three/rapier';
 import { useEffect, useRef } from 'react';
 import { BELT_TRANSPORTABLES } from '../lib/beltDynamics';
+import { useDragMove } from '../lib/dragMove';
 import { useStore, type ObjectKind, type SceneObject } from '../store/useStore';
 
 function Geometry({ kind }: { kind: ObjectKind }) {
@@ -25,6 +26,8 @@ function Geometry({ kind }: { kind: ObjectKind }) {
 
 function SpawnedMesh({ obj }: { obj: SceneObject }) {
   const bodyRef = useRef<RapierRigidBody>(null);
+  const updateSceneObject = useStore((s) => s.updateSceneObject);
+  const isInitialMount = useRef(true);
 
   // Register with the belt-dynamics registry so the conveyor can transport us.
   useEffect(() => {
@@ -36,6 +39,34 @@ function SpawnedMesh({ obj }: { obj: SceneObject }) {
     };
   }, []);
 
+  // When obj.position changes (e.g. user drags), teleport the body. We only
+  // act on subsequent changes — the initial mount uses the RigidBody position
+  // prop, which sets the body up at the right place automatically.
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+    const body = bodyRef.current;
+    if (!body) return;
+    body.setTranslation(
+      { x: obj.position[0], y: obj.position[1], z: obj.position[2] },
+      true,
+    );
+    body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+    body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+  }, [obj.position]);
+
+  const dragHandlers = useDragMove({
+    getPosition: () => {
+      const body = bodyRef.current;
+      if (!body) return obj.position;
+      const t = body.translation();
+      return [t.x, t.y, t.z];
+    },
+    setPosition: (p) => updateSceneObject(obj.id, { position: p }),
+  });
+
   return (
     <RigidBody
       ref={bodyRef}
@@ -45,12 +76,14 @@ function SpawnedMesh({ obj }: { obj: SceneObject }) {
       rotation={obj.rotation}
       restitution={0.2}
       friction={0.7}
+      ccd
     >
       <mesh
         scale={obj.scale}
         castShadow
         receiveShadow
         userData={{ label: obj.label, sceneObjectId: obj.id }}
+        {...dragHandlers}
       >
         <Geometry kind={obj.kind} />
         <meshStandardMaterial

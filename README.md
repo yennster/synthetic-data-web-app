@@ -33,9 +33,10 @@ Created with Claude Code.
 - HMAC-SHA256 signed uploads optional.
 
 ### Object detection / Visual anomaly mode
-- **Multi-object spawning** — add any number of objects to the scene with custom labels and colors. Objects fall under physics onto the ground or conveyor.
+- **Multi-object spawning** — add any number of objects to the scene with custom labels and colors. Each new object's label auto-tracks the kind dropdown (pick "sphere" → label defaults to `sphere`), so you don't end up with five things all labelled "cube". Objects fall under physics onto the ground or conveyor.
+- **Shift+drag to move** — hold Shift and click+drag any spawned object or physics-enabled imported asset to slide it across the belt or floor. Orbit/zoom keeps working without the modifier. Velocity is zeroed at drop so the object doesn't drift after you release.
 - **USDZ asset import** — drop in `.usdz` files (Pixar Universal Scene Description). Powered by a WASM build of OpenUSD, supporting both ASCII (`.usda`) and binary Crate (`.usdc`) payloads. Each imported asset gets per-instance scale / position / yaw / label controls and an opt-in **Physics** toggle that wraps it in a Rapier RigidBody with a convex-hull collider — toggle it on and the asset falls under gravity, collides with the ground / belt / other bodies, and rides the conveyor like the spawned primitives. Bounding boxes are computed for the whole asset, not per child mesh.
-- **Conveyor belt prop** — animated scrolling belt with rails, end rollers, and supports. **Actually transports spawned objects** along its length — drop a cube on it and it rides off the end. Speed-tunable from −2 m/s to +2 m/s (negative reverses direction).
+- **Conveyor belt prop** — animated scrolling belt with rails, end rollers, and supports. **Actually transports spawned objects** along its length — drop a cube on it and it rides off the end. Speed-tunable from −2 m/s to +2 m/s (negative reverses direction). The belt collider extends below the visible surface and dynamic bodies have CCD enabled, so fast-falling objects don't tunnel through.
 - **Virtual capture camera** — fully positionable (XYZ + target + FOV), with a frustum gizmo drawn into the scene so you can orbit around and see exactly what it sees.
 - **Live capture preview** in the corner overlay.
 - **Single-shot capture** — one button, one image saved.
@@ -192,6 +193,7 @@ src/
 │   ├── handTracking.ts           // HandLandmarker + pinch math
 │   ├── usdz.ts                   // OpenUSD WASM loader wrapper, dispose helper
 │   ├── beltDynamics.ts           // Shared belt geometry + transportable-bodies set
+│   ├── dragMove.ts               // Shift+drag pointer-event handlers (XZ plane)
 │   ├── capture.ts                // Off-screen render, bbox projection, FS Access
 │   └── edgeImpulse.ts            // Ingestion API: motion + image+bbox uploads
 └── store/

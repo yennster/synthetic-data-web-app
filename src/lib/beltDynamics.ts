@@ -17,6 +17,9 @@ export const BELT_TRANSPORTABLES = new Set<RapierRigidBody>();
 export const BELT_LENGTH = 8;
 export const BELT_WIDTH = 1.6;
 export const BELT_HEIGHT = 0.1;
+/** Collider depth — extends below BELT_HEIGHT so fast-falling objects don't
+ * tunnel through the thin visual surface. Visual mesh stays at BELT_HEIGHT. */
+export const BELT_COLLIDER_DEPTH = 0.4;
 
 /**
  * Returns true when the body's translation is within the belt's XZ footprint
