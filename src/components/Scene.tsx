@@ -1,23 +1,32 @@
-import { Canvas, useFrame } from '@react-three/fiber';
-import { Environment, Grid, OrbitControls } from '@react-three/drei';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import {
+  ContactShadows,
+  Environment,
+  Grid,
+  OrbitControls,
+  SoftShadows,
+} from '@react-three/drei';
 import {
   Physics,
   RigidBody,
   CuboidCollider,
   type RapierRigidBody,
 } from '@react-three/rapier';
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { useStore, type ObjectKind } from '../store/useStore';
+import { Conveyor } from './Conveyor';
+import { SpawnedObjects } from './SpawnedObjects';
+import { VirtualCamera } from './VirtualCamera';
 
 const GRAVITY: [number, number, number] = [0, -9.81, 0];
-const FOLLOW_LERP = 0.35; // 0..1 smoothing for kinematic follow
+const FOLLOW_LERP = 0.35;
 
+// ---------- Motion-mode body ----------
 function ManipulatedObject() {
   const bodyRef = useRef<RapierRigidBody>(null);
   const meshRef = useRef<THREE.Mesh>(null);
 
-  // Rolling state for physics + sampling
   const prevLinvel = useRef(new THREE.Vector3());
   const prevPos = useRef(new THREE.Vector3(0, 2, 0));
   const sampleAccumulator = useRef(0);
@@ -33,15 +42,12 @@ function ManipulatedObject() {
     const { isGrabbed, pinchTarget, sampleRateHz, isRecording, pushSample } =
       useStore.getState();
 
-    // ---- Manipulation: follow pinch when grabbed ----
     if (isGrabbed && pinchTarget) {
-      // Make sure we're kinematic while grabbed
-      if (body.bodyType() !== 2 /* KinematicPositionBased */) {
+      if (body.bodyType() !== 2) {
         body.setBodyType(2, true);
         body.setLinvel({ x: 0, y: 0, z: 0 }, true);
         body.setAngvel({ x: 0, y: 0, z: 0 }, true);
       }
-
       const cur = body.translation();
       const target = new THREE.Vector3(...pinchTarget);
       const next = new THREE.Vector3(cur.x, cur.y, cur.z).lerp(
@@ -49,8 +55,6 @@ function ManipulatedObject() {
         FOLLOW_LERP,
       );
       body.setNextKinematicTranslation({ x: next.x, y: next.y, z: next.z });
-
-      // Track velocity so we can impart it on release
       releaseVel.current.set(
         (next.x - prevPos.current.x) / Math.max(dt, 1e-3),
         (next.y - prevPos.current.y) / Math.max(dt, 1e-3),
@@ -59,9 +63,8 @@ function ManipulatedObject() {
       prevPos.current.copy(next);
       wasGrabbed.current = true;
     } else {
-      // Just released? swap to dynamic + impart velocity
       if (wasGrabbed.current) {
-        body.setBodyType(0 /* Dynamic */, true);
+        body.setBodyType(0, true);
         body.setLinvel(
           {
             x: releaseVel.current.x,
@@ -76,28 +79,19 @@ function ManipulatedObject() {
       prevPos.current.set(cur.x, cur.y, cur.z);
     }
 
-    // ---- Accelerometer sampling at fixed rate ----
     const period = 1 / sampleRateHz;
     sampleAccumulator.current += dt;
     while (sampleAccumulator.current >= period) {
       sampleAccumulator.current -= period;
       const lv = body.linvel();
       const cur = new THREE.Vector3(lv.x, lv.y, lv.z);
-      // Inertial acceleration (world frame)
-      const aInertial = cur
-        .clone()
-        .sub(prevLinvel.current)
-        .divideScalar(period);
-      // Proper acceleration (what an accelerometer reads)
-      // a_proper = a_inertial - g_world
+      const aInertial = cur.clone().sub(prevLinvel.current).divideScalar(period);
       const aProper = aInertial.sub(
         new THREE.Vector3(GRAVITY[0], GRAVITY[1], GRAVITY[2]),
       );
-      // Transform to body-local frame
       const rot = body.rotation();
       const q = new THREE.Quaternion(rot.x, rot.y, rot.z, rot.w).invert();
       aProper.applyQuaternion(q);
-
       prevLinvel.current.copy(cur);
 
       if (isRecording) {
@@ -111,7 +105,6 @@ function ManipulatedObject() {
     }
   });
 
-  // Reset on object kind change
   useEffect(() => {
     const body = bodyRef.current;
     if (!body) return;
@@ -131,12 +124,12 @@ function ManipulatedObject() {
       linearDamping={0.05}
       angularDamping={0.1}
     >
-      <ObjectMesh kind={objectKind} meshRef={meshRef} />
+      <ManipulatedMesh kind={objectKind} meshRef={meshRef} />
     </RigidBody>
   );
 }
 
-function ObjectMesh({
+function ManipulatedMesh({
   kind,
   meshRef,
 }: {
@@ -146,7 +139,6 @@ function ObjectMesh({
   const isGrabbed = useStore((s) => s.isGrabbed);
   const color = isGrabbed ? '#5eead4' : '#f59e0b';
   const emissive = isGrabbed ? '#0d4d44' : '#3d2706';
-
   const material = useMemo(
     () => (
       <meshStandardMaterial
@@ -158,7 +150,6 @@ function ObjectMesh({
     ),
     [color, emissive],
   );
-
   switch (kind) {
     case 'sphere':
       return (
@@ -181,7 +172,6 @@ function ObjectMesh({
           {material}
         </mesh>
       );
-    case 'cube':
     default:
       return (
         <mesh ref={meshRef} castShadow>
@@ -192,14 +182,16 @@ function ObjectMesh({
   }
 }
 
-function Ground() {
+function Ground({ visible = true }: { visible?: boolean }) {
   return (
     <RigidBody type="fixed" colliders={false} friction={0.8} restitution={0.3}>
-      <CuboidCollider args={[20, 0.1, 20]} position={[0, -0.1, 0]} />
-      <mesh position={[0, -0.1, 0]} receiveShadow>
-        <boxGeometry args={[40, 0.2, 40]} />
-        <meshStandardMaterial color="#1c2128" roughness={0.9} />
-      </mesh>
+      <CuboidCollider args={[20, 0.05, 20]} position={[0, -0.05, 0]} />
+      {visible && (
+        <mesh position={[0, -0.05, 0]} receiveShadow>
+          <boxGeometry args={[40, 0.1, 40]} />
+          <meshStandardMaterial color="#1c2128" roughness={0.95} metalness={0.05} />
+        </mesh>
+      )}
     </RigidBody>
   );
 }
@@ -220,48 +212,115 @@ function PinchMarker() {
   );
 }
 
-export function Scene() {
+// Env + key light driven by store so batch capture can randomize them.
+function SceneLighting() {
+  const intensity = useStore((s) => s.capture.lightIntensity);
+  const envRot = useStore((s) => s.capture.envRotation);
+  return (
+    <>
+      <ambientLight intensity={0.35} />
+      <directionalLight
+        position={[
+          5 * Math.cos(envRot),
+          8,
+          5 * Math.sin(envRot),
+        ]}
+        intensity={intensity}
+        castShadow
+        shadow-mapSize-width={1536}
+        shadow-mapSize-height={1536}
+        shadow-camera-near={0.5}
+        shadow-camera-far={30}
+        shadow-camera-left={-10}
+        shadow-camera-right={10}
+        shadow-camera-top={10}
+        shadow-camera-bottom={-10}
+      />
+      <Environment preset="warehouse" environmentIntensity={0.7} />
+    </>
+  );
+}
+
+function PreviewCanvasMount({
+  setCanvas,
+}: {
+  setCanvas: (c: HTMLCanvasElement | null) => void;
+}) {
+  // hidden — actual canvas mounting happens in App via ref
+  useEffect(() => () => setCanvas(null), [setCanvas]);
+  return null;
+}
+
+export function Scene({
+  previewCanvas,
+}: {
+  previewCanvas: HTMLCanvasElement | null;
+}) {
+  const mode = useStore((s) => s.mode);
+  const showConveyor = useStore((s) => s.showConveyor);
+
   return (
     <Canvas
       shadows
-      camera={{ position: [0, 2.5, 6], fov: 50 }}
+      camera={{ position: [4, 3, 6], fov: 50 }}
+      gl={{
+        antialias: true,
+        toneMapping: THREE.ACESFilmicToneMapping,
+        toneMappingExposure: 1.0,
+      }}
       style={{ background: 'linear-gradient(180deg, #0b0d10 0%, #14181d 100%)' }}
     >
-      <ambientLight intensity={0.4} />
-      <directionalLight
-        position={[5, 8, 4]}
-        intensity={1.1}
-        castShadow
-        shadow-mapSize-width={1024}
-        shadow-mapSize-height={1024}
-      />
-      <Environment preset="city" />
+      <SoftShadows size={20} samples={12} />
+      <SceneLighting />
+
       <Grid
         position={[0, 0.001, 0]}
-        args={[20, 20]}
+        args={[30, 30]}
         cellSize={0.5}
         cellThickness={0.5}
         cellColor="#2a313a"
         sectionSize={2}
         sectionThickness={1}
         sectionColor="#3d4651"
-        fadeDistance={20}
+        fadeDistance={30}
         fadeStrength={1}
         infiniteGrid
       />
+
+      <ContactShadows
+        position={[0, 0.005, 0]}
+        opacity={0.5}
+        scale={20}
+        blur={2.5}
+        far={10}
+      />
+
       <Physics gravity={GRAVITY}>
-        <Ground />
-        <ManipulatedObject />
+        <Ground visible={!showConveyor || mode === 'motion'} />
+        {mode === 'motion' ? (
+          <>
+            <ManipulatedObject />
+            <PinchMarker />
+          </>
+        ) : (
+          <>
+            {showConveyor && <Conveyor />}
+            <SpawnedObjects />
+          </>
+        )}
       </Physics>
-      <PinchMarker />
+
+      {mode !== 'motion' && <VirtualCamera previewCanvas={previewCanvas} />}
+
       <OrbitControls
         makeDefault
         enableDamping
         dampingFactor={0.1}
-        minDistance={3}
-        maxDistance={15}
-        target={[0, 1, 0]}
+        minDistance={2}
+        maxDistance={20}
+        target={[0, 0.7, 0]}
       />
+      <PreviewCanvasMount setCanvas={() => {}} />
     </Canvas>
   );
 }

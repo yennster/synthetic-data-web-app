@@ -1,186 +1,92 @@
-import { useStore, type ObjectKind } from '../store/useStore';
-import { buildFileName, uploadSample } from '../lib/edgeImpulse';
+import { useStore, type AppMode } from '../store/useStore';
+import { MotionPanel } from './MotionPanel';
+import { VisionPanel } from './VisionPanel';
 
-const OBJECTS: { value: ObjectKind; label: string }[] = [
-  { value: 'cube', label: 'Cube' },
-  { value: 'sphere', label: 'Sphere' },
-  { value: 'phone', label: 'Phone slab' },
-  { value: 'capsule', label: 'Capsule' },
+const MODES: { value: AppMode; label: string; hint: string }[] = [
+  { value: 'motion', label: 'Motion', hint: 'Accelerometer' },
+  { value: 'detection', label: 'Object detection', hint: 'Images + bboxes' },
+  { value: 'anomaly', label: 'Visual anomaly', hint: 'Images, batch label' },
 ];
 
 export function Sidebar() {
-  const {
-    objectKind,
-    setObjectKind,
-    isRecording,
-    startRecording,
-    stopRecording,
-    samples,
-    clearSamples,
-    sampleRateHz,
-    setSampleRateHz,
-    ei,
-    setEi,
-    status,
-    setStatus,
-  } = useStore();
-
-  const onUpload = async () => {
-    setStatus('busy', 'Uploading…');
-    try {
-      const res = await uploadSample(
-        ei,
-        samples,
-        sampleRateHz,
-        buildFileName(ei.label),
-      );
-      if (res.ok) {
-        setStatus('ok', `Uploaded ${samples.length} samples (${res.status}).`);
-        clearSamples();
-      } else {
-        setStatus('err', `Upload failed (${res.status}): ${res.body}`);
-      }
-    } catch (e) {
-      setStatus('err', `Upload error: ${(e as Error).message}`);
-    }
-  };
-
-  const durationSec = samples.length / sampleRateHz;
+  const mode = useStore((s) => s.mode);
+  const setMode = useStore((s) => s.setMode);
+  const status = useStore((s) => s.status);
+  const ei = useStore((s) => s.ei);
+  const setEi = useStore((s) => s.setEi);
 
   return (
     <aside className="sidebar">
       <div className="card">
-        <h3>Object</h3>
-        <select
-          value={objectKind}
-          onChange={(e) => setObjectKind(e.target.value as ObjectKind)}
+        <h3>Mode</h3>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr 1fr',
+            gap: 4,
+          }}
         >
-          {OBJECTS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
+          {MODES.map((m) => (
+            <button
+              key={m.value}
+              className={mode === m.value ? 'primary' : ''}
+              onClick={() => setMode(m.value)}
+              title={m.hint}
+              style={{ padding: '8px 4px', fontSize: 11 }}
+            >
+              {m.label}
+            </button>
           ))}
-        </select>
-      </div>
-
-      <div className="card">
-        <h3>Recording</h3>
-        <label className="field">
-          Label
-          <input
-            value={ei.label}
-            onChange={(e) => setEi({ label: e.target.value })}
-            placeholder="e.g. shake, idle, drop"
-          />
-        </label>
-        <label className="field">
-          Sample rate (Hz)
-          <input
-            type="number"
-            min={20}
-            max={500}
-            step={10}
-            value={sampleRateHz}
-            onChange={(e) =>
-              setSampleRateHz(
-                Math.max(20, Math.min(500, Number(e.target.value) || 100)),
-              )
-            }
-            disabled={isRecording}
-          />
-        </label>
-
-        <div className="row">
-          {isRecording ? (
-            <button className="danger" onClick={stopRecording}>
-              ■ Stop
-            </button>
-          ) : (
-            <button className="primary" onClick={startRecording}>
-              ● Record
-            </button>
-          )}
-          <button onClick={clearSamples} disabled={isRecording || samples.length === 0}>
-            Clear
-          </button>
         </div>
-
-        <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-          {samples.length} samples · {durationSec.toFixed(2)}s
+        <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+          {MODES.find((m) => m.value === mode)?.hint}
         </div>
       </div>
 
-      <div className="card">
-        <h3>Edge Impulse</h3>
-        <label className="field">
-          API Key
-          <input
-            type="password"
-            value={ei.apiKey}
-            onChange={(e) => setEi({ apiKey: e.target.value })}
-            placeholder="ei_..."
-            autoComplete="off"
-          />
-        </label>
-        <label className="field">
-          HMAC Key (optional)
-          <input
-            type="password"
-            value={ei.hmacKey}
-            onChange={(e) => setEi({ hmacKey: e.target.value })}
-            placeholder="leave blank for unsigned"
-            autoComplete="off"
-          />
-        </label>
-        <label className="field">
-          Category
-          <select
-            value={ei.category}
-            onChange={(e) =>
-              setEi({ category: e.target.value as 'training' | 'testing' })
-            }
-          >
-            <option value="training">Training</option>
-            <option value="testing">Testing</option>
-          </select>
-        </label>
-        <label className="field">
-          Device name
-          <input
-            value={ei.device}
-            onChange={(e) => setEi({ device: e.target.value })}
-          />
-        </label>
+      {mode === 'motion' ? <MotionPanel /> : <VisionPanel />}
 
-        <button
-          className="primary"
-          onClick={onUpload}
-          disabled={
-            isRecording ||
-            samples.length === 0 ||
-            !ei.apiKey ||
-            status.kind === 'busy'
-          }
-        >
-          ⤴ Upload to Edge Impulse
-        </button>
+      {/* Common: HMAC + device + status (motion-only fields are duplicated; keep central status) */}
+      {mode === 'motion' && (
+        <div className="card">
+          <h3>Edge Impulse · auth</h3>
+          <label className="field">
+            API Key
+            <input
+              type="password"
+              value={ei.apiKey}
+              onChange={(e) => setEi({ apiKey: e.target.value })}
+              placeholder="ei_..."
+              autoComplete="off"
+            />
+          </label>
+          <label className="field">
+            HMAC Key (optional)
+            <input
+              type="password"
+              value={ei.hmacKey}
+              onChange={(e) => setEi({ hmacKey: e.target.value })}
+              placeholder="leave blank for unsigned"
+              autoComplete="off"
+            />
+          </label>
+          <label className="field">
+            Category
+            <select
+              value={ei.category}
+              onChange={(e) =>
+                setEi({ category: e.target.value as 'training' | 'testing' })
+              }
+            >
+              <option value="training">Training</option>
+              <option value="testing">Testing</option>
+            </select>
+          </label>
+        </div>
+      )}
 
-        {status.msg && (
-          <div className={`status ${status.kind}`}>{status.msg}</div>
-        )}
-      </div>
-
-      <div className="card">
-        <h3>How to use</h3>
-        <ol style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
-          <li>Allow camera access.</li>
-          <li>Show your hand to the camera.</li>
-          <li>Pinch (thumb + index) to grab the object.</li>
-          <li>Move your hand to manipulate it in 3D.</li>
-          <li>Release the pinch to drop / throw it.</li>
-          <li>Hit Record before performing the gesture.</li>
-        </ol>
-      </div>
+      {status.msg && (
+        <div className={`status ${status.kind}`}>{status.msg}</div>
+      )}
     </aside>
   );
 }

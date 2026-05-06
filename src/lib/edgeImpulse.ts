@@ -1,4 +1,9 @@
-import type { AccelSample, EdgeImpulseConfig } from '../store/useStore';
+import type {
+  AccelSample,
+  BoundingBox,
+  Capture,
+  EdgeImpulseConfig,
+} from '../store/useStore';
 
 const INGESTION_BASE = 'https://ingestion.edgeimpulse.com/api';
 
@@ -98,4 +103,83 @@ export function buildFileName(label: string): string {
     .replace('Z', '');
   const safe = (label || 'sample').replace(/[^a-zA-Z0-9_-]/g, '_');
   return `${safe}.${ts}.json`;
+}
+
+// ---------- Image + bounding box uploads ----------
+
+/**
+ * Upload an image (anomaly or detection mode). For detection, pass `boxes`
+ * — they're sent in the `x-bounding-boxes` header per the Edge Impulse
+ * Ingestion API.
+ */
+export async function uploadImage(
+  cfg: EdgeImpulseConfig,
+  blob: Blob,
+  filename: string,
+  label: string,
+  boxes: BoundingBox[] | null,
+): Promise<UploadResult> {
+  if (!cfg.apiKey) return { ok: false, status: 0, body: 'Missing API key' };
+
+  const url = `${INGESTION_BASE}/${cfg.category === 'testing' ? 'testing' : 'training'}/files`;
+  const form = new FormData();
+  // The Edge Impulse uploader expects field name `data`.
+  form.append('data', blob, filename);
+
+  const headers: Record<string, string> = {
+    'x-api-key': cfg.apiKey,
+    'x-label': label || 'unlabeled',
+    'x-add-date-id': '1',
+    'x-disallow-duplicates': '0',
+  };
+  if (boxes && boxes.length > 0) {
+    headers['x-bounding-boxes'] = JSON.stringify(boxes);
+  }
+
+  const res = await fetch(url, { method: 'POST', headers, body: form });
+  const text = await res.text();
+  return { ok: res.ok, status: res.status, body: text };
+}
+
+export type BatchUploadProgress = {
+  total: number;
+  done: number;
+  failed: number;
+  current?: string;
+};
+
+export async function uploadCaptures(
+  cfg: EdgeImpulseConfig,
+  captures: Capture[],
+  defaultLabel: string,
+  includeBoxes: boolean,
+  onProgress?: (p: BatchUploadProgress) => void,
+): Promise<{ done: number; failed: number; lastError?: string }> {
+  let done = 0;
+  let failed = 0;
+  let lastError: string | undefined;
+  const total = captures.length;
+  for (const c of captures) {
+    onProgress?.({ total, done, failed, current: c.filename });
+    const lbl = c.label || defaultLabel;
+    try {
+      const res = await uploadImage(
+        cfg,
+        c.blob,
+        c.filename,
+        lbl,
+        includeBoxes ? c.boxes : null,
+      );
+      if (res.ok) done += 1;
+      else {
+        failed += 1;
+        lastError = `${res.status}: ${res.body.slice(0, 200)}`;
+      }
+    } catch (e) {
+      failed += 1;
+      lastError = (e as Error).message;
+    }
+  }
+  onProgress?.({ total, done, failed });
+  return { done, failed, lastError };
 }
