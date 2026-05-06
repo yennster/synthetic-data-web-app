@@ -36,3 +36,8 @@ logs/
 
 # USDZ WASM is copied by postinstall from node_modules/three-usdz-loader
 public/usdz-wasm/
+
+# Release artifacts
+*.zip
+*.tar.gz
+tsconfig.tsbuildinfo
