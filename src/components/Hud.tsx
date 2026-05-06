@@ -35,9 +35,9 @@ export function Hud() {
       <div
         className="pill"
         style={{ background: 'rgba(20,24,29,0.6)', fontSize: 10 }}
-        title="Hold Shift and drag with the mouse to reposition objects on the floor / belt"
+        title="Shift+drag = horizontal (XZ); Shift+Alt+drag = vertical (Y) so you can lift and drop"
       >
-        Tip: Shift+drag to move
+        Tip: Shift+drag · Shift+Alt+drag for height
       </div>
     </div>
   );
