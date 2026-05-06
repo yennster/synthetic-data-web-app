@@ -8,6 +8,12 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag name to release (e.g. v0.3.0)'
+        required: true
+        type: string
 
 jobs:
   build-and-release:
@@ -20,6 +26,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -54,7 +62,7 @@ jobs:
       - name: Create / update GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          files: synthetic-data-web-app-${{ github.ref_name }}.zip
+          files: synthetic-data-web-app-${{ github.event.inputs.tag || github.ref_name }}.zip
           generate_release_notes: true
           fail_on_unmatched_files: true
 
