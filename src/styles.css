@@ -123,6 +123,98 @@ label.field {
 .row { display: flex; gap: 8px; }
 .row > * { flex: 1; }
 
+.capture-card {
+  gap: 12px;
+}
+
+.capture-footer,
+.capture-batch-topline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.capture-frame-button {
+  width: 100%;
+  min-height: 44px;
+  font-size: 14px;
+}
+
+.capture-batch-section {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.capture-batch-count {
+  flex: 0 0 92px;
+}
+
+.capture-batch-button {
+  flex: 1;
+  min-height: 40px;
+}
+
+.capture-randomize-group {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.capture-randomize-group legend {
+  padding: 0;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.capture-toggle-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.check-row input[type="checkbox"] {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+.check-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.capture-footer {
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.capture-footer button {
+  min-width: 64px;
+  padding: 5px 10px;
+}
+
 .cam-overlay {
   position: absolute;
   bottom: 16px;

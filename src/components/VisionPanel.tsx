@@ -608,7 +608,7 @@ export function VisionPanel() {
         </label>
       </div>
 
-      <div className="card">
+      <div className="card capture-card">
         <h3>Capture</h3>
         {mode === 'anomaly' && (
           <label className="field">
@@ -620,74 +620,79 @@ export function VisionPanel() {
             />
           </label>
         )}
-        <button onClick={() => triggerCapture()} className="primary">
+        <button
+          onClick={() => triggerCapture()}
+          className="primary capture-frame-button"
+        >
           📸 Capture frame
         </button>
 
-        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10, marginTop: 4 }}>
-          <label className="field">
-            Batch count
-            <input
-              type="number"
-              min={1}
-              max={500}
-              step={1}
-              value={cs.batchCount}
-              onChange={(e) =>
-                setCapture({ batchCount: Number(e.target.value) || 10 })
-              }
-            />
-          </label>
-          <label className="field">
-            <span className="row" style={{ alignItems: 'center' }}>
+        <div className="capture-batch-section">
+          <div className="capture-batch-topline">
+            <label className="field capture-batch-count">
+              Batch count
               <input
-                type="checkbox"
-                checked={cs.randomizeCamera}
+                type="number"
+                min={1}
+                max={500}
+                step={1}
+                value={cs.batchCount}
                 onChange={(e) =>
-                  setCapture({ randomizeCamera: e.target.checked })
+                  setCapture({ batchCount: Number(e.target.value) || 10 })
                 }
-                style={{ width: 'auto', flex: 'none' }}
               />
-              <span style={{ flex: 1 }}>Randomize camera</span>
-            </span>
-          </label>
-          <label className="field">
-            <span className="row" style={{ alignItems: 'center' }}>
-              <input
-                type="checkbox"
-                checked={cs.randomizeLighting}
-                onChange={(e) =>
-                  setCapture({ randomizeLighting: e.target.checked })
-                }
-                style={{ width: 'auto', flex: 'none' }}
-              />
-              <span style={{ flex: 1 }}>Randomize lighting</span>
-            </span>
-          </label>
-          <label className="field">
-            <span className="row" style={{ alignItems: 'center' }}>
-              <input
-                type="checkbox"
-                checked={cs.randomizeObjects}
-                onChange={(e) =>
-                  setCapture({ randomizeObjects: e.target.checked })
-                }
-                style={{ width: 'auto', flex: 'none' }}
-              />
-              <span style={{ flex: 1 }}>Randomize objects</span>
-            </span>
-          </label>
-          <button onClick={() => triggerBatch()} className="primary">
-            ⚡ Capture batch ({cs.batchCount})
-          </button>
+            </label>
+            <button
+              onClick={() => triggerBatch()}
+              className="primary capture-batch-button"
+            >
+              ⚡ Batch ({cs.batchCount})
+            </button>
+          </div>
+
+          <fieldset className="capture-randomize-group">
+            <legend>Randomize</legend>
+            <div className="capture-toggle-list">
+              <label className="check-row">
+                <input
+                  type="checkbox"
+                  checked={cs.randomizeCamera}
+                  onChange={(e) =>
+                    setCapture({ randomizeCamera: e.target.checked })
+                  }
+                />
+                <span>Camera</span>
+              </label>
+              <label className="check-row">
+                <input
+                  type="checkbox"
+                  checked={cs.randomizeLighting}
+                  onChange={(e) =>
+                    setCapture({ randomizeLighting: e.target.checked })
+                  }
+                />
+                <span>Lighting</span>
+              </label>
+              <label className="check-row">
+                <input
+                  type="checkbox"
+                  checked={cs.randomizeObjects}
+                  onChange={(e) =>
+                    setCapture({ randomizeObjects: e.target.checked })
+                  }
+                />
+                <span>Objects</span>
+              </label>
+            </div>
+          </fieldset>
         </div>
 
-        <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-          {captures.length} captures
+        <div className="capture-footer">
+          <span>{captures.length} captures</span>
+          <button onClick={clearCaptures} disabled={captures.length === 0}>
+            Clear
+          </button>
         </div>
-        <button onClick={clearCaptures} disabled={captures.length === 0}>
-          Clear captures
-        </button>
       </div>
 
       <div className="card">

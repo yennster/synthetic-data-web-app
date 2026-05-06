@@ -140,6 +140,29 @@ describe('uploadImage', () => {
     const [, init] = fetchMock.mock.calls[0];
     expect(JSON.parse(init.headers['x-bounding-boxes'])).toEqual(boxes);
   });
+
+  it('preserves multiple boxes in the Edge Impulse header payload', async () => {
+    const blob = new Blob(['fake-png'], { type: 'image/png' });
+    const boxes = [
+      { label: 'cube', x: 4, y: 8, width: 32, height: 40 },
+      { label: 'sphere', x: 100, y: 12, width: 26, height: 28 },
+    ];
+
+    await uploadImage(baseCfg, blob, 'frame.png', 'mixed-scene', boxes);
+
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init.headers['x-label']).toBe('mixed-scene');
+    expect(JSON.parse(init.headers['x-bounding-boxes'])).toEqual(boxes);
+  });
+
+  it('does not attach the boxes header for an empty boxes array', async () => {
+    const blob = new Blob(['fake-png'], { type: 'image/png' });
+
+    await uploadImage(baseCfg, blob, 'frame.png', 'empty-scene', []);
+
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init.headers['x-bounding-boxes']).toBeUndefined();
+  });
 });
 
 describe('uploadCaptures', () => {
@@ -206,5 +229,116 @@ describe('uploadCaptures', () => {
     await uploadCaptures(baseCfg, [cap], 'x', true);
     [, init] = fetchMock.mock.calls[0];
     expect(JSON.parse(init.headers['x-bounding-boxes'])).toEqual(cap.boxes);
+  });
+
+  it('uploads each detection capture with its own bounding boxes header', async () => {
+    const caps = [
+      makeCapture({
+        filename: 'frame-0001.png',
+        boxes: [
+          { label: 'cube', x: 10, y: 20, width: 30, height: 40 },
+          { label: 'sphere', x: 50, y: 60, width: 70, height: 80 },
+        ],
+      }),
+      makeCapture({
+        filename: 'frame-0002.png',
+        boxes: [{ label: 'cone', x: 3, y: 4, width: 5, height: 6 }],
+      }),
+    ];
+
+    const result = await uploadCaptures(baseCfg, caps, 'objects', true);
+
+    expect(result).toEqual({ done: 2, failed: 0, lastError: undefined });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [, firstInit] = fetchMock.mock.calls[0];
+    const [, secondInit] = fetchMock.mock.calls[1];
+    expect(JSON.parse(firstInit.headers['x-bounding-boxes'])).toEqual(
+      caps[0].boxes,
+    );
+    expect(JSON.parse(secondInit.headers['x-bounding-boxes'])).toEqual(
+      caps[1].boxes,
+    );
+  });
+
+  it('omits the boxes header per capture when detection has no visible boxes', async () => {
+    const caps = [
+      makeCapture({
+        filename: 'empty-frame.png',
+        boxes: [],
+      }),
+      makeCapture({
+        filename: 'boxed-frame.png',
+        boxes: [{ label: 'cube', x: 1, y: 2, width: 3, height: 4 }],
+      }),
+    ];
+
+    await uploadCaptures(baseCfg, caps, 'objects', true);
+
+    const [, emptyInit] = fetchMock.mock.calls[0];
+    const [, boxedInit] = fetchMock.mock.calls[1];
+    expect(emptyInit.headers['x-bounding-boxes']).toBeUndefined();
+    expect(JSON.parse(boxedInit.headers['x-bounding-boxes'])).toEqual(
+      caps[1].boxes,
+    );
+  });
+
+  it('uses capture labels when present and falls back to the default label', async () => {
+    const caps = [
+      makeCapture({ filename: 'default-label.png', label: '' }),
+      makeCapture({ filename: 'custom-label.png', label: 'anomaly' }),
+    ];
+
+    await uploadCaptures(baseCfg, caps, 'normal', false);
+
+    const [, firstInit] = fetchMock.mock.calls[0];
+    const [, secondInit] = fetchMock.mock.calls[1];
+    expect(firstInit.headers['x-label']).toBe('normal');
+    expect(secondInit.headers['x-label']).toBe('anomaly');
+  });
+
+  it('routes detection uploads with boxes to the testing files endpoint', async () => {
+    const cap = makeCapture({
+      boxes: [{ label: 'cube', x: 1, y: 2, width: 3, height: 4 }],
+    });
+
+    await uploadCaptures({ ...baseCfg, category: 'testing' }, [cap], 'objects', true);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain('/api/testing/files');
+    expect(JSON.parse(init.headers['x-bounding-boxes'])).toEqual(cap.boxes);
+  });
+
+  it('reports progress before each boxed upload and after the batch finishes', async () => {
+    const caps = [
+      makeCapture({
+        filename: 'frame-0001.png',
+        boxes: [{ label: 'cube', x: 1, y: 2, width: 3, height: 4 }],
+      }),
+      makeCapture({
+        filename: 'frame-0002.png',
+        boxes: [{ label: 'sphere', x: 5, y: 6, width: 7, height: 8 }],
+      }),
+    ];
+    const onProgress = vi.fn();
+
+    await uploadCaptures(baseCfg, caps, 'objects', true, onProgress);
+
+    expect(onProgress).toHaveBeenNthCalledWith(1, {
+      total: 2,
+      done: 0,
+      failed: 0,
+      current: 'frame-0001.png',
+    });
+    expect(onProgress).toHaveBeenNthCalledWith(2, {
+      total: 2,
+      done: 1,
+      failed: 0,
+      current: 'frame-0002.png',
+    });
+    expect(onProgress).toHaveBeenLastCalledWith({
+      total: 2,
+      done: 2,
+      failed: 0,
+    });
   });
 });
