@@ -287,12 +287,22 @@ export function VisionPanel() {
                   fontSize: 12,
                 }}
               >
-                <span
+                <input
+                  type="color"
+                  value={o.color}
+                  onChange={(e) =>
+                    updateSceneObject(o.id, { color: e.target.value })
+                  }
+                  title={`Color: ${o.color}`}
                   style={{
-                    width: 12,
-                    height: 12,
-                    background: o.color,
+                    flex: 'none',
+                    width: 18,
+                    height: 18,
+                    padding: 0,
+                    border: '1px solid var(--border)',
                     borderRadius: 3,
+                    background: 'transparent',
+                    cursor: 'pointer',
                   }}
                 />
                 <input
