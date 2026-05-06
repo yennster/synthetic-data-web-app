@@ -303,7 +303,10 @@ export function Scene({
       />
 
       <Physics gravity={GRAVITY}>
-        <Ground visible={!showConveyor || mode === 'motion'} />
+        {/* Ground is visible in every mode now — when the conveyor is on
+            it forms the surrounding floor; in motion / clean detection
+            it's the only floor. The conveyor sits on top of it. */}
+        <Ground visible />
         {mode === 'motion' ? (
           <>
             <ManipulatedObject />
