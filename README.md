@@ -1,5 +1,13 @@
 # Synthetic Data Studio
 
+[![Release](https://img.shields.io/github/v/release/yennster/synthetic-data-web-app?label=release&color=5eead4)](https://github.com/yennster/synthetic-data-web-app/releases)
+[![CI](https://img.shields.io/github/actions/workflow/status/yennster/synthetic-data-web-app/release.yml?label=release%20pipeline)](https://github.com/yennster/synthetic-data-web-app/actions/workflows/release.yml)
+[![License: MIT](https://img.shields.io/github/license/yennster/synthetic-data-web-app?color=blue)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/yennster/synthetic-data-web-app?style=flat&color=f59e0b)](https://github.com/yennster/synthetic-data-web-app/stargazers)
+[![Built with React](https://img.shields.io/badge/built%20with-React%2018-61dafb?logo=react&logoColor=fff)](https://react.dev)
+[![Three.js](https://img.shields.io/badge/three.js-r169-000?logo=threedotjs&logoColor=fff)](https://threejs.org)
+[![Edge Impulse](https://img.shields.io/badge/Edge%20Impulse-ingestion%20API-1a73e8)](https://www.edgeimpulse.com/)
+
 A browser-based 3D tool for generating synthetic training data for [Edge Impulse](https://www.edgeimpulse.com/) projects. Three modes in one app:
 
 - **Motion** — Manipulate a virtual object with hand-tracked pinch gestures via your webcam, capture realistic 3-axis accelerometer data, and upload to Edge Impulse.
