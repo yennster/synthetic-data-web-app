@@ -35,9 +35,9 @@ export function Hud() {
       <div
         className="pill"
         style={{ background: 'rgba(20,24,29,0.6)', fontSize: 10 }}
-        title="Shift+drag = horizontal (XZ); Shift+Alt+drag = vertical (Y) so you can lift and drop"
+        title="Shift+drag moves the object in the camera-aligned plane — orbit the view to access different axes (top-down for XZ, side for XY)"
       >
-        Tip: Shift+drag · Shift+Alt+drag for height
+        Tip: Shift+drag to move
       </div>
     </div>
   );

@@ -3,20 +3,21 @@ import { useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 
-type DragMode = 'xz' | 'y';
-
 /**
- * Build pointer-event handlers that let the user drag a mesh in 3D space.
+ * Build pointer-event handlers that let the user drag a mesh anywhere in
+ * 3D world space using a single Shift+drag gesture.
  *
- *   Shift + drag         → horizontal (XZ) at the object's current Y
- *   Shift + Alt + drag   → vertical (Y), so you can lift things up and let
- *                          physics drop them again
+ * Implementation: at drag-start we drop a plane through the object that's
+ * perpendicular to the camera's gaze direction. The pointer ray is then
+ * intersected with that plane each move, giving a 3D world point that
+ * tracks under the cursor. Result: pointer-right always moves the object
+ * along the camera's local X (right of screen), pointer-up moves it along
+ * the camera's local Y (up of screen). Orbit to a side view → vertical
+ * mouse motion = world Y. Orbit to top-down → vertical mouse motion =
+ * world Z. So the user gets all three axes by combining orbit and drag,
+ * which is how every 3D viewport works.
  *
  * Without the Shift modifier, OrbitControls keeps working as normal.
- *
- * Vertical mode uses a camera-facing vertical plane through the object so
- * cursor-up moves the object up regardless of orbit angle. The XZ stays
- * locked while Alt is held so you get pure vertical motion.
  */
 export function useDragMove(opts: {
   /** Read current world position of the dragged object. */
@@ -32,30 +33,18 @@ export function useDragMove(opts: {
 } {
   const { getPosition, setPosition, enabled = true } = opts;
   const dragging = useRef(false);
-  const mode = useRef<DragMode>('xz');
-  const xzPlaneY = useRef(0);
-  const vNormal = useRef(new THREE.Vector3());
-  const vPoint = useRef(new THREE.Vector3());
+  const planeNormal = useRef(new THREE.Vector3());
+  const planePoint = useRef(new THREE.Vector3());
   const offset = useRef(new THREE.Vector3());
   const captureTarget = useRef<HTMLElement | null>(null);
   const { controls, camera } = useThree();
 
-  const intersect = (
-    ray: THREE.Ray,
-    m: DragMode,
-  ): THREE.Vector3 | null => {
-    if (m === 'xz') {
-      const dy = ray.direction.y;
-      if (Math.abs(dy) < 1e-6) return null;
-      const t = (xzPlaneY.current - ray.origin.y) / dy;
-      if (t < 0) return null;
-      return ray.origin.clone().addScaledVector(ray.direction, t);
-    }
-    // Vertical plane — normal lies in XZ (camera-forward projected to ground).
-    const denom = vNormal.current.dot(ray.direction);
+  /** Intersect the pointer ray with the drag plane. */
+  const intersect = (ray: THREE.Ray): THREE.Vector3 | null => {
+    const denom = planeNormal.current.dot(ray.direction);
     if (Math.abs(denom) < 1e-6) return null;
-    const diff = vPoint.current.clone().sub(ray.origin);
-    const t = vNormal.current.dot(diff) / denom;
+    const diff = planePoint.current.clone().sub(ray.origin);
+    const t = planeNormal.current.dot(diff) / denom;
     if (t < 0) return null;
     return ray.origin.clone().addScaledVector(ray.direction, t);
   };
@@ -66,27 +55,19 @@ export function useDragMove(opts: {
     e.stopPropagation();
     const cur = getPosition();
 
-    if (e.altKey) {
-      mode.current = 'y';
-      // Plane normal: camera forward projected to the XZ plane, so the plane
-      // itself is vertical and faces the camera.
-      const camDir = new THREE.Vector3();
-      camera.getWorldDirection(camDir);
-      camDir.y = 0;
-      if (camDir.lengthSq() < 1e-6) return; // top-down view; bail
-      camDir.normalize();
-      vNormal.current.copy(camDir);
-      vPoint.current.set(cur[0], cur[1], cur[2]);
-      const hit = intersect(e.ray, 'y');
-      if (!hit) return;
-      offset.current.set(0, cur[1] - hit.y, 0);
-    } else {
-      mode.current = 'xz';
-      xzPlaneY.current = cur[1];
-      const hit = intersect(e.ray, 'xz');
-      if (!hit) return;
-      offset.current.set(cur[0] - hit.x, 0, cur[2] - hit.z);
-    }
+    // Plane normal = camera forward (so the plane faces the camera).
+    // Passing through the object's current position.
+    const camDir = new THREE.Vector3();
+    camera.getWorldDirection(camDir);
+    if (camDir.lengthSq() < 1e-6) return;
+    planeNormal.current.copy(camDir);
+    planePoint.current.set(cur[0], cur[1], cur[2]);
+
+    const hit = intersect(e.ray);
+    if (!hit) return;
+    // Offset between cursor world point and object position so the object
+    // doesn't jump under the cursor on the first move.
+    offset.current.set(cur[0] - hit.x, cur[1] - hit.y, cur[2] - hit.z);
 
     dragging.current = true;
     if (controls) (controls as unknown as { enabled: boolean }).enabled = false;
@@ -104,19 +85,13 @@ export function useDragMove(opts: {
   const onPointerMove = (e: ThreeEvent<PointerEvent>) => {
     if (!dragging.current) return;
     e.stopPropagation();
-    const hit = intersect(e.ray, mode.current);
+    const hit = intersect(e.ray);
     if (!hit) return;
-    if (mode.current === 'xz') {
-      setPosition([
-        hit.x + offset.current.x,
-        xzPlaneY.current,
-        hit.z + offset.current.z,
-      ]);
-    } else {
-      // Y mode: keep X/Z fixed, only update Y.
-      const cur = getPosition();
-      setPosition([cur[0], hit.y + offset.current.y, cur[2]]);
-    }
+    setPosition([
+      hit.x + offset.current.x,
+      hit.y + offset.current.y,
+      hit.z + offset.current.z,
+    ]);
   };
 
   const endDrag = (e: ThreeEvent<PointerEvent>) => {
