@@ -54,6 +54,25 @@ input, select {
 }
 input:focus, select:focus { outline: none; border-color: var(--accent-2); }
 
+/* Strip native chrome from color pickers so they render as a flat
+   colored square that respects the inline width/height. The actual
+   colour comes from the input's `value` via the browser; we just
+   hide the OS-default swatch border / wrapper padding. */
+input[type="color"] {
+  -webkit-appearance: none;
+  appearance: none;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+  overflow: hidden;
+}
+input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+input[type="color"]::-webkit-color-swatch { border: none; border-radius: 2px; }
+input[type="color"]::-moz-color-swatch { border: none; border-radius: 2px; }
+input[type="color"]:hover { border-color: var(--accent-2); }
+
 label.field {
   display: flex;
   flex-direction: column;

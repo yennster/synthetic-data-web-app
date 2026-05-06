@@ -7,17 +7,22 @@ import * as THREE from 'three';
  * Build pointer-event handlers that let the user drag a mesh anywhere in
  * 3D world space using a single Shift+drag gesture.
  *
- * Implementation: at drag-start we drop a plane through the object that's
- * perpendicular to the camera's gaze direction. The pointer ray is then
- * intersected with that plane each move, giving a 3D world point that
- * tracks under the cursor. Result: pointer-right always moves the object
- * along the camera's local X (right of screen), pointer-up moves it along
- * the camera's local Y (up of screen). Orbit to a side view → vertical
- * mouse motion = world Y. Orbit to top-down → vertical mouse motion =
- * world Z. So the user gets all three axes by combining orbit and drag,
- * which is how every 3D viewport works.
+ * Plane intersection: at drag-start we drop a plane through the object that's
+ * perpendicular to the camera's gaze direction. The pointer ray is intersected
+ * with that plane each move, giving a 3D world point that tracks under the
+ * cursor.
  *
- * Without the Shift modifier, OrbitControls keeps working as normal.
+ * Result:
+ *   - Cursor right → object moves along camera's right
+ *   - Cursor up    → object moves along camera's up
+ *   - Mouse wheel  → object moves along camera's gaze (closer / farther)
+ *
+ * Combine with orbit and you have full XYZ control without ever leaving the
+ * Shift+drag gesture: orbit to expose the axis you want, drag for the
+ * in-plane component, scroll for the depth component.
+ *
+ * Without the Shift modifier, OrbitControls keeps working as normal — wheel
+ * is its zoom, drag is its orbit/pan.
  */
 export function useDragMove(opts: {
   /** Read current world position of the dragged object. */
@@ -30,6 +35,7 @@ export function useDragMove(opts: {
   onPointerDown: (e: ThreeEvent<PointerEvent>) => void;
   onPointerMove: (e: ThreeEvent<PointerEvent>) => void;
   onPointerUp: (e: ThreeEvent<PointerEvent>) => void;
+  onWheel: (e: ThreeEvent<WheelEvent>) => void;
 } {
   const { getPosition, setPosition, enabled = true } = opts;
   const dragging = useRef(false);
@@ -55,8 +61,8 @@ export function useDragMove(opts: {
     e.stopPropagation();
     const cur = getPosition();
 
-    // Plane normal = camera forward (so the plane faces the camera).
-    // Passing through the object's current position.
+    // Plane normal = camera forward (so the plane faces the camera),
+    // passing through the object's current position.
     const camDir = new THREE.Vector3();
     camera.getWorldDirection(camDir);
     if (camDir.lengthSq() < 1e-6) return;
@@ -109,9 +115,39 @@ export function useDragMove(opts: {
     captureTarget.current = null;
   };
 
+  /**
+   * While a drag is in progress, scrolling the mouse wheel pushes the drag
+   * plane along the camera's gaze direction. The cursor keeps hitting the
+   * plane in the same screen-space position, so the object slides forward
+   * (away from camera) or backward (toward camera) by exactly the plane
+   * shift. Combined with cursor motion you get a full 3DOF translation
+   * gesture without ever leaving Shift+drag.
+   *
+   * Scroll up   = deltaY < 0 = object moves toward the camera (closer)
+   * Scroll down = deltaY > 0 = object moves away from the camera (farther)
+   */
+  const onWheel = (e: ThreeEvent<WheelEvent>) => {
+    if (!dragging.current) return;
+    e.stopPropagation();
+    e.nativeEvent.preventDefault?.();
+
+    // 0.003 per pixel of deltaY → ~0.3m per typical wheel notch (deltaY≈100).
+    const step = e.nativeEvent.deltaY * 0.003;
+    planePoint.current.addScaledVector(planeNormal.current, step);
+
+    const hit = intersect(e.ray);
+    if (!hit) return;
+    setPosition([
+      hit.x + offset.current.x,
+      hit.y + offset.current.y,
+      hit.z + offset.current.z,
+    ]);
+  };
+
   return {
     onPointerDown,
     onPointerMove,
     onPointerUp: endDrag,
+    onWheel,
   };
 }

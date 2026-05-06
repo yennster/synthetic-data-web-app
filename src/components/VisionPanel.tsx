@@ -294,16 +294,7 @@ export function VisionPanel() {
                     updateSceneObject(o.id, { color: e.target.value })
                   }
                   title={`Color: ${o.color}`}
-                  style={{
-                    flex: 'none',
-                    width: 18,
-                    height: 18,
-                    padding: 0,
-                    border: '1px solid var(--border)',
-                    borderRadius: 3,
-                    background: 'transparent',
-                    cursor: 'pointer',
-                  }}
+                  style={{ flex: 'none', width: 16, height: 16 }}
                 />
                 <input
                   value={o.label}
