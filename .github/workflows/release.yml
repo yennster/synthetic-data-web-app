@@ -23,6 +23,9 @@ jobs:
       contents: write
       # Needed to publish to GitHub Packages.
       packages: write
+    env:
+      # Resolved tag — comes from the dispatch input or the pushed tag ref.
+      RELEASE_TAG: ${{ env.RELEASE_TAG }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -59,15 +62,15 @@ jobs:
       - name: Zip dist bundle
         run: |
           cd dist
-          zip -r9q "../synthetic-data-web-app-${GITHUB_REF_NAME}.zip" .
+          zip -r9q "../synthetic-data-web-app-${RELEASE_TAG}.zip" .
           cd ..
-          ls -lh "synthetic-data-web-app-${GITHUB_REF_NAME}.zip"
+          ls -lh "synthetic-data-web-app-${RELEASE_TAG}.zip"
 
       - name: Create / update GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-          files: synthetic-data-web-app-${{ github.event.inputs.tag || github.ref_name }}.zip
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: synthetic-data-web-app-${{ env.RELEASE_TAG }}.zip
           generate_release_notes: true
           fail_on_unmatched_files: true
 
