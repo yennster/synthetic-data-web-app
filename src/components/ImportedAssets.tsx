@@ -146,6 +146,20 @@ function PhysicsAsset({ asset }: { asset: ImportedAsset }) {
       return [t.x, t.y, t.z];
     },
     setPosition: (p) => updateAsset(asset.id, { position: p }),
+    // Kinematic while held so gravity doesn't yank the asset down between
+    // drag samples — same reason as the spawned-object path.
+    onDragStart: () => {
+      const body = bodyRef.current;
+      if (!body) return;
+      body.setBodyType(2 /* KinematicPositionBased */, true);
+      body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    },
+    onDragEnd: () => {
+      const body = bodyRef.current;
+      if (!body) return;
+      body.setBodyType(0 /* Dynamic */, true);
+    },
   });
 
   return (
