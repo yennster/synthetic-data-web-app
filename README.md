@@ -4,8 +4,6 @@ A browser-based 3D tool for generating synthetic IMU / accelerometer training da
 
 Pinch a virtual cube (or sphere / phone / capsule) in 3D space using your bare hand, throw it onto the ground, and the physics engine generates realistic 3-axis accelerometer data — the same kind of signal a real IMU strapped to that object would produce. Record, label, and ship to Edge Impulse with one click.
 
----
-
 ## Features
 
 - **Hand tracking** via Google MediaPipe `HandLandmarker` (runs in-browser on GPU/WASM, ~60 fps).
@@ -18,8 +16,6 @@ Pinch a virtual cube (or sphere / phone / capsule) in 3D space using your bare h
 - **Direct Edge Impulse upload** via the [Ingestion API](https://docs.edgeimpulse.com/reference/data-ingestion/ingestion-api), with optional HMAC-SHA256 signing.
 - **API key never persisted** — held in memory for the session only. Refresh the page = key gone.
 
----
-
 ## Tech stack
 
 | Layer | Library |
@@ -30,8 +26,6 @@ Pinch a virtual cube (or sphere / phone / capsule) in 3D space using your bare h
 | Hand tracking | `@mediapipe/tasks-vision` (HandLandmarker, GPU delegate) |
 | State | Zustand |
 | Upload | Fetch + WebCrypto SubtleCrypto (for HMAC) |
-
----
 
 ## Quick start
 
@@ -44,8 +38,6 @@ Open **http://localhost:5173** in a Chromium-based browser (Chrome, Edge, Brave)
 
 > **Camera permission is required.** The first time the page loads, allow camera access when prompted. The browser must serve over `localhost` or HTTPS for `getUserMedia` to work.
 
----
-
 ## How to record a sample
 
 1. **Show your hand** to the camera. The pill in the top-left will read `Hand: tracked` and the pinch % updates live.
@@ -56,8 +48,6 @@ Open **http://localhost:5173** in a Chromium-based browser (Chrome, Edge, Brave)
 6. Paste your Edge Impulse API key, set a label (e.g. `shake`, `drop`, `idle`, `tilt`), and click **⤴ Upload to Edge Impulse**.
 
 Sample buffer clears automatically after a successful upload.
-
----
 
 ## Edge Impulse setup
 
@@ -86,8 +76,6 @@ The payload conforms to the [Edge Impulse data acquisition format](https://docs.
 }
 ```
 
----
-
 ## Project structure
 
 ```
@@ -106,8 +94,6 @@ src/
 └── store/
     └── useStore.ts          // Zustand store (samples, config, status)
 ```
-
----
 
 ## How the accelerometer signal is computed
 
@@ -129,8 +115,6 @@ For each sampling tick (at the configured `sampleRateHz`):
 
 This means a stationary object reads `(0, +9.81, 0)` (the ground pushes up against gravity), a freefalling object reads `(0, 0, 0)`, and during a hand-driven shake you get the kind of waveform you'd expect from a real accelerometer.
 
----
-
 ## Adding new object types
 
 Edit `src/store/useStore.ts`:
@@ -140,8 +124,6 @@ export type ObjectKind = 'cube' | 'sphere' | 'phone' | 'capsule' | 'newKind';
 ```
 
 Add a case in `ObjectMesh` inside `src/components/Scene.tsx`, and an entry in the `OBJECTS` array in `src/components/Sidebar.tsx`. The physics body, sampling, and gesture wiring are already kind-agnostic.
-
----
 
 ## Tuning
 
@@ -154,15 +136,11 @@ Add a case in `ObjectMesh` inside `src/components/Scene.tsx`, and an entry in th
 | Sample rate | UI / `useStore.ts` | 100 Hz |
 | Scene-space mapping (image → 3D) | `CameraFeed.tsx`, end of `tick()` | x:±3, y:−1.5..3.5, z·8 |
 
----
-
 ## Privacy notes
 
 - The webcam stream **never leaves the browser**. MediaPipe runs locally; only the recorded accelerometer samples (numbers) are uploaded.
 - API keys are kept in JavaScript memory only — not in `localStorage`, `sessionStorage`, cookies, or any file. Reload = wiped.
 - Edge Impulse uploads use HTTPS to `ingestion.edgeimpulse.com`.
-
----
 
 ## Troubleshooting
 
@@ -176,8 +154,6 @@ Add a case in `ObjectMesh` inside `src/components/Scene.tsx`, and an entry in th
 
 **Edge Impulse "invalid signature"** — Either fill in the HMAC key from your project, or leave it blank to send unsigned (`alg: "none"`).
 
----
-
 ## Build for production
 
 ```bash
@@ -186,8 +162,6 @@ npm run preview
 ```
 
 The output in `dist/` is a static bundle — host on any static host (Netlify, Vercel, GitHub Pages, S3, etc.). No server needed; all hand tracking runs client-side.
-
----
 
 ## License
 
