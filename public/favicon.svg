@@ -1,0 +1,18 @@
+<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <!-- Dark rounded background, matches the app's panel colour. -->
+  <rect width="64" height="64" rx="12" fill="#0b0d10"/>
+  <!-- Isometric cube — the same shape that opens the README screenshot.
+       Teal top face = the app's accent colour, two tones of teal/cyan
+       for the side faces give the depth read at 16×16. -->
+  <g transform="translate(32 36)">
+    <!-- top -->
+    <path d="M 0 -18 L 18 -9 L 0 0 L -18 -9 Z" fill="#5eead4"/>
+    <!-- left -->
+    <path d="M -18 -9 L 0 0 L 0 18 L -18 9 Z" fill="#0d9488"/>
+    <!-- right -->
+    <path d="M 18 -9 L 0 0 L 0 18 L 18 9 Z" fill="#14b8a6"/>
+  </g>
+  <!-- Tiny amber dot — references the spawned-object palette and gives a
+       second focal point so the icon doesn't read as "just a logo cube". -->
+  <circle cx="50" cy="14" r="4" fill="#f59e0b"/>
+</svg>
