@@ -81,10 +81,32 @@ export function VisionPanel() {
         continue;
       }
       try {
-        const { object, maxDim } = await loadUsdz(file);
-        // Normalise to a roughly belt-friendly size.
-        const targetSize = 1.0;
-        const initialScale = targetSize / maxDim;
+        const {
+          object,
+          maxDim,
+          meshCount,
+          triangleCount,
+          defaultMaterialMeshes,
+        } = await loadUsdz(file);
+
+        // Smarter auto-scaling: don't crush room-sized assets down to 1m
+        // (which makes coplanar floor decals z-fight at sub-mm scale and
+        // looks like the "magenta crinkly" pattern). Only normalise the
+        // extreme cases.
+        //   maxDim > 3   → scale so largest dim is 3m   (rooms / vehicles)
+        //   maxDim < 0.05 → scale so largest dim is 0.1m (tiny assets)
+        //   otherwise    → keep scale = 1
+        let initialScale = 1;
+        if (maxDim > 3) initialScale = 3 / maxDim;
+        else if (maxDim < 0.05) initialScale = 0.1 / maxDim;
+
+        // If most meshes look like the OpenUSD WASM magenta placeholder
+        // (e.g. an Omniverse asset with MDL materials), pre-enable the
+        // material override so the user sees something usable immediately.
+        const placeholderRatio =
+          meshCount > 0 ? defaultMaterialMeshes / meshCount : 0;
+        const autoOverride = placeholderRatio > 0.5;
+
         const id = crypto.randomUUID();
         const baseName = file.name.replace(/\.usdz$/i, '');
         addAsset({
@@ -100,11 +122,21 @@ export function VisionPanel() {
           rotation: [0, 0, 0],
           scale: initialScale,
           physics: false,
-          overrideMaterial: false,
+          overrideMaterial: autoOverride,
           overrideColor: '#a78bfa',
           overrideRoughness: 0.5,
           overrideMetalness: 0.1,
         });
+
+        // Surface what we got so the user can debug Omniverse / usdzip
+        // ingest issues without opening DevTools.
+        const summary = `${meshCount} meshes · ${triangleCount.toLocaleString()} tris · ${maxDim.toFixed(2)}m max`;
+        const matNote =
+          defaultMaterialMeshes === 0
+            ? ''
+            : ` · ${defaultMaterialMeshes}/${meshCount} default-material${autoOverride ? ' (override auto-enabled)' : ''}`;
+        setStatus('ok', `Imported ${baseName}.usdz: ${summary}${matNote}`);
+
         count += 1;
       } catch (e) {
         setStatus('err', `${file.name}: ${(e as Error).message}`);

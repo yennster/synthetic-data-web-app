@@ -235,6 +235,33 @@ Fixes, in order of effort:
 
 `usdzip` zips a `.usd` / `.usda` file together with referenced textures into a `.usdz`. If the original USD references a texture by **absolute path** or by a path that doesn't exist on disk at zip time, the texture won't be in the archive. Check by unzipping the `.usdz` (it's a regular zip): `unzip -l my_scene.usdz`. Re-export with relative texture paths or use the Override material toggle.
 
+### Omniverse scene templates / room-scale USD references
+
+NVIDIA's Omniverse scene templates (and most production USD layouts) heavily use **`References`** — the top-level `.usd` is a thin layout that points at separate `.usd` files for each prop / wall / fixture. `usdzip` does **not** chase those references by default, so you end up with a `.usdz` containing only the layout and missing all the geometry — which renders as nothing, or as the magenta placeholder if the layout itself has any prims.
+
+The fix is to **flatten** the scene before zipping. Run from a shell with the OpenUSD CLI tools installed (`pip install usd-core` is enough):
+
+```bash
+usdcat --flatten room.usd --out room_flat.usda
+usdzip room.usdz room_flat.usda
+```
+
+`usdcat --flatten` resolves all `References` / `Payloads` / `SubLayers` and writes a single self-contained `.usda` with everything inlined. Then `usdzip` packages that one file plus its textures.
+
+**Caveat**: even after flattening, Omniverse scenes typically use **MDL materials**, which the OpenUSD WASM runtime can't translate. After import, the studio auto-enables the **Override material** toggle for assets where >50% of meshes are placeholder-shaded — flip it on yourself if it didn't trigger and pick a colour. The geometry will still be correct (you can see the room outlines, train detection on its layout, etc.) — just unshaded.
+
+**Another option**: open the Omniverse asset in Blender (4.0+ has a USD importer), let Blender translate MDL → Principled BSDF → UsdPreviewSurface on export, and use Blender's USD exporter directly. The output works without flattening or material overrides.
+
+### Import diagnostics
+
+After every import the status bar shows what was loaded:
+
+```
+Imported room_flat.usdz: 142 meshes · 2,815,432 tris · 9.83m max · 142/142 default-material (override auto-enabled)
+```
+
+That tells you how much geometry came in, how big the asset is, and whether materials translated. If `default-material` is 0, you're getting real PBR shading.
+
 ### Cross-origin isolation requirement
 
 The OpenUSD WASM uses `SharedArrayBuffer`, which requires the page to be served with **cross-origin isolation** headers:

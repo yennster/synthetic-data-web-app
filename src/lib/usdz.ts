@@ -11,6 +11,14 @@ export type LoadedUsdz = {
   localBox: THREE.Box3;
   /** Largest dimension, useful for normalising scale. */
   maxDim: number;
+  /** Number of meshes traversed in the imported subtree. */
+  meshCount: number;
+  /** Approximate triangle count across all meshes. */
+  triangleCount: number;
+  /** Number of meshes whose only material is the OpenUSD WASM default
+   * (typically the magenta "no MDL translator" placeholder). When this is
+   * high, the user probably wants to enable the Override Material toggle. */
+  defaultMaterialMeshes: number;
 };
 
 let _loader: WasmUSDZLoader | null = null;
@@ -37,19 +45,35 @@ export async function loadUsdz(file: File): Promise<LoadedUsdz> {
 
   await loader.loadFile(file, wrapper);
 
-  // Apply nice defaults to the imported meshes.
+  // Apply nice defaults to the imported meshes, and gather diagnostics.
+  let meshCount = 0;
+  let triangleCount = 0;
+  let defaultMaterialMeshes = 0;
   wrapper.traverse((o) => {
     const m = o as THREE.Mesh;
-    if (m.isMesh) {
-      m.castShadow = true;
-      m.receiveShadow = true;
-      const mats = Array.isArray(m.material) ? m.material : [m.material];
-      for (const mat of mats) {
-        if ((mat as THREE.MeshStandardMaterial).envMapIntensity === undefined) {
-          (mat as THREE.MeshStandardMaterial).envMapIntensity = 1.0;
-        }
-      }
+    if (!m.isMesh) return;
+    meshCount += 1;
+    m.castShadow = true;
+    m.receiveShadow = true;
+    if (m.geometry?.index) triangleCount += m.geometry.index.count / 3;
+    else if (m.geometry?.attributes?.position)
+      triangleCount += m.geometry.attributes.position.count / 3;
+
+    const mats = Array.isArray(m.material) ? m.material : [m.material];
+    let allDefaults = true;
+    for (const mat of mats) {
+      if (!mat) continue;
+      const std = mat as THREE.MeshStandardMaterial;
+      if (std.envMapIntensity === undefined) std.envMapIntensity = 1.0;
+      // Heuristic for "this is the OpenUSD WASM default placeholder material":
+      // unnamed, no map, and the colour is bright magenta-ish.
+      const hasName = (mat.name && mat.name.length > 0) || false;
+      const hasMap = !!(std.map || std.normalMap || std.roughnessMap);
+      const c = std.color;
+      const isMagenta = c && c.r > 0.85 && c.g < 0.4 && c.b > 0.5;
+      if (hasName || hasMap || !isMagenta) allDefaults = false;
     }
+    if (mats.length > 0 && allDefaults) defaultMaterialMeshes += 1;
   });
 
   // Compute local-space bounding box and re-centre on origin (XZ centred,
@@ -72,7 +96,14 @@ export async function loadUsdz(file: File): Promise<LoadedUsdz> {
   inner.position.set(-cx, -minY, -cz);
   wrapper.add(inner);
 
-  return { object: wrapper, localBox, maxDim };
+  return {
+    object: wrapper,
+    localBox,
+    maxDim,
+    meshCount,
+    triangleCount: Math.round(triangleCount),
+    defaultMaterialMeshes,
+  };
 }
 
 /**
