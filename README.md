@@ -1,10 +1,10 @@
 # Synthetic Data Studio
 
-[![Release](https://img.shields.io/github/v/release/yennster/synthetic-data-web-app?label=release&color=5eead4)](https://github.com/yennster/synthetic-data-web-app/releases)
-[![Tests](https://img.shields.io/github/actions/workflow/status/yennster/synthetic-data-web-app/test.yml?label=tests&logo=vitest&logoColor=fff)](https://github.com/yennster/synthetic-data-web-app/actions/workflows/test.yml)
-[![CI](https://img.shields.io/github/actions/workflow/status/yennster/synthetic-data-web-app/release.yml?label=release%20pipeline)](https://github.com/yennster/synthetic-data-web-app/actions/workflows/release.yml)
-[![License: MIT](https://img.shields.io/github/license/yennster/synthetic-data-web-app?color=blue)](LICENSE)
-[![GitHub stars](https://img.shields.io/github/stars/yennster/synthetic-data-web-app?style=flat&color=f59e0b)](https://github.com/yennster/synthetic-data-web-app/stargazers)
+[![Release](https://img.shields.io/github/v/release/yennster/synthetic-data-studio?label=release&color=5eead4)](https://github.com/yennster/synthetic-data-studio/releases)
+[![Tests](https://img.shields.io/github/actions/workflow/status/yennster/synthetic-data-studio/test.yml?label=tests&logo=vitest&logoColor=fff)](https://github.com/yennster/synthetic-data-studio/actions/workflows/test.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/yennster/synthetic-data-studio/release.yml?label=release%20pipeline)](https://github.com/yennster/synthetic-data-studio/actions/workflows/release.yml)
+[![License: MIT](https://img.shields.io/github/license/yennster/synthetic-data-studio?color=blue)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/yennster/synthetic-data-studio?style=flat&color=f59e0b)](https://github.com/yennster/synthetic-data-studio/stargazers)
 [![Built with React](https://img.shields.io/badge/built%20with-React%2018-61dafb?logo=react&logoColor=fff)](https://react.dev)
 [![Three.js](https://img.shields.io/badge/three.js-r169-000?logo=threedotjs&logoColor=fff)](https://threejs.org)
 [![Edge Impulse](https://img.shields.io/badge/Edge%20Impulse-ingestion%20API-1a73e8)](https://www.edgeimpulse.com/)
@@ -99,20 +99,20 @@ Pick whichever fits:
 echo "//npm.pkg.github.com/:_authToken=YOUR_TOKEN" >> ~/.npmrc
 
 # Then:
-npx @yennster/synthetic-data-web-app
+npx @yennster/synthetic-data-studio
 ```
 
 Opens on http://localhost:5173 with COOP/COEP preconfigured. Add `--port 8080` to change port, `--no-coep` to disable cross-origin isolation (USDZ import will then fail but everything else works).
 
 ### Option B — download the release zip
 
-Grab the latest `synthetic-data-web-app-vX.Y.Z.zip` from [Releases](https://github.com/yennster/synthetic-data-web-app/releases), unzip, and serve from any static host. The bundle includes a `_headers` file preconfigured for Netlify and Cloudflare Pages.
+Grab the latest `synthetic-data-studio-vX.Y.Z.zip` from [Releases](https://github.com/yennster/synthetic-data-studio/releases), unzip, and serve from any static host. The bundle includes a `_headers` file preconfigured for Netlify and Cloudflare Pages.
 
 ### Option C — clone and run
 
 ```bash
-git clone https://github.com/yennster/synthetic-data-web-app
-cd synthetic-data-web-app
+git clone https://github.com/yennster/synthetic-data-studio
+cd synthetic-data-studio
 npm install
 npm run dev
 ```
