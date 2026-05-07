@@ -273,15 +273,49 @@ export async function getEiDeployment(
   apiKey: string,
   projectId: number,
   type = 'wasm',
-): Promise<{ hasDeployment: boolean; version?: number }> {
-  const r = await studioGet<{
-    success: boolean;
-    error?: string;
-    hasDeployment?: boolean;
-    version?: number;
-  }>(`/${projectId}/deployment?type=${encodeURIComponent(type)}`, apiKey);
-  if (!r.success) throw new Error(r.error || 'Failed to query deployment');
-  return { hasDeployment: !!r.hasDeployment, version: r.version };
+): Promise<{
+  hasDeployment: boolean;
+  version?: number;
+  /** The engine + modelType that actually matched a built artefact. Pass
+   * these to `downloadEiDeployment` so the download targets the same
+   * deployment that the check found. */
+  engine?: string;
+  modelType?: string;
+}> {
+  // Studio's deployment endpoint requires engine + modelType query params to
+  // match against a specific built artefact; without them the API returns
+  // hasDeployment=false even when a build exists. We probe the common
+  // (engine, modelType) combos in priority order and surface the first hit.
+  const candidates: { engine: string; modelType: string }[] = [
+    { engine: 'tflite', modelType: 'int8' },
+    { engine: 'tflite', modelType: 'float32' },
+    { engine: 'tflite-eon', modelType: 'int8' },
+    { engine: 'tflite-eon', modelType: 'float32' },
+  ];
+  let lastError: string | undefined;
+  for (const c of candidates) {
+    const qs = new URLSearchParams({ type, ...c }).toString();
+    const r = await studioGet<{
+      success: boolean;
+      error?: string;
+      hasDeployment?: boolean;
+      version?: number;
+    }>(`/${projectId}/deployment?${qs}`, apiKey);
+    if (!r.success) {
+      lastError = r.error || 'Failed to query deployment';
+      continue;
+    }
+    if (r.hasDeployment) {
+      return {
+        hasDeployment: true,
+        version: r.version,
+        engine: c.engine,
+        modelType: c.modelType,
+      };
+    }
+  }
+  if (lastError) throw new Error(lastError);
+  return { hasDeployment: false };
 }
 
 /**
@@ -413,10 +447,11 @@ export async function downloadEiDeployment(
   apiKey: string,
   projectId: number,
   type = 'wasm',
+  engine = 'tflite',
+  modelType = 'int8',
 ): Promise<Blob> {
-  const url = `${STUDIO_BASE}/${projectId}/deployment/download?type=${encodeURIComponent(
-    type,
-  )}`;
+  const qs = new URLSearchParams({ type, engine, modelType }).toString();
+  const url = `${STUDIO_BASE}/${projectId}/deployment/download?${qs}`;
   const res = await fetch(url, { headers: { 'x-api-key': apiKey } });
   if (!res.ok) {
     const text = await res.text();

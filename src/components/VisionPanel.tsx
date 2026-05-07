@@ -152,7 +152,13 @@ export function VisionPanel() {
         return;
       }
       setBoth('busy', 'Downloading model…');
-      const zip = await downloadEiDeployment(ei.apiKey, selectedProjectId, 'wasm');
+      const zip = await downloadEiDeployment(
+        ei.apiKey,
+        selectedProjectId,
+        'wasm',
+        info.engine,
+        info.modelType,
+      );
       setBoth('busy', `Unpacking model (${(zip.size / 1024).toFixed(0)} KB)…`);
       const projName =
         eiProjects?.find((p) => p.id === selectedProjectId)?.name ??
