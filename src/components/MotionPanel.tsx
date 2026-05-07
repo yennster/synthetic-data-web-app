@@ -279,7 +279,7 @@ export function MotionPanel() {
     await sleepCancellable(40);
     setStatus('busy', `${ctx.index}/${ctx.total} throw: releasing…`);
     const angle = Math.random() * 2 * Math.PI;
-    const speed = 3 + Math.random() * 2; // 3–5 m/s horizontal
+    const speed = drops.throwSpeed * (0.85 + Math.random() * 0.3);
     const upKick = 0.4 + Math.random() * 0.8; // gentle upward arc
     await accelerateAndRelease(
       start,
@@ -301,7 +301,7 @@ export function MotionPanel() {
     await sleepCancellable(40);
     setStatus('busy', `${ctx.index}/${ctx.total} push: shoving…`);
     const angle = Math.random() * 2 * Math.PI;
-    const speed = 2 + Math.random() * 2; // 2–4 m/s
+    const speed = drops.pushSpeed * (0.85 + Math.random() * 0.3);
     await accelerateAndRelease(
       start,
       [Math.cos(angle) * speed, 0, Math.sin(angle) * speed],
@@ -317,8 +317,8 @@ export function MotionPanel() {
     const axisAngle = Math.random() * 2 * Math.PI;
     const ax = Math.cos(axisAngle);
     const az = Math.sin(axisAngle);
-    const freq = 3 + Math.random() * 3; // 3–6 Hz
-    const amp = 0.12 + Math.random() * 0.15; // 12–27 cm peak displacement
+    const freq = drops.shakeFreq * (0.85 + Math.random() * 0.3);
+    const amp = drops.shakeAmp * (0.85 + Math.random() * 0.3);
     startRecording();
     setStatus('busy', `${ctx.index}/${ctx.total} shake: oscillating…`);
     const t0 = performance.now();
@@ -373,6 +373,18 @@ export function MotionPanel() {
           failed += 1;
           continue;
         }
+        const motionParams: Record<string, string | number | boolean> = {};
+        if (motion === 'drop' || motion === 'throw' || motion === 'shake') {
+          motionParams.height_min_m = drops.heightMin;
+          motionParams.height_max_m = drops.heightMax;
+        }
+        if (motion === 'throw') motionParams.throw_speed_mps = drops.throwSpeed;
+        if (motion === 'push') motionParams.push_speed_mps = drops.pushSpeed;
+        if (motion === 'shake') {
+          motionParams.shake_freq_hz = drops.shakeFreq;
+          motionParams.shake_amp_m = drops.shakeAmp;
+        }
+        motionParams.duration_ms = drops.durationMs;
         const fileName = buildFileName(`${motion}_${i + 1}`);
         if (shouldUpload) {
           try {
@@ -389,6 +401,7 @@ export function MotionPanel() {
                 motion,
                 motion_index: i + 1,
                 motion_total: drops.count,
+                ...motionParams,
               },
             );
             if (res.ok) uploaded += 1;
@@ -599,7 +612,10 @@ export function MotionPanel() {
                   value={kind}
                   checked={selected}
                   disabled={dropsRunning}
-                  onChange={() => setDrops({ motion: kind })}
+                  onChange={() => {
+                    setDrops({ motion: kind });
+                    setEi({ label: kind });
+                  }}
                 />
                 {kind}
               </label>
@@ -622,7 +638,7 @@ export function MotionPanel() {
             />
           </label>
           <label className="field">
-            Per-drop ms
+            {`Per-${drops.motion} ms`}
             <input
               type="number"
               min={300}
@@ -636,44 +652,116 @@ export function MotionPanel() {
             />
           </label>
         </div>
-        <label className="field">
-          Drop height min {drops.heightMin.toFixed(2)} m
-          <input
-            type="range"
-            min={0.3}
-            max={4}
-            step={0.05}
-            value={drops.heightMin}
-            onChange={(e) =>
-              setDrops({
-                heightMin: Math.min(
-                  drops.heightMax - 0.05,
-                  Number(e.target.value),
-                ),
-              })
-            }
-            disabled={dropsRunning}
-          />
-        </label>
-        <label className="field">
-          Drop height max {drops.heightMax.toFixed(2)} m
-          <input
-            type="range"
-            min={0.3}
-            max={4}
-            step={0.05}
-            value={drops.heightMax}
-            onChange={(e) =>
-              setDrops({
-                heightMax: Math.max(
-                  drops.heightMin + 0.05,
-                  Number(e.target.value),
-                ),
-              })
-            }
-            disabled={dropsRunning}
-          />
-        </label>
+        {(drops.motion === 'drop' ||
+          drops.motion === 'throw' ||
+          drops.motion === 'shake') && (
+          <>
+            <label className="field">
+              {drops.motion === 'shake' ? 'Center height min' : 'Drop height min'}{' '}
+              {drops.heightMin.toFixed(2)} m
+              <input
+                type="range"
+                min={0.3}
+                max={4}
+                step={0.05}
+                value={drops.heightMin}
+                onChange={(e) =>
+                  setDrops({
+                    heightMin: Math.min(
+                      drops.heightMax - 0.05,
+                      Number(e.target.value),
+                    ),
+                  })
+                }
+                disabled={dropsRunning}
+              />
+            </label>
+            <label className="field">
+              {drops.motion === 'shake' ? 'Center height max' : 'Drop height max'}{' '}
+              {drops.heightMax.toFixed(2)} m
+              <input
+                type="range"
+                min={0.3}
+                max={4}
+                step={0.05}
+                value={drops.heightMax}
+                onChange={(e) =>
+                  setDrops({
+                    heightMax: Math.max(
+                      drops.heightMin + 0.05,
+                      Number(e.target.value),
+                    ),
+                  })
+                }
+                disabled={dropsRunning}
+              />
+            </label>
+          </>
+        )}
+        {drops.motion === 'throw' && (
+          <label className="field">
+            Throw speed {drops.throwSpeed.toFixed(1)} m/s
+            <input
+              type="range"
+              min={1}
+              max={10}
+              step={0.1}
+              value={drops.throwSpeed}
+              onChange={(e) =>
+                setDrops({ throwSpeed: Number(e.target.value) })
+              }
+              disabled={dropsRunning}
+            />
+          </label>
+        )}
+        {drops.motion === 'push' && (
+          <label className="field">
+            Push speed {drops.pushSpeed.toFixed(1)} m/s
+            <input
+              type="range"
+              min={0.5}
+              max={8}
+              step={0.1}
+              value={drops.pushSpeed}
+              onChange={(e) =>
+                setDrops({ pushSpeed: Number(e.target.value) })
+              }
+              disabled={dropsRunning}
+            />
+          </label>
+        )}
+        {drops.motion === 'shake' && (
+          <>
+            <label className="field">
+              Shake frequency {drops.shakeFreq.toFixed(1)} Hz
+              <input
+                type="range"
+                min={1}
+                max={10}
+                step={0.1}
+                value={drops.shakeFreq}
+                onChange={(e) =>
+                  setDrops({ shakeFreq: Number(e.target.value) })
+                }
+                disabled={dropsRunning}
+              />
+            </label>
+            <label className="field">
+              Shake amplitude {(drops.shakeAmp * 100).toFixed(0)} cm
+              <input
+                type="range"
+                min={0.02}
+                max={0.5}
+                step={0.01}
+                value={drops.shakeAmp}
+                onChange={(e) =>
+                  setDrops({ shakeAmp: Number(e.target.value) })
+                }
+                disabled={dropsRunning}
+              />
+            </label>
+          </>
+        )}
         {dropsRunning ? (
           <button
             className="danger"

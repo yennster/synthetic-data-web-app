@@ -188,6 +188,14 @@ type State = {
     /** How long to record after each release before stopping that sample. */
     durationMs: number;
     motion: MotionKind;
+    /** Horizontal release speed for the throw motion (m/s). */
+    throwSpeed: number;
+    /** Horizontal release speed for the push motion (m/s). */
+    pushSpeed: number;
+    /** Oscillation frequency for the shake motion (Hz). */
+    shakeFreq: number;
+    /** Peak displacement amplitude for the shake motion (m). */
+    shakeAmp: number;
   };
   setDrops: (patch: Partial<State['drops']>) => void;
   /** True while a procedural drop sequence is running. UI uses this to show
@@ -331,6 +339,10 @@ export const useStore = create<State>((set) => ({
     heightMax: 2.5,
     durationMs: 1500,
     motion: 'drop',
+    throwSpeed: 4,
+    pushSpeed: 3,
+    shakeFreq: 4.5,
+    shakeAmp: 0.2,
   },
   setDrops: (patch) => set((s) => ({ drops: { ...s.drops, ...patch } })),
   dropsRunning: false,
