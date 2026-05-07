@@ -30,15 +30,7 @@ The Synthetic Data Studio gives you three workflows that share a scene, an asset
 
 **What if you could record motion data without using any dev boards?** Pinch your fingers, the cube turns teal and follows your hand. Release, and physics takes over — the cube falls, bounces, settles. The accelerometer reads `+9.81 m/s²` on the up axis when stationary and near-zero in freefall, like you'd expect from a real sensor reporting proper acceleration. The gyroscope channel gives you angular velocity in the body frame.
 
-If you'd rather skip the camera entirely, use the procedural generator and four different types of motions are record and automatically uploaded into your Edge Impulse project.
-
-#### Procedural motions
-
-![Procedural motions card](../docs/screenshot-procedural-motions.png)
-
-The single most-useful feature for actually filling out a class. Pick a motion class, set how many samples you want, click one button, and walk away.
-
-Each iteration uploads as a separate Edge Impulse sample, labelled with the motion class (`drop_1.json`, `drop_2.json`, …). If you don't have an API key set, the same flow downloads a single zip of all the samples for offline use.
+If you'd rather skip the camera entirely, use the **procedural motion generator** and four different types of motions (drop, throw, push, shake) are recorded and automatically uploaded into your Edge Impulse project.
 
 ### Object detection & visual anomaly mode — labelled images on demand
 

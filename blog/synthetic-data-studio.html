@@ -144,17 +144,7 @@
 
   <p><strong>What if you could record motion data without using any dev boards?</strong> Pinch your fingers, the cube turns teal and follows your hand. Release, and physics takes over — the cube falls, bounces, settles. The accelerometer reads <code>+9.81 m/s²</code> on the up axis when stationary and near-zero in freefall, like you'd expect from a real sensor reporting proper acceleration. The gyroscope channel gives you angular velocity in the body frame.</p>
 
-  <p>If you'd rather skip the camera entirely, use the procedural generator and four different types of motions are record and automatically uploaded into your Edge Impulse project.</p>
-
-  <h4>Procedural motions</h4>
-
-  <figure>
-  <img src="screenshot-procedural-motions.png" alt="Procedural motions card" />
-</figure>
-
-  <p>The single most-useful feature for actually filling out a class. Pick a motion class, set how many samples you want, click one button, and walk away.</p>
-
-  <p>Each iteration uploads as a separate Edge Impulse sample, labelled with the motion class (<code>drop_1.json</code>, <code>drop_2.json</code>, …). If you don't have an API key set, the same flow downloads a single zip of all the samples for offline use.</p>
+  <p>If you'd rather skip the camera entirely, use the <strong>procedural motion generator</strong> and four different types of motions (drop, throw, push, shake) are recorded and automatically uploaded into your Edge Impulse project.</p>
 
   <h3>Object detection &amp; visual anomaly mode — labelled images on demand</h3>
 
