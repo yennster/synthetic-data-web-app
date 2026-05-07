@@ -1093,14 +1093,13 @@ export function VisionPanel() {
                     ))}
                   </select>
                 </label>
-                {/* Build button is FIRST because it's the primary recovery
-                    path when Fetch fails (existing deployment is Node-only
-                    or doesn't exist yet). The user sees it before the
-                    failure message ever appears. */}
+                {/* Build button stays first in the visual order (primary
+                    recovery action when Fetch fails) but is rendered as
+                    secondary so Fetch — the most common happy-path action
+                    — keeps the eye-catching teal styling. */}
                 <button
                   onClick={onBuildBrowserDeployment}
                   disabled={modelLoading || !selectedProjectId}
-                  className="primary"
                   title="Trigger a fresh WebAssembly (browser) build in the Studio, then auto-load it. Use this if the existing deployment is Node.js-only or there isn't one yet."
                 >
                   🔨 Build browser deployment
@@ -1108,8 +1107,9 @@ export function VisionPanel() {
                 <button
                   onClick={onFetchModel}
                   disabled={modelLoading || !selectedProjectId}
+                  className="primary"
                 >
-                  {modelLoading ? '… loading' : '⤓ Fetch & load existing'}
+                  {modelLoading ? '… loading' : '⤓ Fetch & load model'}
                 </button>
               </>
             )}

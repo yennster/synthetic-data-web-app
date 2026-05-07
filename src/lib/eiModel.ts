@@ -283,25 +283,26 @@ export async function loadEiModel(
 ): Promise<LoadedEiModel> {
   const jsText = await blobText(jsFile);
 
-  // Bail out early if this is a Node.js-only script — `require('fs')`,
-  // `__dirname`, `process.argv`, etc. all throw immediately in a browser
-  // and produce confusing downstream errors. EI's "WebAssembly (Node.js)"
-  // deployment ships these. The user wants the "WebAssembly (browser)"
-  // build, which uses environment-detection to work in both.
-  const head = jsText.slice(0, 4000);
-  const nodeOnlySignals = [
-    /\brequire\s*\(\s*['"]fs['"]\s*\)/,
-    /\brequire\s*\(\s*['"]path['"]\s*\)/,
-    /\brequire\s*\(\s*['"]\.\/edge-impulse-standalone['"]\s*\)/,
-    /\b__dirname\b(?!\s*[!=]==?\s*['"])/, // skip env-detection guards
-    /\bprocess\.argv\b/,
-    /^const\s+Module\s*=\s*require\s*\(/m,
-  ];
-  if (nodeOnlySignals.some((re) => re.test(head))) {
+  // Bail out early *only* if the script is a pure Node-only file (typically
+  // EI's run-impulse.js test harness, which starts with
+  // `const Module = require('./edge-impulse-standalone')` and won't run in
+  // a browser at all).
+  //
+  // Earlier versions scanned for `require('fs')` / `__dirname` / etc. in the
+  // first 4KB, but those references DO appear inside guarded
+  // `if (ENVIRONMENT_IS_NODE) { … }` blocks of valid universal Emscripten
+  // outputs (the kind a "WebAssembly (browser)" deployment ships). That
+  // false-positive blocked good files. The first-executable-line check is
+  // much narrower: real browser builds always start with comments + a
+  // `var Module = typeof Module != 'undefined' ? Module : {};` line, never
+  // with a top-level `require(...)`.
+  if (firstStatementIsRequire(jsText)) {
     throw new Error(
       `${
         modelName ?? 'Uploaded JS'
-      } is a Node.js-only build and won't run in a browser. Click 🔨 Build browser deployment above to have the app trigger a "WebAssembly (browser)" build and auto-load it.`,
+      } looks like a Node.js test harness (top-level require), not a browser-loadable WebAssembly module. ` +
+        `In an unzipped deployment, pick edge-impulse-standalone.js — not run-impulse.js / index.js. ` +
+        `If your project only has the WebAssembly (Node.js) deployment, click 🔨 Build browser deployment above.`,
     );
   }
 
@@ -488,6 +489,56 @@ function buildModelInfo(
 
 async function blobText(b: File | Blob): Promise<string> {
   return await b.text();
+}
+
+/**
+ * Returns true iff the first executable statement in `source` is a top-level
+ * `require(...)` call — the unmistakable signature of a Node.js test harness
+ * (e.g. EI's run-impulse.js: `const Module = require('./edge-impulse-standalone')`).
+ *
+ * Skips leading shebang, line comments, block comments, blank lines. Real
+ * browser-targeted Emscripten output always starts with a comment header
+ * followed by `var Module = typeof Module != 'undefined' ? Module : {};` —
+ * never with a require() call — so this check has no false positives on
+ * valid universal/browser builds.
+ */
+function firstStatementIsRequire(source: string): boolean {
+  let i = 0;
+  const n = source.length;
+  // Skip shebang
+  if (source.startsWith('#!')) {
+    const nl = source.indexOf('\n');
+    if (nl < 0) return false;
+    i = nl + 1;
+  }
+  while (i < n) {
+    const ch = source[i];
+    if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') {
+      i++;
+      continue;
+    }
+    // Line comment
+    if (ch === '/' && source[i + 1] === '/') {
+      const nl = source.indexOf('\n', i);
+      if (nl < 0) return false;
+      i = nl + 1;
+      continue;
+    }
+    // Block comment
+    if (ch === '/' && source[i + 1] === '*') {
+      const end = source.indexOf('*/', i + 2);
+      if (end < 0) return false;
+      i = end + 2;
+      continue;
+    }
+    // First executable code starts here. Match a top-level
+    //   const|let|var <Name> = require(...)
+    // or a bare
+    //   require(...);
+    const rest = source.slice(i, i + 200);
+    return /^(?:(?:const|let|var)\s+[\w$]+\s*=\s*)?require\s*\(/.test(rest);
+  }
+  return false;
 }
 
 /**
