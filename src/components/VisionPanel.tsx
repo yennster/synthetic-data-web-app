@@ -978,18 +978,6 @@ export function VisionPanel() {
 
       <div className="card ei-inference-card">
         <h3>Inference (Edge Impulse model)</h3>
-        {inferenceStatus.kind !== 'idle' && (
-          <div
-            className={`inline-status ${inferenceStatus.kind}`}
-            role="status"
-            aria-live="polite"
-          >
-            {inferenceStatus.kind === 'busy' && (
-              <span className="spinner" aria-hidden />
-            )}
-            <span>{inferenceStatus.msg}</span>
-          </div>
-        )}
         {!eiModel ? (
           <>
             <div style={{ fontSize: 11, color: 'var(--muted)' }}>
@@ -1069,6 +1057,20 @@ export function VisionPanel() {
                 style={{ fontSize: 11 }}
               />
             </fieldset>
+            {/* Inline status sits BELOW the action buttons so the user sees
+                the result of the click they just made without scrolling. */}
+            {inferenceStatus.kind !== 'idle' && (
+              <div
+                className={`inline-status ${inferenceStatus.kind}`}
+                role="status"
+                aria-live="polite"
+              >
+                {inferenceStatus.kind === 'busy' && (
+                  <span className="spinner" aria-hidden />
+                )}
+                <span>{inferenceStatus.msg}</span>
+              </div>
+            )}
           </>
         ) : (
           <>
@@ -1135,6 +1137,18 @@ export function VisionPanel() {
               </div>
             )}
             <button onClick={onUnloadModel}>Unload model</button>
+            {inferenceStatus.kind !== 'idle' && (
+              <div
+                className={`inline-status ${inferenceStatus.kind}`}
+                role="status"
+                aria-live="polite"
+              >
+                {inferenceStatus.kind === 'busy' && (
+                  <span className="spinner" aria-hidden />
+                )}
+                <span>{inferenceStatus.msg}</span>
+              </div>
+            )}
           </>
         )}
       </div>

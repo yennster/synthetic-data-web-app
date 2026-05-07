@@ -273,34 +273,66 @@ export async function loadEiModel(
   const id = ++_moduleCounter;
   const captureKey = `__ei_module_${id}`;
 
-  // Make the EI script's `Module` (or `module.exports`) land on
-  // globalThis[captureKey]. The shim is appended; the original code is
-  // executed first and can set whatever globals it pleases.
-  const wrapped = `${jsText}
-;(function(){
-  try {
-    var m = (typeof module !== 'undefined' && module.exports) ? module.exports : (typeof Module !== 'undefined' ? Module : null);
-    globalThis[${JSON.stringify(captureKey)}] = m;
-  } catch (e) {
-    globalThis[${JSON.stringify(captureKey)}] = null;
-  }
-})();
+  // Different EI builds emit the WebAssembly module factory under different
+  // top-level patterns:
+  //   var Module = (...)            ← classic Emscripten MODULARIZE=1
+  //   let|const Module = (...)      ← block-scoped, NOT a global property
+  //   var <CustomName> = (...)      ← when EI builds with EXPORT_NAME=...
+  //   IIFE-wrapped (no global)
+  //   export default Module         ← ESM
+  //
+  // Trying to read `Module` from a global after script-tag injection only
+  // works for case 1. To handle the rest, we rewrite the source so the
+  // first top-level factory assignment also lands on a known global key.
+  // If the rewrite doesn't match anything, we fall back to ESM dynamic
+  // import (which handles export-default).
+  const rewrite = rewriteToCaptureFactory(jsText, captureKey);
+  let scriptUrl: string | null = null;
+  let factory: ((cfg: unknown) => Promise<any>) | null = null;
+
+  if (rewrite.didRewrite) {
+    const wrapped = `${rewrite.code}
 //# sourceURL=ei-model-${id}.js
 `;
-  const scriptUrl = URL.createObjectURL(
-    new Blob([wrapped], { type: 'text/javascript' }),
-  );
+    scriptUrl = URL.createObjectURL(
+      new Blob([wrapped], { type: 'text/javascript' }),
+    );
+    await injectScript(scriptUrl);
+    const captured = (globalThis as any)[captureKey];
+    if (typeof captured === 'function') factory = captured;
+    // Some EI builds export an already-instantiated Module instead of a
+    // factory. We don't currently handle that — bail to the diagnostic.
+  }
 
-  await injectScript(scriptUrl);
+  // ESM fallback: `export default Module` style outputs need a real ESM
+  // import, since classic <script> can't parse them.
+  if (!factory) {
+    try {
+      const esmUrl = URL.createObjectURL(
+        new Blob([jsText], { type: 'text/javascript' }),
+      );
+      const ns = await import(/* @vite-ignore */ esmUrl);
+      URL.revokeObjectURL(esmUrl);
+      const candidate = (ns as any)?.default ?? (ns as any)?.Module;
+      if (typeof candidate === 'function') factory = candidate;
+    } catch {
+      // Not an ES module, or import failed for another reason. Fall through
+      // to the rich error below.
+    }
+  }
 
-  const factory = (globalThis as any)[captureKey];
   if (typeof factory !== 'function') {
-    URL.revokeObjectURL(scriptUrl);
+    if (scriptUrl) URL.revokeObjectURL(scriptUrl);
     URL.revokeObjectURL(wasmUrl);
+    const head = jsText.slice(0, 240).replace(/\s+/g, ' ');
     throw new Error(
       `Could not find Edge Impulse module factory in ${
         modelName ?? 'uploaded JS'
-      }. Expected MODULARIZE-style Emscripten output.`,
+      }. ` +
+        `Tried top-level Module/var-rewrite + ESM import, neither produced a callable factory. ` +
+        `If you're using an EI deployment built for a non-browser target (e.g. Node.js), rebuild as ` +
+        `target "WebAssembly (browser)" — Studio → Deployment → WebAssembly. ` +
+        `Source preview: ${head}…`,
     );
   }
 
@@ -316,7 +348,7 @@ export async function loadEiModel(
       },
     });
   } catch (e) {
-    URL.revokeObjectURL(scriptUrl);
+    if (scriptUrl) URL.revokeObjectURL(scriptUrl);
     URL.revokeObjectURL(wasmUrl);
     throw new Error(`EI module init failed: ${(e as Error).message}`);
   }
@@ -402,6 +434,36 @@ function buildModelInfo(
 
 async function blobText(b: File | Blob): Promise<string> {
   return await b.text();
+}
+
+/**
+ * Rewrite the first top-level `(var|let|const) <Name> = ...` so the assigned
+ * value also lands on `globalThis[captureKey]`. Handles all three declarators
+ * AND custom export names (Emscripten -s EXPORT_NAME=...). The rewritten
+ * declaration still binds the original local name, so any subsequent
+ * references inside the script still work.
+ *
+ * Returns `{ didRewrite: false }` when no match is found — caller decides
+ * whether to fall back to ESM dynamic import.
+ */
+function rewriteToCaptureFactory(
+  source: string,
+  captureKey: string,
+): { code: string; didRewrite: boolean; matchedName?: string } {
+  // Look for `var/let/const <Name> = ` at the start of a line. The factory
+  // is almost always the first such top-level binding in EI's output. We
+  // require the RHS to look like a function or arrow expression so we don't
+  // accidentally rewrite a string constant.
+  const re = /^(\s*)(var|let|const)(\s+)([A-Za-z_$][\w$]*)(\s*=\s*)(?=(?:\(\s*(?:function|\(|async\s+function)|function\s|async\s+function\s|class\s))/m;
+  const match = re.exec(source);
+  if (!match) return { code: source, didRewrite: false };
+  const [whole, ws, kw, ws2, name, eq] = match;
+  const replacement = `${ws}${kw}${ws2}${name}${eq}globalThis[${JSON.stringify(captureKey)}] = `;
+  const code =
+    source.slice(0, match.index) +
+    replacement +
+    source.slice(match.index + whole.length);
+  return { code, didRewrite: true, matchedName: name };
 }
 
 function injectScript(url: string): Promise<void> {
