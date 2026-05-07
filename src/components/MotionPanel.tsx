@@ -594,9 +594,9 @@ export function MotionPanel() {
       <div className="card">
         <h3>Procedural motions</h3>
         <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-          Generate N samples automatically. Pick which motion classes to
-          include — the runner cycles through them and records one labelled
-          IMU trace per iteration. Webcam tracking is paused while running.
+          Generate N samples automatically for the selected motion class.
+          Each iteration records one labelled IMU trace. Webcam tracking is
+          paused while running.
         </div>
         <div className="motion-pills" role="radiogroup" aria-label="Motion class">
           {ALL_MOTION_KINDS.map((kind) => {
