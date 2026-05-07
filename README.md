@@ -12,7 +12,7 @@
 A browser-based 3D tool for generating synthetic training data for [Edge Impulse](https://www.edgeimpulse.com/) projects. Three modes in one app:
 
 - **Motion** — Manipulate a virtual object with hand-tracked pinch gestures via your webcam (or skip the camera entirely with the toggle off), capture realistic **6-channel IMU data** (3-axis accelerometer + 3-axis gyroscope, both in the object's body frame), and upload to Edge Impulse. Includes a **procedural drops** generator that auto-lifts the object to randomized heights, releases it, records each fall, and uploads each drop as its own labelled sample — produces dozens of physically-consistent training samples in seconds without you ever touching the mouse.
-- **Object detection** — Drop objects (cube, sphere, cylinder, cone, torus, capsule, phone slab, soda can) into the scene, pick a backdrop (studio / warehouse / whitebox / outdoor), optionally onto a conveyor belt, point a virtual camera at them, capture single shots or randomized batches with bounding boxes auto-projected, save to a local directory, and upload as a labelled image dataset. Run a trained Edge Impulse model **directly in-browser** for live detection / FOMO inference with bounding-box & centroid markers in 3D.
+- **Object detection** — Drop objects (cube, sphere, cylinder, cone, torus, capsule, phone slab, soda can) into the scene, pick a backdrop (studio / warehouse / whitebox / outdoor), optionally onto a conveyor belt, point a virtual camera at them, capture single shots or randomized batches with bounding boxes auto-projected, save to a local directory, and upload as a labelled image dataset. Run a trained Edge Impulse model **directly in-browser** for live detection / FOMO inference with crisp 2D bounding boxes, labels, and centroid dots on the virtual-camera preview.
 - **Visual anomaly detection** — Same capture pipeline as detection, but emits unlabelled images with a single batch-level label (e.g. `normal` / `anomaly`).
 
 Created with Claude Code.
@@ -55,7 +55,7 @@ Created with Claude Code.
 - **USDZ asset import** — drop in `.usdz` files (Pixar Universal Scene Description). Powered by a WASM build of OpenUSD, supporting both ASCII (`.usda`) and binary Crate (`.usdc`) payloads. Each imported asset gets per-instance scale / position / yaw / label controls and an opt-in **Physics** toggle that wraps it in a Rapier RigidBody with a convex-hull collider — toggle it on and the asset falls under gravity, collides with the ground / belt / other bodies, and rides the conveyor like the spawned primitives. Bounding boxes are computed for the whole asset, not per child mesh.
 - **Conveyor belt prop** — animated scrolling belt with rails, end rollers, and supports. **Actually transports spawned objects** along its length — drop a cube on it and it rides off the end. Speed-tunable from −2 m/s to +2 m/s (negative reverses direction). The belt collider extends below the visible surface and dynamic bodies have CCD enabled, so fast-falling objects don't tunnel through.
 - **Virtual capture camera** — fully positionable (XYZ + target + FOV), with a frustum gizmo drawn into the scene so you can orbit around and see exactly what it sees.
-- **Live capture preview** in the corner overlay.
+- **Live capture preview** in the corner overlay, rendered with a HiDPI backing canvas so preview labels and inference overlays stay sharp on Retina displays.
 - **Single-shot capture** — one button, one image saved.
 - **Randomized batch capture** — capture *N* images while jittering camera position, light direction & intensity, and/or object positions/rotations between shots. Toggleable per axis. Each batch downloads as a single **zip file** (with the `bounding_boxes.labels` sidecar bundled in for detection mode), so you don't end up with N separate per-PNG download prompts.
 - **Conveyor-aware batching** — when **Randomize Objects** is on AND the conveyor is on, randomized objects get dropped from above the belt and the batch waits for them to settle on the belt before each capture, so no image labels things mid-air.
@@ -71,7 +71,6 @@ Created with Claude Code.
 - **Bounding boxes (object detection / YOLO/MobileNet)** — drawn on top of the preview canvas with the class label and confidence; deeper colors per label, stable across frames.
 - **FOMO centroid detection** — the same overlay treats small per-cell boxes as centroid dots, with a heavier dot in the middle of each cell.
 - **Visual-anomaly heatmap** — `visual_ad_grid_cells` are rendered as translucent red overlays scaled to severity.
-- **3D markers in the scene** — every detection's centroid is back-projected onto the belt-top plane (or the ground) via raycast through the virtual camera, dropping a billboarded label and ring marker right where the model is "looking" — toggleable per the Show in 3D scene checkbox.
 
 ## Tech stack
 
@@ -166,7 +165,7 @@ After uploading some captures and training a YOLO / MobileNet / FOMO model in th
 2. In the app, in the **Inference (Edge Impulse model)** card, click **🔑 List projects**. With your API key set, the app calls `/v1/api/projects` and shows a dropdown.
 3. Pick the project, click **⤓ Fetch & load model**. The deployment zip is downloaded over HTTPS, unpacked in-browser, and the model is initialized.
 4. Click **▶ Live** to run inference on the virtual-camera preview at ~5 Hz, or **Run once** for a single frame.
-5. Bounding boxes (and their centroids in 3D, if **Show detections in 3D scene** is on) appear over your synthetic scene. Adjust **Threshold** to filter weak detections.
+5. Bounding boxes and centroid dots appear over the virtual-camera preview. Adjust **Threshold** to filter weak detections.
 
 Alternatively, unzip the WebAssembly deployment locally and upload `edge-impulse-standalone.js` + `edge-impulse-standalone.wasm` via the **From file** field — same result without the API call.
 
@@ -249,8 +248,7 @@ src/
 │   ├── SpawnedObjects.tsx        // Multi-object spawn renderer (physics on/off)
 │   ├── ImportedAssets.tsx        // USDZ asset renderer with transforms + bbox tags
 │   ├── VirtualCamera.tsx         // Capture camera, frustum gizmo, batch logic, live inference
-│   ├── InferenceOverlay.tsx      // 2D bbox/centroid overlay on the preview canvas
-│   └── InferenceMarkers3D.tsx    // 3D label markers projected from EI detections
+│   └── InferenceOverlay.tsx      // HiDPI 2D bbox/centroid overlay on the preview canvas
 ├── lib/
 │   ├── handTracking.ts           // HandLandmarker + pinch math
 │   ├── usdz.ts                   // OpenUSD WASM loader wrapper, dispose helper
@@ -413,6 +411,8 @@ Result: tight axis-aligned 2D boxes in pixel coordinates with top-left origin �
 **Edge Impulse "invalid signature"** (motion only) — Either fill in the HMAC key from your project, or leave it blank to send unsigned (`alg: "none"`). HMAC is **only** for the JSON data-acquisition format used by motion uploads; image / file uploads (vision modes) authenticate with the API key alone, so there's no HMAC field there.
 
 **"No WebAssembly deployment built yet"** when fetching a model — go to the Edge Impulse Studio: **Deployment → WebAssembly → Build**. Once the build completes the studio caches it and the app's Fetch & load button will work.
+
+**Model load hangs at `onRuntimeInitialized`** — use `edge-impulse-standalone.js` plus the matching `.wasm` from the WebAssembly deployment. The loader supports both MODULARIZE browser builds and newer non-MODULARIZE Emscripten outputs, but Node-only wrappers such as `run-impulse.js`, `run-classifier.js`, or `index.js` cannot run in the browser.
 
 **Model loaded but `bounding_boxes` is empty** — your model probably isn't an object-detection model. Classification heads return `classification` only; for boxes you need a YOLO/MobileNet object detector or a FOMO model. Check the line `… · obj-det` in the loaded-model summary.
 

@@ -6,6 +6,14 @@ import { Scene } from './components/Scene';
 import { Sidebar } from './components/Sidebar';
 import { useStore } from './store/useStore';
 
+const MAX_PREVIEW_DPR = 2;
+
+function getPreviewPixelRatio(): number {
+  if (typeof window === 'undefined') return 1;
+  const ratio = window.devicePixelRatio || 1;
+  return Math.max(1, Math.min(MAX_PREVIEW_DPR, ratio));
+}
+
 export default function App() {
   const mode = useStore((s) => s.mode);
   const captureSettings = useStore((s) => s.capture);
@@ -20,9 +28,17 @@ export default function App() {
   // the canvas content never distorts. CSS `resize: horizontal` on the
   // .cam-overlay drives this via a ResizeObserver.
   const [previewW, setPreviewW] = useState(240);
+  const [previewDpr, setPreviewDpr] = useState(getPreviewPixelRatio);
 
   useEffect(() => {
     if (previewRef.current) setPreviewCanvas(previewRef.current);
+  }, []);
+
+  useEffect(() => {
+    const updatePixelRatio = () => setPreviewDpr(getPreviewPixelRatio());
+    updatePixelRatio();
+    window.addEventListener('resize', updatePixelRatio);
+    return () => window.removeEventListener('resize', updatePixelRatio);
   }, []);
 
   useEffect(() => {
@@ -30,8 +46,13 @@ export default function App() {
     if (!el) return;
     const ro = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        const w = Math.round(entry.contentRect.width);
-        if (w > 0) setPreviewW(w);
+        const borderBox = Array.isArray(entry.borderBoxSize)
+          ? entry.borderBoxSize[0]
+          : entry.borderBoxSize;
+        const w = Math.round(
+          borderBox?.inlineSize ?? entry.target.getBoundingClientRect().width,
+        );
+        if (w > 0) setPreviewW((prev) => (prev === w ? prev : w));
       }
     });
     ro.observe(el);
@@ -40,6 +61,8 @@ export default function App() {
 
   const aspect = captureSettings.width / captureSettings.height;
   const previewH = Math.round(previewW / aspect);
+  const previewPixelW = Math.max(1, Math.round(previewW * previewDpr));
+  const previewPixelH = Math.max(1, Math.round(previewH * previewDpr));
 
   return (
     <div className="app">
@@ -63,11 +86,15 @@ export default function App() {
                 previewRef.current = el;
                 setPreviewCanvas(el);
               }}
-              width={previewW}
-              height={previewH}
+              width={previewPixelW}
+              height={previewPixelH}
               style={{ transform: 'none' }}
             />
-            <InferenceOverlay width={previewW} height={previewH} />
+            <InferenceOverlay
+              width={previewW}
+              height={previewH}
+              pixelRatio={previewDpr}
+            />
           </div>
         )}
       </div>

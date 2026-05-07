@@ -16,9 +16,11 @@ import { useStore } from '../store/useStore';
 export function InferenceOverlay({
   width,
   height,
+  pixelRatio = 1,
 }: {
   width: number;
   height: number;
+  pixelRatio?: number;
 }) {
   const result = useStore((s) => s.eiResult);
   const info = useStore((s) => s.eiModelInfo);
@@ -30,7 +32,8 @@ export function InferenceOverlay({
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+    ctx.clearRect(0, 0, width, height);
     if (!result || !info) return;
 
     const sx = width / info.inputWidth;
@@ -73,15 +76,18 @@ export function InferenceOverlay({
 
       // Label pill above the box (or below if too close to top)
       const text = `${b.label} ${(b.value * 100).toFixed(0)}%`;
-      ctx.font = 'bold 11px ui-monospace, monospace';
+      ctx.font = '700 12px ui-sans-serif, system-ui, -apple-system, sans-serif';
       const tw = ctx.measureText(text).width;
-      const pillH = 14;
+      const pillPadX = 6;
+      const pillH = 18;
+      const pillW = tw + pillPadX * 2;
+      const labelX = Math.max(0, Math.min(x, width - pillW));
       const labelAbove = y - pillH >= 0;
-      const labelY = labelAbove ? y - pillH : y;
+      const labelY = labelAbove ? y - pillH : Math.min(y, height - pillH);
       ctx.fillStyle = color;
-      ctx.fillRect(x, labelY, tw + 8, pillH);
+      ctx.fillRect(labelX, labelY, pillW, pillH);
       ctx.fillStyle = '#0b0d10';
-      ctx.fillText(text, x + 4, labelY + pillH - 3);
+      ctx.fillText(text, labelX + pillPadX, labelY + pillH - 5);
     }
 
     // Visual anomaly heatmap (if present) — translucent red overlay
@@ -93,13 +99,13 @@ export function InferenceOverlay({
         ctx.fillRect(c.x * sx, c.y * sy, c.width * sx, c.height * sy);
       }
     }
-  }, [result, info, threshold, width, height]);
+  }, [result, info, threshold, width, height, pixelRatio]);
 
   return (
     <canvas
       ref={canvasRef}
-      width={width}
-      height={height}
+      width={Math.max(1, Math.round(width * pixelRatio))}
+      height={Math.max(1, Math.round(height * pixelRatio))}
       style={{
         position: 'absolute',
         inset: 0,

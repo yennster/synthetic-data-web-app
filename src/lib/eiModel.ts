@@ -664,7 +664,9 @@ async function loadEmscriptenViaPreseed(
   id: number,
 ): Promise<{ mod: any; err: string | null }> {
   const TIMEOUT_MS = 15000;
+  const hadModule = Object.prototype.hasOwnProperty.call(globalThis, 'Module');
   const prevModule = (globalThis as any).Module;
+  const seedKey = `__ei_preseed_module_${id}`;
   let resolveInit!: (m: any) => void;
   let rejectInit!: (e: Error) => void;
   const initPromise = new Promise<any>((res, rej) => {
@@ -723,11 +725,17 @@ async function loadEmscriptenViaPreseed(
     },
   };
   (globalThis as any).Module = ModuleSeed;
+  (globalThis as any)[seedKey] = ModuleSeed;
 
   const scriptUrl = URL.createObjectURL(
-    new Blob([`${jsText}\n//# sourceURL=ei-preseed-${id}.js\n`], {
-      type: 'text/javascript',
-    }),
+    new Blob(
+      [
+        wrapNonModularEmscriptenScript(jsText, seedKey, `ei-preseed-${id}.js`),
+      ],
+      {
+        type: 'text/javascript',
+      },
+    ),
   );
 
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -760,8 +768,26 @@ async function loadEmscriptenViaPreseed(
     URL.revokeObjectURL(scriptUrl);
     window.removeEventListener('error', onWinError);
     window.removeEventListener('unhandledrejection', onUnhandled);
-    (globalThis as any).Module = prevModule;
+    delete (globalThis as any)[seedKey];
+    if (hadModule) {
+      (globalThis as any).Module = prevModule;
+    } else {
+      delete (globalThis as any).Module;
+    }
   }
+}
+
+function wrapNonModularEmscriptenScript(
+  source: string,
+  seedKey: string,
+  sourceName: string,
+): string {
+  // Non-MODULARIZE Emscripten exports close over a variable literally named
+  // `Module`. Passing the seed as an IIFE argument gives every generated
+  // wrapper a stable reference, even after we restore window.Module.
+  return `(function(Module) {\n${source}\n})(globalThis[${JSON.stringify(
+    seedKey,
+  )}]);\n//# sourceURL=${sourceName}\n`;
 }
 
 /**
