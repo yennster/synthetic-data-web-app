@@ -265,6 +265,75 @@ export async function listEiProjects(apiKey: string): Promise<EiProject[]> {
 }
 
 /**
+ * One entry in the project's deployment history (= every successfully built
+ * artefact ever produced for this project). Surfaced via the `/deployment/
+ * history` endpoint, which is the only reliable way to enumerate what's
+ * actually been built — the singular `/deployment` endpoint requires the
+ * caller to already know `engine` + `modelType` + `impulseId` and silently
+ * returns `hasDeployment: false` when any of those don't match.
+ */
+export type EiDeploymentHistoryEntry = {
+  created: string;
+  deploymentVersion: number;
+  deploymentFormat: string;
+  engine: string;
+  modelType?: string;
+  impulseId: number;
+  impulseName?: string;
+  impulseIsDeleted?: boolean;
+  deploymentTarget?: { format?: string; name?: string };
+};
+
+/**
+ * List every successfully built deployment for a project (across impulses,
+ * engines, model types, and historical versions). Returns the newest first.
+ */
+export async function listEiDeploymentHistory(
+  apiKey: string,
+  projectId: number,
+  opts: { impulseId?: number; limit?: number } = {},
+): Promise<EiDeploymentHistoryEntry[]> {
+  const params = new URLSearchParams();
+  if (opts.impulseId != null) params.set('impulseId', String(opts.impulseId));
+  if (opts.limit != null) params.set('limit', String(opts.limit));
+  const qs = params.toString();
+  const path = `/${projectId}/deployment/history${qs ? `?${qs}` : ''}`;
+  const r = await studioGet<{
+    success: boolean;
+    error?: string;
+    deployments?: EiDeploymentHistoryEntry[];
+    totalDeploymentCount?: number;
+  }>(path, apiKey);
+  if (!r.success) throw new Error(r.error || 'Failed to list deployment history');
+  const list = r.deployments ?? [];
+  // Studio doesn't guarantee an order; sort newest-first by created date so
+  // callers can pick `[0]` to get the latest matching artefact.
+  return list.slice().sort((a, b) => (a.created < b.created ? 1 : -1));
+}
+
+/**
+ * Download a specific historic deployment by its `deploymentVersion`. This
+ * is the supported replacement for the deprecated singular
+ * `/deployment/download` endpoint and works regardless of which engine /
+ * modelType / impulse the build targeted.
+ */
+export async function downloadEiHistoricDeployment(
+  apiKey: string,
+  projectId: number,
+  deploymentVersion: number,
+): Promise<Blob> {
+  const url = `${STUDIO_BASE}/${projectId}/deployment/history/${deploymentVersion}/download`;
+  const res = await fetch(url, { headers: { 'x-api-key': apiKey } });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(
+      `Download failed: ${res.status} ${res.statusText} — ${text.slice(0, 200)}`,
+    );
+  }
+  return await res.blob();
+}
+
+/**
  * Check whether a project has a built WebAssembly deployment ready for
  * download. EI returns `hasDeployment: false` when the user hasn't built one
  * yet — we surface that as a clear actionable error.

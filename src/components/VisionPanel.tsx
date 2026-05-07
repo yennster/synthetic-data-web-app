@@ -8,8 +8,8 @@ import {
 } from '../lib/capture';
 import {
   buildEiDeployment,
-  downloadEiDeployment,
-  getEiDeployment,
+  downloadEiHistoricDeployment,
+  listEiDeploymentHistory,
   listEiProjects,
   retrainEiModel,
   uploadCaptures,
@@ -142,22 +142,64 @@ export function VisionPanel() {
     }
     setModelLoading(true);
     try {
-      setBoth('busy', 'Checking deployment…');
-      const info = await getEiDeployment(ei.apiKey, selectedProjectId, 'wasm');
-      if (!info.hasDeployment) {
-        setBoth(
-          'err',
-          'No WebAssembly deployment built yet. In the Studio: Deployment → Build with target "WebAssembly".',
-        );
-        return;
-      }
-      setBoth('busy', 'Downloading model…');
-      const zip = await downloadEiDeployment(
+      setBoth('busy', 'Checking deployment history…');
+      // Enumerate every successful build and pick the newest WebAssembly
+      // (browser) one. This is the only API path that reliably finds the
+      // deployment when the project has multiple impulses, engines, or
+      // (engine, modelType) combinations — the legacy singular endpoint
+      // requires the exact tuple up front and silently misses everything
+      // else.
+      const history = await listEiDeploymentHistory(
         ei.apiKey,
         selectedProjectId,
-        'wasm',
-        info.engine,
-        info.modelType,
+      );
+      const isWasmBrowser = (e: (typeof history)[number]) => {
+        const fmt = (e.deploymentFormat || '').toLowerCase();
+        const targetFmt = (e.deploymentTarget?.format || '').toLowerCase();
+        const targetName = (e.deploymentTarget?.name || '').toLowerCase();
+        return (
+          fmt === 'wasm' ||
+          targetFmt === 'wasm' ||
+          targetName.includes('webassembly') ||
+          targetName.includes('browser')
+        );
+      };
+      const candidate = history.find(
+        (e) => isWasmBrowser(e) && !e.impulseIsDeleted,
+      );
+      if (!candidate) {
+        if (history.length === 0) {
+          setBoth(
+            'err',
+            'No deployments built yet. In the Studio: Deployment → Build with target "WebAssembly".',
+          );
+        } else {
+          const formats = Array.from(
+            new Set(
+              history.map(
+                (e) => e.deploymentTarget?.name || e.deploymentFormat || '?',
+              ),
+            ),
+          ).join(', ');
+          setBoth(
+            'err',
+            `No WebAssembly (browser) deployment found among ${history.length} build${
+              history.length === 1 ? '' : 's'
+            } (${formats}). In the Studio: Deployment → Build with target "WebAssembly".`,
+          );
+        }
+        return;
+      }
+      setBoth(
+        'busy',
+        `Downloading model v${candidate.deploymentVersion} (${
+          candidate.engine
+        }${candidate.modelType ? `/${candidate.modelType}` : ''})…`,
+      );
+      const zip = await downloadEiHistoricDeployment(
+        ei.apiKey,
+        selectedProjectId,
+        candidate.deploymentVersion,
       );
       setBoth('busy', `Unpacking model (${(zip.size / 1024).toFixed(0)} KB)…`);
       const projName =
@@ -259,10 +301,32 @@ export function VisionPanel() {
         },
       });
       setBoth('busy', 'Build done — downloading model…');
-      const zip = await downloadEiDeployment(
+      // Look up the just-built artefact via the deployment history so we
+      // download exactly that build (latest wasm entry).
+      const history = await listEiDeploymentHistory(
         ei.apiKey,
         selectedProjectId,
-        'wasm',
+      );
+      const candidate = history.find((e) => {
+        const fmt = (e.deploymentFormat || '').toLowerCase();
+        const targetFmt = (e.deploymentTarget?.format || '').toLowerCase();
+        const targetName = (e.deploymentTarget?.name || '').toLowerCase();
+        return (
+          fmt === 'wasm' ||
+          targetFmt === 'wasm' ||
+          targetName.includes('webassembly') ||
+          targetName.includes('browser')
+        );
+      });
+      if (!candidate) {
+        throw new Error(
+          'Build finished but no WebAssembly deployment shows up in history',
+        );
+      }
+      const zip = await downloadEiHistoricDeployment(
+        ei.apiKey,
+        selectedProjectId,
+        candidate.deploymentVersion,
       );
       const projName =
         eiProjects?.find((p) => p.id === selectedProjectId)?.name ??
