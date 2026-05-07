@@ -74,8 +74,6 @@ export function VisionPanel() {
   const eiLive = useStore((s) => s.eiLive);
   const setEiLive = useStore((s) => s.setEiLive);
   const eiResult = useStore((s) => s.eiResult);
-  const eiShow3D = useStore((s) => s.eiShow3D);
-  const setEiShow3D = useStore((s) => s.setEiShow3D);
   const triggerInference = useStore((s) => s.triggerInference);
   const modelFilesRef = useRef<HTMLInputElement>(null);
   const [modelLoading, setModelLoading] = useState(false);
@@ -1189,14 +1187,10 @@ export function VisionPanel() {
                 {eiLive ? '■ Stop live' : '▶ Live'}
               </button>
             </div>
-            <label className="check-row" style={{ fontSize: 12 }}>
-              <input
-                type="checkbox"
-                checked={eiShow3D}
-                onChange={(e) => setEiShow3D(e.target.checked)}
-              />
-              <span>Show detections in 3D scene</span>
-            </label>
+            <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+              Detections appear as boxes on the virtual-camera preview in
+              the bottom-left.
+            </div>
             {eiResult && (
               <div style={{ fontSize: 11, color: 'var(--muted)' }}>
                 {eiResult.bounding_boxes.length} boxes

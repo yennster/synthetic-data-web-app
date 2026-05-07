@@ -47,31 +47,41 @@ export function InferenceOverlay({
       const h = b.height * sy;
       const isFomo = b.width <= info.inputWidth / 8 && b.height <= info.inputHeight / 8;
 
-      // Outline
+      // Outline — thick, high-contrast against any background. Black
+      // halo underneath the colored stroke makes it visible on both
+      // light and dark scene content.
+      const color = colorFor(b.label);
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+      ctx.strokeRect(x, y, w, h);
       ctx.lineWidth = 2;
-      ctx.strokeStyle = colorFor(b.label);
-      ctx.fillStyle = colorFor(b.label, 0.18);
-      ctx.beginPath();
-      ctx.rect(x, y, w, h);
-      ctx.fill();
-      ctx.stroke();
+      ctx.strokeStyle = color;
+      ctx.fillStyle = colorFor(b.label, 0.15);
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeRect(x, y, w, h);
 
       // Centroid dot — extra-prominent for FOMO
       const cx = x + w / 2;
       const cy = y + h / 2;
-      ctx.fillStyle = colorFor(b.label);
+      ctx.fillStyle = color;
+      ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+      ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.arc(cx, cy, isFomo ? 5 : 3, 0, Math.PI * 2);
+      ctx.arc(cx, cy, isFomo ? 6 : 4, 0, Math.PI * 2);
       ctx.fill();
+      ctx.stroke();
 
-      // Label
+      // Label pill above the box (or below if too close to top)
       const text = `${b.label} ${(b.value * 100).toFixed(0)}%`;
-      ctx.font = '10px ui-monospace, monospace';
+      ctx.font = 'bold 11px ui-monospace, monospace';
       const tw = ctx.measureText(text).width;
-      ctx.fillStyle = 'rgba(0,0,0,0.65)';
-      ctx.fillRect(x, Math.max(0, y - 12), tw + 6, 12);
-      ctx.fillStyle = '#fff';
-      ctx.fillText(text, x + 3, Math.max(9, y - 3));
+      const pillH = 14;
+      const labelAbove = y - pillH >= 0;
+      const labelY = labelAbove ? y - pillH : y;
+      ctx.fillStyle = color;
+      ctx.fillRect(x, labelY, tw + 8, pillH);
+      ctx.fillStyle = '#0b0d10';
+      ctx.fillText(text, x + 4, labelY + pillH - 3);
     }
 
     // Visual anomaly heatmap (if present) — translucent red overlay

@@ -16,7 +16,6 @@ import * as THREE from 'three';
 import { useStore, type ObjectKind } from '../store/useStore';
 import { Conveyor } from './Conveyor';
 import { ImportedAssets } from './ImportedAssets';
-import { InferenceMarkers3D } from './InferenceMarkers3D';
 import { SceneEnvironment } from './SceneEnvironment';
 import { SpawnedObjects } from './SpawnedObjects';
 import { VirtualCamera } from './VirtualCamera';
@@ -392,7 +391,6 @@ export function Scene({
       </Physics>
 
       {mode !== 'motion' && <VirtualCamera previewCanvas={previewCanvas} />}
-      {mode !== 'motion' && <InferenceMarkers3D />}
 
       <OrbitControls
         makeDefault

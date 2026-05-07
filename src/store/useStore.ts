@@ -234,9 +234,6 @@ type State = {
   /** Latest result, used to drive the overlay. */
   eiResult: EiResult | null;
   setEiResult: (r: EiResult | null) => void;
-  /** Render projected 3D markers in the scene for the latest result. */
-  eiShow3D: boolean;
-  setEiShow3D: (b: boolean) => void;
   /** Bumped to request a one-shot inference run on the next preview frame. */
   inferenceSignal: number;
   triggerInference: () => void;
@@ -393,8 +390,6 @@ export const useStore = create<State>((set) => ({
   setEiLive: (b) => set({ eiLive: b }),
   eiResult: null,
   setEiResult: (r) => set({ eiResult: r }),
-  eiShow3D: true,
-  setEiShow3D: (b) => set({ eiShow3D: b }),
   inferenceSignal: 0,
   triggerInference: () => set((s) => ({ inferenceSignal: s.inferenceSignal + 1 })),
 }));
