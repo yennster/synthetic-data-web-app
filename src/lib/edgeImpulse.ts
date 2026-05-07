@@ -28,19 +28,21 @@ async function hmacSha256Hex(key: string, msg: string): Promise<string> {
 
 export type UploadResult = { ok: boolean; status: number; body: string };
 
-export async function uploadSample(
-  cfg: EdgeImpulseConfig,
+export async function buildDataAcquisitionPayload(
+  cfg: Pick<EdgeImpulseConfig, 'device' | 'hmacKey'>,
   samples: AccelSample[],
   sampleRateHz: number,
-  fileName: string,
-): Promise<UploadResult> {
-  if (samples.length === 0) {
-    return { ok: false, status: 0, body: 'No samples to upload' };
-  }
-  if (!cfg.apiKey) {
-    return { ok: false, status: 0, body: 'Missing API key' };
-  }
-
+): Promise<{
+  protected: { ver: 'v1'; alg: 'HS256' | 'none'; iat: number };
+  signature: string;
+  payload: {
+    device_name: string;
+    device_type: string;
+    interval_ms: number;
+    sensors: { name: string; units: string }[];
+    values: number[][];
+  };
+}> {
   const intervalMs = 1000 / sampleRateHz;
   const useHmac = !!cfg.hmacKey;
 
@@ -62,7 +64,11 @@ export async function uploadSample(
     values: samples.map((s) => [s.ax, s.ay, s.az, s.gx, s.gy, s.gz]),
   };
 
-  const protectedHeader = {
+  const protectedHeader: {
+    ver: 'v1';
+    alg: 'HS256' | 'none';
+    iat: number;
+  } = {
     ver: 'v1',
     alg: useHmac ? 'HS256' : 'none',
     iat: Math.floor(Date.now() / 1000),
@@ -84,6 +90,23 @@ export async function uploadSample(
     body.signature = await hmacSha256Hex(cfg.hmacKey, serialized);
   }
 
+  return body;
+}
+
+export async function uploadSample(
+  cfg: EdgeImpulseConfig,
+  samples: AccelSample[],
+  sampleRateHz: number,
+  fileName: string,
+): Promise<UploadResult> {
+  if (samples.length === 0) {
+    return { ok: false, status: 0, body: 'No samples to upload' };
+  }
+  if (!cfg.apiKey) {
+    return { ok: false, status: 0, body: 'Missing API key' };
+  }
+
+  const body = await buildDataAcquisitionPayload(cfg, samples, sampleRateHz);
   const url = `${INGESTION_BASE}/${cfg.category === 'testing' ? 'testing' : 'training'}/data`;
   const res = await fetch(url, {
     method: 'POST',

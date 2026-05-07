@@ -1,5 +1,14 @@
 import { useStore, type ObjectKind } from '../store/useStore';
-import { buildFileName, uploadSample } from '../lib/edgeImpulse';
+import { saveBlob } from '../lib/capture';
+import {
+  buildDataAcquisitionPayload,
+  buildFileName,
+  listEiProjects,
+  retrainEiModel,
+  uploadSample,
+  waitForEiJob,
+} from '../lib/edgeImpulse';
+import { buildZip, type ZipEntry } from '../lib/zip';
 import { EiAuthCard } from './EiAuthCard';
 
 const OBJECTS: { value: ObjectKind; label: string }[] = [
@@ -60,6 +69,59 @@ export function MotionPanel() {
     }
   };
 
+  const explainEiError = (e: unknown): string => {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/Failed to fetch|NetworkError|Load failed/.test(msg)) {
+      return `Network/CORS error contacting the Edge Impulse Studio API. Check your network and API key. Original: ${msg}`;
+    }
+    if (/401/.test(msg)) {
+      return `${msg} — API key rejected. Double-check Dashboard → Keys in your project.`;
+    }
+    if (/403/.test(msg)) {
+      return `${msg} — API key doesn't have access to this project.`;
+    }
+    return msg;
+  };
+
+  const onRetrainModel = async () => {
+    const apiKey = ei.apiKey.trim();
+    if (!apiKey) {
+      setStatus('err', 'Enter your Edge Impulse API key first');
+      return;
+    }
+
+    try {
+      setStatus('busy', 'Finding Edge Impulse project…');
+      const projects = await listEiProjects(apiKey);
+      if (projects.length === 0) {
+        setStatus('err', 'No projects accessible to this API key');
+        return;
+      }
+      if (projects.length > 1) {
+        setStatus(
+          'err',
+          'This API key can access multiple projects. Use a project API key to retrain from Motion mode.',
+        );
+        return;
+      }
+
+      const project = projects[0];
+      setStatus('busy', `Starting retrain for ${project.name}…`);
+      const { jobId } = await retrainEiModel(apiKey, project.id);
+      await waitForEiJob(apiKey, project.id, jobId, {
+        onProgress: (elapsed) => {
+          setStatus(
+            'busy',
+            `Retrain job #${jobId} running (${Math.floor(elapsed / 1000)}s)…`,
+          );
+        },
+      });
+      setStatus('ok', `Retrained ${project.name}.`);
+    } catch (e) {
+      setStatus('err', `Retrain model: ${explainEiError(e)}`);
+    }
+  };
+
   /**
    * Procedurally generate N drops, each one a separate Edge Impulse sample:
    *
@@ -75,21 +137,22 @@ export function MotionPanel() {
    *        the lift target steady for the previous frames, so the drop is
    *        a clean free-fall + bounce, not a thrown trajectory.
    *     5. wait `durationMs` for the bounce/settle period.
-   *     6. stop recording, snapshot samples, upload to EI.
+   *     6. stop recording, snapshot samples, then either upload to EI or
+   *        bundle the samples into a local zip when no API key is set.
    *
    * Hand tracking is auto-disabled for the duration so the CameraFeed
    * doesn't fight with our scripted pinchTarget writes.
    */
   const onRunDrops = async () => {
-    if (!ei.apiKey) {
-      setStatus('err', 'Set your API key first');
-      return;
-    }
+    const runEi = { ...ei, apiKey: ei.apiKey.trim() };
+    const shouldUpload = runEi.apiKey.length > 0;
     const wasHandTracking = handTrackingEnabled;
     setHandTrackingEnabled(false);
     setDropsRunning(true);
     let uploaded = 0;
+    let captured = 0;
     let failed = 0;
+    const zipEntries: ZipEntry[] = [];
     try {
       // Allow a frame for CameraFeed to unmount and stop writing pinchTarget.
       await sleep(80);
@@ -126,29 +189,62 @@ export function MotionPanel() {
           failed += 1;
           continue;
         }
-        try {
-          const res = await uploadSample(
-            ei,
+        const fileName = buildFileName(`${runEi.label || 'drop'}_${i + 1}`);
+        if (shouldUpload) {
+          try {
+            const res = await uploadSample(
+              runEi,
+              sampleSnapshot,
+              sampleRateHz,
+              fileName,
+            );
+            if (res.ok) uploaded += 1;
+            else failed += 1;
+          } catch {
+            failed += 1;
+          }
+        } else {
+          const body = await buildDataAcquisitionPayload(
+            runEi,
             sampleSnapshot,
             sampleRateHz,
-            buildFileName(`${ei.label || 'drop'}_${i + 1}`),
           );
-          if (res.ok) uploaded += 1;
-          else failed += 1;
-        } catch {
-          failed += 1;
+          zipEntries.push({
+            name: fileName,
+            data: JSON.stringify(body, null, 2),
+          });
+          captured += 1;
         }
         setStatus(
           'busy',
-          `Drops: ${uploaded} uploaded · ${failed} failed (of ${i + 1}/${drops.count})`,
+          shouldUpload
+            ? `Drops: ${uploaded} uploaded · ${failed} failed (of ${i + 1}/${drops.count})`
+            : `Drops: ${captured} captured · ${failed} failed (of ${i + 1}/${drops.count})`,
         );
       }
-      setStatus(
-        failed === 0 ? 'ok' : 'err',
-        `Procedural drops complete: ${uploaded} uploaded${
-          failed ? ` · ${failed} failed` : ''
-        }`,
-      );
+      if (shouldUpload) {
+        setStatus(
+          failed === 0 ? 'ok' : 'err',
+          `Procedural drops complete: ${uploaded} uploaded${
+            failed ? ` · ${failed} failed` : ''
+          }`,
+        );
+      } else if (zipEntries.length > 0) {
+        setStatus('busy', `Packaging ${zipEntries.length} drop samples…`);
+        const zipName = buildFileName(
+          `${runEi.label || 'drop'}_${zipEntries.length}_drops`,
+        ).replace(/\.json$/, '.zip');
+        const zip = await buildZip(zipEntries);
+        await saveBlob({ kind: 'download' }, zipName, zip);
+        setStatus(
+          failed === 0 ? 'ok' : 'err',
+          `Procedural drops complete: downloaded ${zipEntries.length} samples${
+            failed ? ` · ${failed} failed` : ''
+          }`,
+        );
+      } else {
+        setStatus('err', 'Procedural drops complete: no samples captured');
+      }
     } catch (e) {
       setStatus('err', `Drops error: ${(e as Error).message}`);
     } finally {
@@ -158,6 +254,7 @@ export function MotionPanel() {
   };
 
   const durationSec = samples.length / sampleRateHz;
+  const hasApiKey = ei.apiKey.trim().length > 0;
 
   return (
     <>
@@ -173,23 +270,40 @@ export function MotionPanel() {
             </option>
           ))}
         </select>
-        <label
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            fontSize: 12,
-            color: 'var(--muted)',
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={handTrackingEnabled}
-            onChange={(e) => setHandTrackingEnabled(e.target.checked)}
-            style={{ width: 'auto', flex: 'none' }}
-          />
-          <span>Webcam hand tracking</span>
-        </label>
+        <div className="webcam-control">
+          <div className="webcam-control-copy">
+            <div className="webcam-control-heading">
+              <span className="webcam-control-title">Webcam control</span>
+              <span
+                className={`webcam-control-state ${
+                  handTrackingEnabled ? 'on' : 'off'
+                }`}
+              >
+                {handTrackingEnabled ? 'On' : 'Off'}
+              </span>
+            </div>
+            <div className="webcam-control-help">
+              {handTrackingEnabled
+                ? 'Use hand tracking to pinch, grab, and throw.'
+                : 'Camera stays off; procedural drops still work.'}
+            </div>
+          </div>
+          <button
+            type="button"
+            className={`webcam-switch ${handTrackingEnabled ? 'on' : ''}`}
+            role="switch"
+            aria-checked={handTrackingEnabled}
+            aria-label={
+              handTrackingEnabled
+                ? 'Turn webcam control off'
+                : 'Turn webcam control on'
+            }
+            onClick={() => setHandTrackingEnabled(!handTrackingEnabled)}
+            disabled={dropsRunning}
+          >
+            <span className="webcam-switch-thumb" />
+          </button>
+        </div>
         <div style={{ fontSize: 11, color: 'var(--muted)' }}>
           IMU samples are 6-channel: accelerometer (m/s²) + gyroscope (rad/s).
         </div>
@@ -240,8 +354,8 @@ export function MotionPanel() {
         <h3>Procedural drops</h3>
         <div style={{ fontSize: 11, color: 'var(--muted)' }}>
           Generate N drops automatically — each lifts the object to a random
-          height, releases it, records the IMU trace, and uploads as a
-          separate sample. Webcam tracking is paused while running.
+          height, releases it, records the IMU trace, and then uploads or
+          downloads the samples. Webcam tracking is paused while running.
         </div>
         <div className="row">
           <label className="field">
@@ -314,12 +428,13 @@ export function MotionPanel() {
         <button
           className="primary"
           onClick={onRunDrops}
-          disabled={dropsRunning || !ei.apiKey || isRecording}
-          title={!ei.apiKey ? 'Set your API key first' : undefined}
+          disabled={dropsRunning || isRecording}
         >
           {dropsRunning
             ? '… running'
-            : `⚡ Generate & upload ${drops.count} drops`}
+            : `⚡ Generate & ${
+                hasApiKey ? 'upload' : 'download'
+              } ${drops.count} drops`}
         </button>
       </div>
 
@@ -329,7 +444,7 @@ export function MotionPanel() {
         <h3>Upload to Edge Impulse</h3>
         {!ei.apiKey && (
           <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-            Set your API key in the <strong>Edge Impulse · auth</strong>
+            Set your API key in the <strong>Edge Impulse · auth</strong>{' '}
             card above.
           </div>
         )}
@@ -344,6 +459,15 @@ export function MotionPanel() {
           }
         >
           ⤴ Upload {samples.length} samples
+        </button>
+        <button
+          onClick={onRetrainModel}
+          disabled={!ei.apiKey || status.kind === 'busy'}
+          title={
+            !ei.apiKey ? 'Set your API key in the auth card first' : undefined
+          }
+        >
+          ↻ Retrain model
         </button>
       </div>
     </>

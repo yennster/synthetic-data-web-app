@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  buildDataAcquisitionPayload,
   buildFileName,
   uploadCaptures,
   uploadImage,
@@ -23,6 +24,21 @@ describe('buildFileName', () => {
 
   it('falls back to "sample" for empty input', () => {
     expect(buildFileName('')).toMatch(/^sample\./);
+  });
+});
+
+describe('buildDataAcquisitionPayload', () => {
+  it('builds Edge Impulse JSON without requiring an API key', async () => {
+    const body = await buildDataAcquisitionPayload(
+      { device: 'unit-test', hmacKey: '' },
+      [{ t: 0, ax: 1, ay: 2, az: 3, gx: 4, gy: 5, gz: 6 }],
+      50,
+    );
+
+    expect(body.protected.alg).toBe('none');
+    expect(body.payload.device_name).toBe('unit-test');
+    expect(body.payload.interval_ms).toBe(20);
+    expect(body.payload.values).toEqual([[1, 2, 3, 4, 5, 6]]);
   });
 });
 

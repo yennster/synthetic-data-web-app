@@ -40,7 +40,7 @@ Created with Claude Code.
 - **Throw / drop physics** — released objects inherit your hand's velocity.
 - **6-channel IMU output** — accelerometer (m/s², proper acceleration: `+9.81` up when stationary, near-zero in freefall) **and** gyroscope (rad/s, angular velocity), both transformed from world space into the object's local body frame each tick. EI payload `sensors`: `[accX, accY, accZ, gyrX, gyrY, gyrZ]`.
 - **All eight object kinds available** — cube, sphere, cylinder, cone, torus, capsule, phone slab, soda can. Pick one in the Object card; rapier auto-rebuilds the collider for the new shape.
-- **Procedural drops generator** — set drop count (1–500), height range, and per-drop record duration, click **⚡ Generate & upload N drops**. Each drop programmatically lifts the body to a random (x, height, z), waits for the kinematic lerp to converge, releases for a clean free-fall, records the IMU trace, and posts that drop as a separate Edge Impulse sample (`{label}_{i}.json`). Hand tracking is auto-paused for the duration so the script doesn't fight with the webcam-driven pinch target.
+- **Procedural drops generator** — set drop count (1–500), height range, and per-drop record duration, then click **⚡ Generate & upload N drops** when an API key is set, or **⚡ Generate & download N drops** when you want local files. Each drop programmatically lifts the body to a random (x, height, z), waits for the kinematic lerp to converge, releases for a clean free-fall, records the IMU trace, and saves that drop as a separate Edge Impulse JSON sample (`{label}_{i}.json`). Hand tracking is auto-paused for the duration so the script doesn't fight with the webcam-driven pinch target.
 - **Configurable sample rate** (20–500 Hz, default 100 Hz).
 - HMAC-SHA256 signed uploads optional.
 
@@ -127,22 +127,25 @@ Open **http://localhost:5173** in a Chromium-based browser (Chrome, Edge, Brave)
 ### Recording motion data (manual)
 
 1. Switch to **Motion** mode (default).
-2. Pick the object kind in the Object card. Make sure **Webcam hand tracking** is checked.
+2. Pick the object kind in the Object card. Make sure **Webcam control** is on.
 3. Show your hand to the camera. The pill in the top-left will read `Hand: tracked`.
 4. **Pinch** (thumb + index together) to grab the object — it turns teal and follows your hand.
 5. Move / shake / orient your hand. Release the pinch to drop or throw.
 6. Click **● Record** before the gesture, **■ Stop** when done.
 7. Paste your Edge Impulse API key, set a label, click **⤴ Upload**.
+8. After uploading new samples, click **↻ Retrain model** from the upload card to start a Studio retrain job. Motion mode expects a project API key; if the key can access multiple projects, pick a project-specific key.
 
 ### Generating motion data procedurally (no webcam needed)
 
-1. Switch to **Motion** mode and (optionally) uncheck **Webcam hand tracking** so the camera light stays off.
+1. Switch to **Motion** mode and (optionally) turn **Webcam control** off so the camera light stays off.
 2. Pick the object kind that matches the device you'd put a real IMU on (a soda can, phone slab, etc.).
 3. In the **Procedural drops** card: set the **count** (e.g. 50), tweak **Drop height** range and **Per-drop ms** (record window per drop — 1500ms covers free-fall + a few bounces).
 4. Set the EI label in the **Recording** card (e.g. `drop`, `tumble`, `idle`).
-5. Click **⚡ Generate & upload N drops**. The app:
+5. Click **⚡ Generate & upload N drops** if an API key is set, or **⚡ Generate & download N drops** to save a local zip without signing in. The app:
    - Auto-disables hand tracking (so the camera and the script don't fight over the pinch target).
-   - For each drop: lifts the object to a random `(x, y, z)` inside the configured height band, waits for the kinematic body to settle on target, releases it from rest, records the 6-channel IMU trace for the configured duration, and uploads it as a separate sample (`{label}_{i}.json`) to your project's `training` (or `testing`) bucket.
+   - For each drop: lifts the object to a random `(x, y, z)` inside the configured height band, waits for the kinematic body to settle on target, releases it from rest, records the 6-channel IMU trace for the configured duration, and stores it as a separate sample (`{label}_{i}.json`).
+   - With an API key, each sample uploads to your project's `training` (or `testing`) bucket. Without an API key, the samples are bundled into one zip download.
+   - After an uploaded batch, use **↻ Retrain model** in the upload card to retrain the project with the new samples.
    - Status updates after each drop; failures are tallied separately and don't stop the rest of the batch.
 
 The drops are independent samples in EI, so the model trains on the variation in initial height, orientation, and bounce — not on a single long take.

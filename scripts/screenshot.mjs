@@ -33,7 +33,7 @@ try {
   );
   page.on('pageerror', (err) => console.log('[browser pageerror]', err));
   await page.goto('http://localhost:5173', {
-    waitUntil: 'networkidle0',
+    waitUntil: 'domcontentloaded',
     timeout: 30000,
   });
   await page.waitForSelector('.sidebar', { timeout: 10000 });

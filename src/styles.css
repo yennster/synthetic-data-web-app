@@ -123,6 +123,89 @@ label.field {
 .row { display: flex; gap: 8px; }
 .row > * { flex: 1; }
 
+.webcam-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.webcam-control-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.webcam-control-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.webcam-control-title {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.webcam-control-state {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.webcam-control-state.on { color: var(--accent); }
+.webcam-control-state.off { color: var(--muted); }
+
+.webcam-control-help {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.webcam-switch {
+  flex: none;
+  width: 46px;
+  height: 26px;
+  padding: 2px;
+  border-radius: 999px;
+  border-color: #3a4350;
+  background: #20262e;
+}
+
+.webcam-switch:hover { background: #262d36; }
+
+.webcam-switch.on {
+  border-color: var(--accent);
+  background: rgba(94, 234, 212, 0.18);
+}
+
+.webcam-switch.on:hover { background: rgba(94, 234, 212, 0.24); }
+
+.webcam-switch-thumb {
+  display: block;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: #9aa4af;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  transform: translateX(0);
+  transition: transform 140ms ease, background 140ms ease;
+}
+
+.webcam-switch.on .webcam-switch-thumb {
+  background: var(--accent);
+  transform: translateX(20px);
+}
+
 .capture-card {
   gap: 12px;
 }
