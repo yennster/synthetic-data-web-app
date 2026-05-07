@@ -119,9 +119,9 @@
 
   <p>It is a fantastic tool, but Omniverse has some hard prerequisites: a hefty NVIDIA GPU or an NVIDIA cloud subscription, plus the Omniverse runtime and a non-trivial setup. Edge Impulse is the opposite — entirely cloud-based, accessible from any browser. Generating the data from Omniverse and training a model with it in Edge Impulse felt like two completely separate workflows that happened to share a common destination.</p>
 
-  <p>So I wanted to know: how much of the synthetic-data story can we collapse back into the same browser tab where the rest of Edge Impulse already lives? What if there was a "good enough" version of the renderer that ran on whatever GPU the user already has — including the integrated one in their laptop — with no install, no permissions beyond a webcam toggle, and no context switch?</p>
+  <p>So I wanted to know: how much of the synthetic-data story can we collapse back into the same web browser where the rest of Edge Impulse already lives? What if there was a "good enough" version of the renderer that ran on whatever GPU the user already has — including the integrated one in their laptop — with no install, no permissions beyond a webcam toggle, and no context switch?</p>
 
-  <p><a href="https://github.com/yennster/synthetic-data-studio"><strong>Synthetic Data Studio</strong></a> is a browser-based 3D tool for generating synthetic training data for Edge Impulse projects. No Unity, no Blender, no Python, no Omniverse — just a web app running Three.js and Rapier. Open it, pick a mode, paste your project API key, and start ingesting samples via the <a href="https://docs.edgeimpulse.com/reference/data-ingestion/ingestion-api">Edge Impulse Ingestion API</a>.</p>
+  <p><a href="https://synthetic.jennyspeelman.dev/"><strong>Synthetic Data Studio</strong></a> is a browser-based 3D tool for generating synthetic training data for Edge Impulse projects. No Unity, no Blender, no Python, no Omniverse — just a web app running Three.js and Rapier. Open it, pick a mode, paste your project API key, and start ingesting samples via the <a href="https://docs.edgeimpulse.com/reference/data-ingestion/ingestion-api">Edge Impulse Ingestion API</a>.</p>
 
   <p>The project was entirely built with <a href="https://www.anthropic.com/claude-code">Claude Code</a> over a few days. More on that below.</p>
 
@@ -131,9 +131,9 @@
 
   <p>If you do not have an Edge Impulse account yet, <a href="https://studio.edgeimpulse.com/signup">sign up for free at edgeimpulse.com</a> — the Studio's upload + retrain features need a project API key, and the free tier is more than enough to follow along.</p>
 
-  <h2>Three modes, one app</h2>
+  <h2>Three data types, one app</h2>
 
-  <p>The Synthetic Data Studio gives you three workflows that share a scene, an asset pipeline, and an EI auth card. You pick the mode at the top of the sidebar — everything else reshapes around what you're doing.</p>
+  <p>The Synthetic Data Studio gives you three workflows that share a scene, an asset pipeline, and Edge Impulse API authentication. You pick the mode at the top of the sidebar — everything else reshapes around what you're doing.</p>
 
   <h3>Motion mode — IMU traces from a virtual object</h3>
 
@@ -164,13 +164,13 @@
 
   <p>You can spawn objects (cube, sphere, cylinder, cone, torus, capsule, phone slab, soda can — or import your own <a href="https://openusd.org/release/spec_usdz.html">USDZ assets</a>), give them labels, drop them on a backdrop, point the virtual camera at them, and capture. Single shots or randomized batches. Bounding boxes are auto-projected from each labelled mesh's world-space AABB and auto-uploaded to your Edge Impulse project, no user labeling required.</p>
 
-  <h4>Inference, in the browser</h4>
+  <h3>Inference, in the browser</h3>
 
   <figure>
   <img src="screenshot-inference.png" alt="Inference card" />
 </figure>
 
-  <p>Once you've trained a model in Edge Impulse Studio, the Synthetic Data Studio can fetch your project's WebAssembly deployment, unpack the zip in-browser, and run inference on the virtual camera's preview at ~5 Hz. Detection boxes, FOMO centroids, and labels overlay onto the preview live. It's a useful sanity check — you can tell within a few seconds whether your synthetic dataset generalised at all.</p>
+  <p>Once you've trained a model in Edge Impulse, the Synthetic Data Studio can fetch your project's WebAssembly deployment, unpack the zip in-browser, and run inference on the virtual camera's preview at ~5 Hz. Detection boxes, FOMO centroids, and labels overlay onto the preview live. It's a useful sanity check — you can tell within a few seconds whether your synthetic dataset generalised at all.</p>
 
   <h2>Auto-attached EI metadata</h2>
 
