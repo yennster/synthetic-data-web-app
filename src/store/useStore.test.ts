@@ -86,22 +86,22 @@ describe('sceneObjects', () => {
 
 describe('motion recording', () => {
   it('startRecording sets the flag and resets samples', () => {
-    useStore.setState({ samples: [{ t: 0, ax: 0, ay: 0, az: 1 }] });
+    useStore.setState({ samples: [{ t: 0, ax: 0, ay: 0, az: 1, gx: 0, gy: 0, gz: 0 }] });
     useStore.getState().startRecording();
     expect(useStore.getState().isRecording).toBe(true);
     expect(useStore.getState().samples).toEqual([]);
   });
 
   it('pushSample only appends while recording', () => {
-    useStore.getState().pushSample({ t: 1, ax: 0.1, ay: 0.2, az: 0.3 });
+    useStore.getState().pushSample({ t: 1, ax: 0.1, ay: 0.2, az: 0.3, gx: 0, gy: 0, gz: 0 });
     expect(useStore.getState().samples).toEqual([]);
 
     useStore.getState().startRecording();
-    useStore.getState().pushSample({ t: 2, ax: 0.4, ay: 0.5, az: 0.6 });
+    useStore.getState().pushSample({ t: 2, ax: 0.4, ay: 0.5, az: 0.6, gx: 0, gy: 0, gz: 0 });
     expect(useStore.getState().samples).toHaveLength(1);
 
     useStore.getState().stopRecording();
-    useStore.getState().pushSample({ t: 3, ax: 0.7, ay: 0.8, az: 0.9 });
+    useStore.getState().pushSample({ t: 3, ax: 0.7, ay: 0.8, az: 0.9, gx: 0, gy: 0, gz: 0 });
     expect(useStore.getState().samples).toHaveLength(1); // didn't grow
   });
 });

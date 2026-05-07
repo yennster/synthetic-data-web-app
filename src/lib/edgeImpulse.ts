@@ -48,12 +48,18 @@ export async function uploadSample(
     device_name: cfg.device || 'synthetic-hand-3d',
     device_type: 'WEB_SIMULATOR',
     interval_ms: intervalMs,
+    // 6-channel IMU: accelerometer (m/s²) + gyroscope (rad/s), both in the
+    // object's local body frame. Channel naming matches what Edge Impulse
+    // expects for fused IMU streams.
     sensors: [
       { name: 'accX', units: 'm/s2' },
       { name: 'accY', units: 'm/s2' },
       { name: 'accZ', units: 'm/s2' },
+      { name: 'gyrX', units: 'rad/s' },
+      { name: 'gyrY', units: 'rad/s' },
+      { name: 'gyrZ', units: 'rad/s' },
     ],
-    values: samples.map((s) => [s.ax, s.ay, s.az]),
+    values: samples.map((s) => [s.ax, s.ay, s.az, s.gx, s.gy, s.gz]),
   };
 
   const protectedHeader = {

@@ -48,7 +48,7 @@ describe('uploadSample', () => {
   it('refuses to send when the API key is missing', async () => {
     const res = await uploadSample(
       { ...baseCfg, apiKey: '' },
-      [{ t: 0, ax: 0, ay: 0, az: 9.81 }],
+      [{ t: 0, ax: 0, ay: 0, az: 9.81, gx: 0, gy: 0, gz: 0 }],
       100,
       'foo.json',
     );
@@ -60,8 +60,8 @@ describe('uploadSample', () => {
     await uploadSample(
       baseCfg,
       [
-        { t: 0, ax: 0, ay: 0, az: 9.81 },
-        { t: 10, ax: 0.1, ay: 0, az: 9.7 },
+        { t: 0, ax: 0, ay: 0, az: 9.81, gx: 0, gy: 0, gz: 0 },
+        { t: 10, ax: 0.1, ay: 0, az: 9.7, gx: 0.01, gy: 0, gz: -0.01 },
       ],
       100,
       'foo.json',
@@ -75,8 +75,16 @@ describe('uploadSample', () => {
     expect(body.signature).toBe('0'.repeat(64));
     expect(body.payload.interval_ms).toBe(10); // 1000/100
     expect(body.payload.values).toEqual([
-      [0, 0, 9.81],
-      [0.1, 0, 9.7],
+      [0, 0, 9.81, 0, 0, 0],
+      [0.1, 0, 9.7, 0.01, 0, -0.01],
+    ]);
+    expect(body.payload.sensors.map((s: { name: string }) => s.name)).toEqual([
+      'accX',
+      'accY',
+      'accZ',
+      'gyrX',
+      'gyrY',
+      'gyrZ',
     ]);
     expect(init.headers['x-api-key']).toBe('ei_test');
     expect(init.headers['x-label']).toBe('idle');
@@ -85,7 +93,7 @@ describe('uploadSample', () => {
   it('signs the payload with HMAC-SHA256 when a key is provided', async () => {
     await uploadSample(
       { ...baseCfg, hmacKey: 'sekret' },
-      [{ t: 0, ax: 0, ay: 0, az: 9.81 }],
+      [{ t: 0, ax: 0, ay: 0, az: 9.81, gx: 0, gy: 0, gz: 0 }],
       100,
       'foo.json',
     );
@@ -99,7 +107,7 @@ describe('uploadSample', () => {
   it('routes to /api/testing/data when category is testing', async () => {
     await uploadSample(
       { ...baseCfg, category: 'testing' },
-      [{ t: 0, ax: 0, ay: 0, az: 9.81 }],
+      [{ t: 0, ax: 0, ay: 0, az: 9.81, gx: 0, gy: 0, gz: 0 }],
       100,
       'foo.json',
     );

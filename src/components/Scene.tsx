@@ -124,8 +124,13 @@ function ManipulatedObject() {
         new THREE.Vector3(GRAVITY[0], GRAVITY[1], GRAVITY[2]),
       );
       const rot = body.rotation();
-      const q = new THREE.Quaternion(rot.x, rot.y, rot.z, rot.w).invert();
-      aProper.applyQuaternion(q);
+      // Inverse body rotation maps world-frame vectors into the body's
+      // local frame — used both for the proper-acceleration readout and
+      // for the gyroscope (rapier's angvel is reported in world frame).
+      const qInv = new THREE.Quaternion(rot.x, rot.y, rot.z, rot.w).invert();
+      aProper.applyQuaternion(qInv);
+      const av = body.angvel();
+      const angVelLocal = new THREE.Vector3(av.x, av.y, av.z).applyQuaternion(qInv);
       prevLinvel.current.copy(cur);
 
       if (isRecording) {
@@ -134,6 +139,9 @@ function ManipulatedObject() {
           ax: aProper.x,
           ay: aProper.y,
           az: aProper.z,
+          gx: angVelLocal.x,
+          gy: angVelLocal.y,
+          gz: angVelLocal.z,
         });
       }
     }

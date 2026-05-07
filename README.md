@@ -11,7 +11,7 @@
 
 A browser-based 3D tool for generating synthetic training data for [Edge Impulse](https://www.edgeimpulse.com/) projects. Three modes in one app:
 
-- **Motion** — Manipulate a virtual object with hand-tracked pinch gestures via your webcam, capture realistic 3-axis accelerometer data, and upload to Edge Impulse.
+- **Motion** — Manipulate a virtual object with hand-tracked pinch gestures via your webcam (or skip the camera entirely with the toggle off), capture realistic **6-channel IMU data** (3-axis accelerometer + 3-axis gyroscope, both in the object's body frame), and upload to Edge Impulse. Includes a **procedural drops** generator that auto-lifts the object to randomized heights, releases it, records each fall, and uploads each drop as its own labelled sample — produces dozens of physically-consistent training samples in seconds without you ever touching the mouse.
 - **Object detection** — Drop objects (cube, sphere, cylinder, cone, torus, capsule, phone slab, soda can) into the scene, pick a backdrop (studio / warehouse / whitebox / outdoor), optionally onto a conveyor belt, point a virtual camera at them, capture single shots or randomized batches with bounding boxes auto-projected, save to a local directory, and upload as a labelled image dataset. Run a trained Edge Impulse model **directly in-browser** for live detection / FOMO inference with bounding-box & centroid markers in 3D.
 - **Visual anomaly detection** — Same capture pipeline as detection, but emits unlabelled images with a single batch-level label (e.g. `normal` / `anomaly`).
 
@@ -35,10 +35,12 @@ Created with Claude Code.
 - **API key never persisted** — held in memory for the session only.
 
 ### Motion mode
-- **Hand tracking** via Google MediaPipe `HandLandmarker` (in-browser, GPU/WASM, ~60 fps).
+- **Hand tracking** via Google MediaPipe `HandLandmarker` (in-browser, GPU/WASM, ~60 fps). Toggle off in the Object card if you'd rather work cameraless — no permission prompt, no camera light.
 - **Pinch-to-grab** with thumb–index distance, hysteresis-filtered.
 - **Throw / drop physics** — released objects inherit your hand's velocity.
-- **Proper-acceleration math** — emits the signal a real IMU would (`+9.81 m/s²` up when stationary, near-zero in freefall), transformed into the object's local body frame.
+- **6-channel IMU output** — accelerometer (m/s², proper acceleration: `+9.81` up when stationary, near-zero in freefall) **and** gyroscope (rad/s, angular velocity), both transformed from world space into the object's local body frame each tick. EI payload `sensors`: `[accX, accY, accZ, gyrX, gyrY, gyrZ]`.
+- **All eight object kinds available** — cube, sphere, cylinder, cone, torus, capsule, phone slab, soda can. Pick one in the Object card; rapier auto-rebuilds the collider for the new shape.
+- **Procedural drops generator** — set drop count (1–500), height range, and per-drop record duration, click **⚡ Generate & upload N drops**. Each drop programmatically lifts the body to a random (x, height, z), waits for the kinematic lerp to converge, releases for a clean free-fall, records the IMU trace, and posts that drop as a separate Edge Impulse sample (`{label}_{i}.json`). Hand tracking is auto-paused for the duration so the script doesn't fight with the webcam-driven pinch target.
 - **Configurable sample rate** (20–500 Hz, default 100 Hz).
 - HMAC-SHA256 signed uploads optional.
 
@@ -121,14 +123,28 @@ Open **http://localhost:5173** in a Chromium-based browser (Chrome, Edge, Brave)
 
 ## Workflows
 
-### Recording motion data
+### Recording motion data (manual)
 
 1. Switch to **Motion** mode (default).
-2. Show your hand to the camera. The pill in the top-left will read `Hand: tracked`.
-3. **Pinch** (thumb + index together) to grab the object — it turns teal and follows your hand.
-4. Move / shake / orient your hand. Release the pinch to drop or throw.
-5. Click **● Record** before the gesture, **■ Stop** when done.
-6. Paste your Edge Impulse API key, set a label, click **⤴ Upload**.
+2. Pick the object kind in the Object card. Make sure **Webcam hand tracking** is checked.
+3. Show your hand to the camera. The pill in the top-left will read `Hand: tracked`.
+4. **Pinch** (thumb + index together) to grab the object — it turns teal and follows your hand.
+5. Move / shake / orient your hand. Release the pinch to drop or throw.
+6. Click **● Record** before the gesture, **■ Stop** when done.
+7. Paste your Edge Impulse API key, set a label, click **⤴ Upload**.
+
+### Generating motion data procedurally (no webcam needed)
+
+1. Switch to **Motion** mode and (optionally) uncheck **Webcam hand tracking** so the camera light stays off.
+2. Pick the object kind that matches the device you'd put a real IMU on (a soda can, phone slab, etc.).
+3. In the **Procedural drops** card: set the **count** (e.g. 50), tweak **Drop height** range and **Per-drop ms** (record window per drop — 1500ms covers free-fall + a few bounces).
+4. Set the EI label in the **Recording** card (e.g. `drop`, `tumble`, `idle`).
+5. Click **⚡ Generate & upload N drops**. The app:
+   - Auto-disables hand tracking (so the camera and the script don't fight over the pinch target).
+   - For each drop: lifts the object to a random `(x, y, z)` inside the configured height band, waits for the kinematic body to settle on target, releases it from rest, records the 6-channel IMU trace for the configured duration, and uploads it as a separate sample (`{label}_{i}.json`) to your project's `training` (or `testing`) bucket.
+   - Status updates after each drop; failures are tallied separately and don't stop the rest of the batch.
+
+The drops are independent samples in EI, so the model trains on the variation in initial height, orientation, and bounce — not on a single long take.
 
 ### Capturing object-detection data
 
@@ -183,9 +199,12 @@ Alternatively, unzip the WebAssembly deployment locally and upload `edge-impulse
     "sensors": [
       { "name": "accX", "units": "m/s2" },
       { "name": "accY", "units": "m/s2" },
-      { "name": "accZ", "units": "m/s2" }
+      { "name": "accZ", "units": "m/s2" },
+      { "name": "gyrX", "units": "rad/s" },
+      { "name": "gyrY", "units": "rad/s" },
+      { "name": "gyrZ", "units": "rad/s" }
     ],
-    "values": [[ax, ay, az], ...]
+    "values": [[ax, ay, az, gx, gy, gz], ...]
   }
 }
 ```
@@ -319,9 +338,11 @@ Cross-Origin-Embedder-Policy: credentialless
 
 The Vite dev server is preconfigured to send these. If you self-host the production build, your static host needs to send them too — Netlify, Vercel, and Cloudflare Pages all support this via headers config.
 
-## How the accelerometer signal is computed
+## How the IMU signal is computed
 
-A real IMU measures **proper acceleration** — what you feel relative to free-fall, *not* coordinate acceleration:
+A real IMU has two sensors: an accelerometer and a gyroscope. We emit both per tick.
+
+**Accelerometer** measures **proper acceleration** — what you feel relative to free-fall, *not* coordinate acceleration:
 
 ```
 a_proper = a_inertial − g_world
@@ -332,6 +353,10 @@ where `g_world = (0, −9.81, 0)`.
 Per sampling tick: read Rapier `linvel` → numerically differentiate → subtract gravity → rotate into the body's local frame using the inverse orientation quaternion → push to buffer.
 
 So: stationary object reads `(0, +9.81, 0)` (ground pushes up against gravity), freefall reads `(0, 0, 0)`, hand-driven shake gives a realistic IMU waveform.
+
+**Gyroscope** measures **angular velocity** in the sensor's own body frame, in rad/s. Rapier reports `body.angvel()` in world space; we rotate it by the body's inverse orientation quaternion (the same `qInv` used for the accelerometer transform) to land in body coordinates. So: stationary object reads `(0, 0, 0)`, a body spinning around its own up-axis at 90°/s reads `(0, ~1.57, 0)`, etc.
+
+Both sensors share the same per-sample timestamp so EI's signal-processing blocks can do windowed feature extraction (DSP, spectral analysis) across all 6 channels.
 
 ## How bounding boxes are computed
 

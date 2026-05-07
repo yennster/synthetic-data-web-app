@@ -9,6 +9,7 @@ import { useStore } from './store/useStore';
 export default function App() {
   const mode = useStore((s) => s.mode);
   const captureSettings = useStore((s) => s.capture);
+  const handTrackingEnabled = useStore((s) => s.handTrackingEnabled);
 
   const previewRef = useRef<HTMLCanvasElement | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
@@ -45,7 +46,7 @@ export default function App() {
       <div className="scene">
         <Scene previewCanvas={previewCanvas} />
         <Hud />
-        {mode === 'motion' && <CameraFeed />}
+        {mode === 'motion' && handTrackingEnabled && <CameraFeed />}
         {mode !== 'motion' && (
           <div
             ref={overlayRef}

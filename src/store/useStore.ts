@@ -18,11 +18,18 @@ export type EnvPreset = 'studio' | 'warehouse' | 'whitebox' | 'outdoor';
 
 export type AppMode = 'motion' | 'detection' | 'anomaly';
 
+/** Per-tick IMU sample. `a*` are accelerometer readings (m/s², body-local
+ * proper acceleration — what a real IMU measures: stationary = +9.81 on
+ * the up axis, freefall = 0). `g*` are gyroscope readings (rad/s,
+ * body-local angular velocity). */
 export type AccelSample = {
   t: number;
   ax: number;
   ay: number;
   az: number;
+  gx: number;
+  gy: number;
+  gz: number;
 };
 
 /** An imported `.usdz` asset, treated as a single labelled unit for bbox. */
@@ -138,6 +145,26 @@ type State = {
   setHandDetected: (b: boolean) => void;
   pinchStrength: number;
   setPinchStrength: (n: number) => void;
+  /** Master toggle for the webcam + MediaPipe hand-tracking pipeline. When
+   * off, the CameraFeed component doesn't mount, so the camera light never
+   * turns on and no permission prompt fires. The procedural drops feature
+   * needs this off to drive the manipulated body without conflict. */
+  handTrackingEnabled: boolean;
+  setHandTrackingEnabled: (b: boolean) => void;
+
+  /** Procedural-drop generator config. */
+  drops: {
+    count: number;
+    heightMin: number;
+    heightMax: number;
+    /** How long to record after each release before stopping that sample. */
+    durationMs: number;
+  };
+  setDrops: (patch: Partial<State['drops']>) => void;
+  /** True while a procedural drop sequence is running. UI uses this to show
+   * progress and disable the trigger. */
+  dropsRunning: boolean;
+  setDropsRunning: (b: boolean) => void;
 
   // ---------- Scene (detection/anomaly) ----------
   sceneObjects: SceneObject[];
@@ -261,6 +288,13 @@ export const useStore = create<State>((set) => ({
   setHandDetected: (b) => set({ handDetected: b }),
   pinchStrength: 0,
   setPinchStrength: (n) => set({ pinchStrength: n }),
+  handTrackingEnabled: true,
+  setHandTrackingEnabled: (b) => set({ handTrackingEnabled: b }),
+
+  drops: { count: 10, heightMin: 1.0, heightMax: 2.5, durationMs: 1500 },
+  setDrops: (patch) => set((s) => ({ drops: { ...s.drops, ...patch } })),
+  dropsRunning: false,
+  setDropsRunning: (b) => set({ dropsRunning: b }),
 
   // scene
   sceneObjects: [],
