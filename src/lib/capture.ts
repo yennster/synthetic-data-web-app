@@ -1,6 +1,45 @@
 import * as THREE from 'three';
 import type { BoundingBox, Capture } from '../store/useStore';
 
+// Singleton off-screen renderer reused across every captureFrame call. We
+// used to spin up a fresh THREE.WebGLRenderer (and therefore a fresh WebGL
+// context) per capture; Chromium caps simultaneously-alive contexts at ~16
+// and force-kills the oldest when that's exceeded. After a couple of
+// batch-capture runs, the oldest live context was the main R3F canvas,
+// blanking the 3D view. Holding one reusable renderer for the lifetime of
+// the page means we only ever consume one extra context, regardless of
+// batch size or how many times the user clicks "Generate batch".
+let captureRenderer: THREE.WebGLRenderer | null = null;
+let captureCanvas: HTMLCanvasElement | null = null;
+
+function getCaptureRenderer(
+  width: number,
+  height: number,
+): { renderer: THREE.WebGLRenderer; canvas: HTMLCanvasElement } {
+  if (!captureRenderer || !captureCanvas) {
+    const cv = document.createElement('canvas');
+    cv.width = width;
+    cv.height = height;
+    const r = new THREE.WebGLRenderer({
+      canvas: cv,
+      antialias: true,
+      preserveDrawingBuffer: true,
+      alpha: false,
+    });
+    r.outputColorSpace = THREE.SRGBColorSpace;
+    r.toneMapping = THREE.ACESFilmicToneMapping;
+    r.toneMappingExposure = 1.0;
+    r.setPixelRatio(1);
+    r.shadowMap.enabled = true;
+    r.shadowMap.type = THREE.PCFSoftShadowMap;
+    captureRenderer = r;
+    captureCanvas = cv;
+  }
+  // Resize is cheap and idempotent — Three.js skips when dimensions match.
+  captureRenderer.setSize(width, height, false);
+  return { renderer: captureRenderer, canvas: captureCanvas };
+}
+
 /**
  * Render the given scene to an off-screen canvas at the requested resolution
  * using the supplied camera, and return the resulting blob plus 2D bounding
@@ -14,24 +53,7 @@ export async function captureFrame(opts: {
   height: number;
 }): Promise<{ blob: Blob; boxes: BoundingBox[] }> {
   const { scene, camera, width, height } = opts;
-
-  // Use an off-screen renderer for full control of size/aspect.
-  const cv = document.createElement('canvas');
-  cv.width = width;
-  cv.height = height;
-  const r = new THREE.WebGLRenderer({
-    canvas: cv,
-    antialias: true,
-    preserveDrawingBuffer: true,
-    alpha: false,
-  });
-  r.outputColorSpace = THREE.SRGBColorSpace;
-  r.toneMapping = THREE.ACESFilmicToneMapping;
-  r.toneMappingExposure = 1.0;
-  r.setSize(width, height, false);
-  r.setPixelRatio(1);
-  r.shadowMap.enabled = true;
-  r.shadowMap.type = THREE.PCFSoftShadowMap;
+  const { renderer: r, canvas: cv } = getCaptureRenderer(width, height);
 
   // Update camera aspect to match capture resolution.
   const prevAspect = camera.aspect;
@@ -50,10 +72,9 @@ export async function captureFrame(opts: {
     ),
   );
 
-  // Restore camera aspect and dispose renderer.
+  // Restore camera aspect — but DON'T dispose the renderer; we reuse it.
   camera.aspect = prevAspect;
   camera.updateProjectionMatrix();
-  r.dispose();
 
   return { blob, boxes };
 }
