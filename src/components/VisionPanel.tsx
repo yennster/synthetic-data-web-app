@@ -11,6 +11,7 @@ import {
   downloadEiDeployment,
   getEiDeployment,
   listEiProjects,
+  retrainEiModel,
   uploadCaptures,
   waitForEiJob,
   type EiProject,
@@ -430,6 +431,53 @@ export function VisionPanel() {
         'err',
         `${result.done} ok / ${result.failed} failed: ${result.lastError ?? '?'}`,
       );
+    }
+  };
+
+  const onRetrainModel = async () => {
+    if (!ei.apiKey) {
+      setStatus('err', 'Enter your Edge Impulse API key first');
+      return;
+    }
+
+    let projectId = selectedProjectId;
+    let projects = eiProjects;
+    try {
+      if (!projectId) {
+        setStatus('busy', 'Finding Edge Impulse project…');
+        projects = await listEiProjects(ei.apiKey);
+        setEiProjects(projects);
+        if (projects.length === 1) {
+          projectId = projects[0].id;
+          setSelectedProjectId(projectId);
+        } else if (projects.length === 0) {
+          setStatus('err', 'No projects accessible to this API key');
+          return;
+        } else {
+          setStatus('err', 'Pick a project in the Inference card first');
+          return;
+        }
+      }
+
+      const projectName =
+        projects?.find((p) => p.id === projectId)?.name ??
+        `project-${projectId}`;
+      setStatus('busy', `Starting retrain for ${projectName}…`);
+      const { jobId } = await retrainEiModel(ei.apiKey, projectId);
+      await waitForEiJob(ei.apiKey, projectId, jobId, {
+        onProgress: (elapsed) => {
+          setStatus(
+            'busy',
+            `Retrain job #${jobId} running (${Math.floor(elapsed / 1000)}s)…`,
+          );
+        },
+      });
+      setStatus(
+        'ok',
+        `Retrained ${projectName}. Build a browser deployment to refresh the in-browser model.`,
+      );
+    } catch (e) {
+      setStatus('err', `Retrain model: ${explainError(e)}`);
     }
   };
 
@@ -1042,10 +1090,7 @@ export function VisionPanel() {
         {!eiModel ? (
           <>
             <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-              Fetch directly from your Edge Impulse project, or upload the
-              <code> .js</code> + <code>.wasm</code> from a WebAssembly
-              deployment. Object detection (YOLO/MobileNet) and FOMO models
-              are supported.
+              Object detection (YOLO/MobileNet) and FOMO models are supported.
             </div>
 
             <fieldset className="ei-fetch-group">
@@ -1250,8 +1295,7 @@ export function VisionPanel() {
         <h3>Upload to Edge Impulse</h3>
         {!ei.apiKey && (
           <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-            Set your API key in the <strong>Edge Impulse · auth</strong> card
-            at the top of this panel.
+            Set your API key in the <strong>Edge Impulse · auth</strong> card.
           </div>
         )}
         {mode === 'anomaly' && (
@@ -1276,6 +1320,13 @@ export function VisionPanel() {
           }
         >
           ⤴ Upload {captures.length} images
+        </button>
+        <button
+          onClick={onRetrainModel}
+          disabled={!ei.apiKey || status.kind === 'busy'}
+          title="Retrain the selected project's current impulse with the last known Studio settings."
+        >
+          ↻ Retrain model
         </button>
       </div>
     </>

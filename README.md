@@ -63,10 +63,12 @@ Created with Claude Code.
 - **File System Access API** — pick a directory once, all captures save directly into it. Falls back to per-file downloads in browsers without the API.
 - **Edge Impulse `bounding_boxes.labels` sidecar** — write the file Edge Impulse expects when uploading pre-labelled detection data via the Studio.
 - **Direct image upload** — multipart upload to `/api/{training,testing}/files` with bounding boxes attached via the `x-bounding-boxes` header.
+- **One-click retrain after upload** — click **↻ Retrain model** from the upload card to start Edge Impulse Studio's retrain job for the selected project, reusing the last known DSP / learning block settings.
 
 ### Edge Impulse model inference (vision modes)
 - **Fetch model from project** — paste your API key, click **🔑 List projects**, pick one, click **⤓ Fetch & load model**. The studio's WebAssembly deployment zip is downloaded, unpacked in-browser (`DecompressionStream` for DEFLATE), the `.js` + `.wasm` are extracted, and the model is initialized — all without leaving the page.
 - **Or upload manually** — drop the `.js` + `.wasm` from a local EI WebAssembly deployment zip if you'd rather not paste an API key.
+- **Retrain after adding data** — after uploading new captures, click **↻ Retrain model** to retrain the selected project's current impulse with the last known Studio settings. When retraining finishes, build a fresh WebAssembly deployment and fetch it again to update the in-browser model.
 - **Live inference on the virtual-camera preview** — toggle ▶ Live for ~5 Hz continuous classification, or hit Run once for a single frame. Confidence threshold slider (5–95%) filters detections.
 - **Bounding boxes (object detection / YOLO/MobileNet)** — drawn on top of the preview canvas with the class label and confidence; deeper colors per label, stable across frames.
 - **FOMO centroid detection** — the same overlay treats small per-cell boxes as centroid dots, with a heavier dot in the middle of each cell.
@@ -156,6 +158,7 @@ The drops are independent samples in EI, so the model trains on the variation in
 6. Click **📸 Capture frame** for one image, or set a batch count + randomization toggles and click **⚡ Batch (N)** — batches download as a single zip including `bounding_boxes.labels` for detection.
 7. (Optional) Click **💾 Write bounding_boxes.labels** to save the sidecar JSON separately if you didn't run a batch.
 8. Or upload directly: paste your API key and click **⤴ Upload N images**. Each image is sent with its bounding boxes.
+9. After uploading new training data, click **↻ Retrain model** in the Upload card. If your API key can access multiple projects, pick the project in the Inference card first.
 
 ### Running an Edge Impulse model in-browser
 
@@ -411,6 +414,8 @@ Result: tight axis-aligned 2D boxes in pixel coordinates with top-left origin �
 **Edge Impulse "invalid signature"** (motion only) — Either fill in the HMAC key from your project, or leave it blank to send unsigned (`alg: "none"`). HMAC is **only** for the JSON data-acquisition format used by motion uploads; image / file uploads (vision modes) authenticate with the API key alone, so there's no HMAC field there.
 
 **"No WebAssembly deployment built yet"** when fetching a model — go to the Edge Impulse Studio: **Deployment → WebAssembly → Build**. Once the build completes the studio caches it and the app's Fetch & load button will work.
+
+**Retrain says "Pick a project"** — click **🔑 List projects** in the Inference card and select the Edge Impulse project you uploaded to. If your API key only has one accessible project, the app can auto-select it for retraining.
 
 **Model load hangs at `onRuntimeInitialized`** — use `edge-impulse-standalone.js` plus the matching `.wasm` from the WebAssembly deployment. The loader supports both MODULARIZE browser builds and newer non-MODULARIZE Emscripten outputs, but Node-only wrappers such as `run-impulse.js`, `run-classifier.js`, or `index.js` cannot run in the browser.
 

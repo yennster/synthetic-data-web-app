@@ -245,6 +245,36 @@ export async function buildEiDeployment(
   return { jobId: r.id };
 }
 
+/**
+ * Retrain the project's default impulse with the last known DSP / learn block
+ * settings. This mirrors Studio's "Retrain model" shortcut after new data has
+ * been uploaded.
+ */
+export async function retrainEiModel(
+  apiKey: string,
+  projectId: number,
+): Promise<{ jobId: number }> {
+  const url = `${STUDIO_BASE}/${projectId}/jobs/retrain`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'x-api-key': apiKey,
+      accept: 'application/json',
+    },
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(
+      `Retrain trigger failed: ${res.status} ${res.statusText} — ${text.slice(0, 200)}`,
+    );
+  }
+  const r = JSON.parse(text) as { success: boolean; id?: number; error?: string };
+  if (!r.success || typeof r.id !== 'number') {
+    throw new Error(r.error || 'Retrain trigger returned no job id');
+  }
+  return { jobId: r.id };
+}
+
 export type EiJobStatus = {
   finished: boolean;
   finishedSuccessful: boolean;
