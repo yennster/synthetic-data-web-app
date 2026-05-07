@@ -1,6 +1,6 @@
 {
   "name": "@yennster/synthetic-data-studio",
-  "version": "0.9.5",
+  "version": "0.9.6",
   "type": "module",
   "description": "Browser-based 3D synthetic-data studio for Edge Impulse — accelerometer, object detection, and visual anomaly modes with hand tracking, USDZ import, conveyor physics, and direct ingestion-API upload.",
   "license": "MIT",

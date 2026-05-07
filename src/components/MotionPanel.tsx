@@ -291,11 +291,12 @@ export function MotionPanel() {
   };
 
   const runPush = async (ctx: RunCtx): Promise<AccelSample[]> => {
-    // Hold the body just above the ground and accelerate horizontally so
-    // it slides on release. Skip the random orientation — pushes are
-    // usually upright.
+    // Hold the body just above the ground in a random orientation, then
+    // accelerate horizontally so it slides / tumbles on release.
     setStatus('busy', `${ctx.index}/${ctx.total} push: positioning…`);
-    const start = await liftTo(1.2, 0.12, 0.18, false);
+    // Hold high enough that a tilted body's corner doesn't intersect the
+    // ground while we accelerate the kinematic target.
+    const start = await liftTo(1.2, 0.25, 0.4, true);
     startRecording();
     await sleepCancellable(40);
     setStatus('busy', `${ctx.index}/${ctx.total} push: shoving…`);
@@ -312,7 +313,7 @@ export function MotionPanel() {
 
   const runShake = async (ctx: RunCtx): Promise<AccelSample[]> => {
     setStatus('busy', `${ctx.index}/${ctx.total} shake: winding up…`);
-    const center = await liftTo(0.6, drops.heightMin, drops.heightMax, false);
+    const center = await liftTo(0.6, drops.heightMin, drops.heightMax, true);
     const axisAngle = Math.random() * 2 * Math.PI;
     const ax = Math.cos(axisAngle);
     const az = Math.sin(axisAngle);
