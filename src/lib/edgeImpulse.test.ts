@@ -3,6 +3,7 @@ import {
   buildDataAcquisitionPayload,
   buildFileName,
   buildIngestionMetadata,
+  resolveBucket,
   uploadCaptures,
   uploadImage,
   uploadSample,
@@ -25,6 +26,42 @@ describe('buildFileName', () => {
 
   it('falls back to "sample" for empty input', () => {
     expect(buildFileName('')).toMatch(/^sample\./);
+  });
+});
+
+describe('resolveBucket', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('returns the input verbatim for explicit training/testing', () => {
+    expect(resolveBucket('training')).toBe('training');
+    expect(resolveBucket('testing')).toBe('testing');
+  });
+
+  it('routes to training when split rolls under 0.8', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    expect(resolveBucket('split')).toBe('training');
+  });
+
+  it('routes to testing when split rolls over 0.8', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.95);
+    expect(resolveBucket('split')).toBe('testing');
+  });
+
+  it('respects the 80/20 ratio over many rolls', () => {
+    let n = 0;
+    // 80 hits below 0.8, 20 above — exactly 80/20.
+    vi.spyOn(Math, 'random').mockImplementation(() => {
+      n += 1;
+      return (n - 1) / 100;
+    });
+    let train = 0;
+    let test = 0;
+    for (let i = 0; i < 100; i++) {
+      if (resolveBucket('split') === 'training') train += 1;
+      else test += 1;
+    }
+    expect(train).toBe(80);
+    expect(test).toBe(20);
   });
 });
 
@@ -177,6 +214,36 @@ describe('uploadSample', () => {
     expect(body.protected.alg).toBe('HS256');
     expect(body.signature).toMatch(/^[a-f0-9]{64}$/); // 64 hex chars
     expect(body.signature).not.toBe('0'.repeat(64));
+  });
+
+  it('routes to training and tags split_bucket=training when split rolls below 0.8', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.1);
+    await uploadSample(
+      { ...baseCfg, category: 'split' },
+      [{ t: 0, ax: 0, ay: 0, az: 9.81, gx: 0, gy: 0, gz: 0 }],
+      100,
+      'foo.json',
+    );
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain('/api/training/data');
+    const meta = JSON.parse(init.headers['x-metadata']);
+    expect(meta.split_bucket).toBe('training');
+    vi.unstubAllGlobals();
+  });
+
+  it('routes to testing and tags split_bucket=testing when split rolls above 0.8', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.95);
+    await uploadSample(
+      { ...baseCfg, category: 'split' },
+      [{ t: 0, ax: 0, ay: 0, az: 9.81, gx: 0, gy: 0, gz: 0 }],
+      100,
+      'foo.json',
+    );
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain('/api/testing/data');
+    const meta = JSON.parse(init.headers['x-metadata']);
+    expect(meta.split_bucket).toBe('testing');
+    vi.restoreAllMocks();
   });
 
   it('routes to /api/testing/data when category is testing', async () => {

@@ -46,11 +46,17 @@ export function EiAuthCard({ showHmac = false }: { showHmac?: boolean }) {
         <select
           value={ei.category}
           onChange={(e) =>
-            setEi({ category: e.target.value as 'training' | 'testing' })
+            setEi({
+              category: e.target.value as
+                | 'training'
+                | 'testing'
+                | 'split',
+            })
           }
         >
           <option value="training">Training</option>
           <option value="testing">Testing</option>
+          <option value="split">Split 80:20 (training:testing)</option>
         </select>
       </label>
     </div>

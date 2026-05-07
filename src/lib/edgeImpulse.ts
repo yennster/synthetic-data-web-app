@@ -10,6 +10,23 @@ const STUDIO_BASE = 'https://studio.edgeimpulse.com/v1/api';
 
 const METADATA_SOURCE = 'Synthetic Data Studio';
 
+/** Probability of routing to the training bucket when category === 'split'. */
+const SPLIT_TRAINING_RATIO = 0.8;
+
+/**
+ * Resolve the upload bucket from the user-selected category. `split` rolls
+ * an 80/20 dice per call and tags the metadata so the user can audit
+ * which samples landed where.
+ */
+export function resolveBucket(
+  category: EdgeImpulseConfig['category'],
+): 'training' | 'testing' {
+  if (category === 'split') {
+    return Math.random() < SPLIT_TRAINING_RATIO ? 'training' : 'testing';
+  }
+  return category;
+}
+
 export type IngestionMetadataExtras = Record<
   string,
   string | number | boolean | undefined | null
@@ -135,7 +152,10 @@ export async function uploadSample(
   }
 
   const body = await buildDataAcquisitionPayload(cfg, samples, sampleRateHz);
-  const url = `${INGESTION_BASE}/${cfg.category === 'testing' ? 'testing' : 'training'}/data`;
+  const bucket = resolveBucket(cfg.category);
+  const meta: IngestionMetadataExtras = { ...metadataExtras };
+  if (cfg.category === 'split') meta.split_bucket = bucket;
+  const url = `${INGESTION_BASE}/${bucket}/data`;
   const res = await fetch(url, {
     method: 'POST',
     headers: {
@@ -145,7 +165,7 @@ export async function uploadSample(
       'x-label': cfg.label || 'unlabeled',
       'x-disallow-duplicates': '0',
       'x-add-date-id': '1',
-      'x-metadata': buildIngestionMetadata(metadataExtras),
+      'x-metadata': buildIngestionMetadata(meta),
     },
     body: JSON.stringify(body),
   });
@@ -181,7 +201,10 @@ export async function uploadImage(
 ): Promise<UploadResult> {
   if (!cfg.apiKey) return { ok: false, status: 0, body: 'Missing API key' };
 
-  const url = `${INGESTION_BASE}/${cfg.category === 'testing' ? 'testing' : 'training'}/files`;
+  const bucket = resolveBucket(cfg.category);
+  const meta: IngestionMetadataExtras = { ...metadataExtras };
+  if (cfg.category === 'split') meta.split_bucket = bucket;
+  const url = `${INGESTION_BASE}/${bucket}/files`;
   const form = new FormData();
   // The Edge Impulse uploader expects field name `data`.
   form.append('data', blob, filename);
@@ -191,7 +214,7 @@ export async function uploadImage(
     'x-label': label || 'unlabeled',
     'x-add-date-id': '1',
     'x-disallow-duplicates': '0',
-    'x-metadata': buildIngestionMetadata(metadataExtras),
+    'x-metadata': buildIngestionMetadata(meta),
   };
   if (boxes && boxes.length > 0) {
     headers['x-bounding-boxes'] = JSON.stringify(boxes);

@@ -86,7 +86,10 @@ export type SceneObject = {
 export type EdgeImpulseConfig = {
   apiKey: string;
   hmacKey: string;
-  category: 'training' | 'testing';
+  /** EI ingestion bucket. `split` is a client-side mode that randomly
+   * routes each sample to training or testing on an 80:20 split per
+   * roll — the actual API call still hits the per-bucket endpoint. */
+  category: 'training' | 'testing' | 'split';
   label: string;
   device: string;
 };
