@@ -2,6 +2,11 @@ import { useStore, type AppMode } from '../store/useStore';
 import { MotionPanel } from './MotionPanel';
 import { VisionPanel } from './VisionPanel';
 
+/* The Edge Impulse · auth card used to live between Mode and the panels.
+ * It moved into MotionPanel and VisionPanel so it sits next to the
+ * upload/inference actions that consume it (after Capture in vision,
+ * before Upload in motion). */
+
 const MODES: { value: AppMode; label: string; hint: string }[] = [
   { value: 'motion', label: 'Motion', hint: 'Accelerometer' },
   { value: 'detection', label: 'Object detection', hint: 'Images + bboxes' },
@@ -12,8 +17,6 @@ export function Sidebar() {
   const mode = useStore((s) => s.mode);
   const setMode = useStore((s) => s.setMode);
   const status = useStore((s) => s.status);
-  const ei = useStore((s) => s.ei);
-  const setEi = useStore((s) => s.setEi);
 
   return (
     <aside className="sidebar">
@@ -44,45 +47,6 @@ export function Sidebar() {
       </div>
 
       {mode === 'motion' ? <MotionPanel /> : <VisionPanel />}
-
-      {/* Common: HMAC + device + status (motion-only fields are duplicated; keep central status) */}
-      {mode === 'motion' && (
-        <div className="card">
-          <h3>Edge Impulse · auth</h3>
-          <label className="field">
-            API Key
-            <input
-              type="password"
-              value={ei.apiKey}
-              onChange={(e) => setEi({ apiKey: e.target.value })}
-              placeholder="ei_..."
-              autoComplete="off"
-            />
-          </label>
-          <label className="field">
-            HMAC Key (optional)
-            <input
-              type="password"
-              value={ei.hmacKey}
-              onChange={(e) => setEi({ hmacKey: e.target.value })}
-              placeholder="leave blank for unsigned"
-              autoComplete="off"
-            />
-          </label>
-          <label className="field">
-            Category
-            <select
-              value={ei.category}
-              onChange={(e) =>
-                setEi({ category: e.target.value as 'training' | 'testing' })
-              }
-            >
-              <option value="training">Training</option>
-              <option value="testing">Testing</option>
-            </select>
-          </label>
-        </div>
-      )}
 
       {status.msg && (
         <div className={`status ${status.kind}`}>{status.msg}</div>

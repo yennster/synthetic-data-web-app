@@ -1,7 +1,20 @@
 import { create } from 'zustand';
 import type { Group } from 'three';
+import type { EiModelInfo, EiResult, LoadedEiModel } from '../lib/eiModel';
 
-export type ObjectKind = 'cube' | 'sphere' | 'phone' | 'capsule' | 'cylinder' | 'cone' | 'torus';
+export type ObjectKind =
+  | 'cube'
+  | 'sphere'
+  | 'phone'
+  | 'capsule'
+  | 'cylinder'
+  | 'cone'
+  | 'torus'
+  | 'soda_can';
+
+/** Visual environment presets — controls the floor material and optional
+ * back-wall geometry. "studio" is the original dark backdrop. */
+export type EnvPreset = 'studio' | 'warehouse' | 'whitebox' | 'outdoor';
 
 export type AppMode = 'motion' | 'detection' | 'anomaly';
 
@@ -46,6 +59,10 @@ export type SceneObject = {
   color: string;
   metalness: number;
   roughness: number;
+  /** When true, the object has a Rapier RigidBody and falls / collides /
+   * rides the conveyor. When false it's a static visual at its position
+   * (still draggable with Shift+drag). Defaults to true. */
+  physics: boolean;
 };
 
 export type EdgeImpulseConfig = {
@@ -134,6 +151,11 @@ type State = {
   conveyorSpeed: number;
   setConveyorSpeed: (n: number) => void;
 
+  /** Visual environment preset — swaps the floor material and optionally
+   * adds back walls for more realistic synthetic backgrounds. */
+  envPreset: EnvPreset;
+  setEnvPreset: (p: EnvPreset) => void;
+
   // Imported USDZ assets
   assets: ImportedAsset[];
   addAsset: (a: ImportedAsset) => void;
@@ -168,21 +190,50 @@ type State = {
 
   status: { kind: 'idle' | 'ok' | 'err' | 'busy'; msg: string };
   setStatus: (kind: State['status']['kind'], msg: string) => void;
+
+  // ---------- Inference (Edge Impulse local model) ----------
+  /** Loaded EI model, if any. Hidden from devtools to avoid serializing the
+   * Emscripten module. */
+  eiModel: LoadedEiModel | null;
+  eiModelInfo: EiModelInfo | null;
+  eiModelName: string | null;
+  setEiModel: (m: LoadedEiModel | null, name?: string | null) => void;
+  /** Confidence threshold for showing detection boxes (0..1). */
+  eiThreshold: number;
+  setEiThreshold: (n: number) => void;
+  /** Live inference toggle — when on, we run on the preview at PREVIEW_HZ. */
+  eiLive: boolean;
+  setEiLive: (b: boolean) => void;
+  /** Latest result, used to drive the overlay. */
+  eiResult: EiResult | null;
+  setEiResult: (r: EiResult | null) => void;
+  /** Render projected 3D markers in the scene for the latest result. */
+  eiShow3D: boolean;
+  setEiShow3D: (b: boolean) => void;
+  /** Bumped to request a one-shot inference run on the next preview frame. */
+  inferenceSignal: number;
+  triggerInference: () => void;
 };
 
-const defaultObject = (kind: ObjectKind, idx: number): SceneObject => ({
-  id: crypto.randomUUID(),
-  kind,
-  label: kind,
-  // Spawn above belt-top + a little headroom so they fall onto whatever
-  // surface is under them (belt or ground) without interpenetrating.
-  position: [(idx % 5) * 0.9 - 1.8, 1.2, Math.floor(idx / 5) * -0.9],
-  rotation: [0, Math.random() * Math.PI * 2, 0],
-  scale: 1,
-  color: ['#f59e0b', '#38bdf8', '#a78bfa', '#34d399', '#f472b6'][idx % 5],
-  metalness: 0.2,
-  roughness: 0.5,
-});
+const defaultObject = (kind: ObjectKind, idx: number): SceneObject => {
+  const isCan = kind === 'soda_can';
+  return {
+    id: crypto.randomUUID(),
+    kind,
+    label: kind,
+    // Spawn above belt-top + a little headroom so they fall onto whatever
+    // surface is under them (belt or ground) without interpenetrating.
+    position: [(idx % 5) * 0.9 - 1.8, 1.2, Math.floor(idx / 5) * -0.9],
+    rotation: [0, Math.random() * Math.PI * 2, 0],
+    scale: 1,
+    color: isCan
+      ? '#dc2626'
+      : ['#f59e0b', '#38bdf8', '#a78bfa', '#34d399', '#f472b6'][idx % 5],
+    metalness: isCan ? 0.85 : 0.2,
+    roughness: isCan ? 0.25 : 0.5,
+    physics: true,
+  };
+};
 
 export const useStore = create<State>((set) => ({
   mode: 'motion',
@@ -233,6 +284,9 @@ export const useStore = create<State>((set) => ({
   setShowConveyor: (b) => set({ showConveyor: b }),
   conveyorSpeed: 0.5,
   setConveyorSpeed: (n) => set({ conveyorSpeed: n }),
+
+  envPreset: 'studio',
+  setEnvPreset: (p) => set({ envPreset: p }),
 
   assets: [],
   addAsset: (a) => set((s) => ({ assets: [...s.assets, a] })),
@@ -287,4 +341,26 @@ export const useStore = create<State>((set) => ({
 
   status: { kind: 'idle', msg: '' },
   setStatus: (kind, msg) => set({ status: { kind, msg } }),
+
+  // inference
+  eiModel: null,
+  eiModelInfo: null,
+  eiModelName: null,
+  setEiModel: (m, name) =>
+    set({
+      eiModel: m,
+      eiModelInfo: m?.info ?? null,
+      eiModelName: m ? name ?? null : null,
+      eiResult: null,
+    }),
+  eiThreshold: 0.5,
+  setEiThreshold: (n) => set({ eiThreshold: n }),
+  eiLive: false,
+  setEiLive: (b) => set({ eiLive: b }),
+  eiResult: null,
+  setEiResult: (r) => set({ eiResult: r }),
+  eiShow3D: true,
+  setEiShow3D: (b) => set({ eiShow3D: b }),
+  inferenceSignal: 0,
+  triggerInference: () => set((s) => ({ inferenceSignal: s.inferenceSignal + 1 })),
 }));

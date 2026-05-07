@@ -180,6 +180,25 @@ label.field {
   gap: 6px;
 }
 
+.ei-fetch-group {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px 12px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.ei-fetch-group legend {
+  padding: 0 6px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent-2);
+}
+
 .check-row {
   display: flex;
   align-items: center;
@@ -226,6 +245,38 @@ label.field {
   border: 1px solid var(--border);
   background: #000;
   z-index: 5;
+}
+
+/* Native horizontal resize via the bottom-right corner. Height is reactively
+   derived from capture aspect (see App.tsx ResizeObserver) so the canvas
+   content stays undistorted. */
+.cam-overlay.resizable {
+  resize: horizontal;
+  min-width: 160px;
+  max-width: 720px;
+}
+
+/* Webcam (motion mode) has a fixed 4:3 aspect from getUserMedia. Use the
+   CSS aspect-ratio to keep height in sync as the user drags the corner —
+   no React state needed because the aspect never changes. The `height:
+   auto` overrides the fixed 180px from the base .cam-overlay rule. */
+.cam-overlay.resizable.fixed-aspect-43 {
+  aspect-ratio: 4 / 3;
+  height: auto;
+}
+
+/* Visible drag-corner affordance on top of the native resize handle. */
+.cam-overlay.resizable::after {
+  content: '';
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 12px;
+  height: 12px;
+  border-right: 2px solid var(--accent-2);
+  border-bottom: 2px solid var(--accent-2);
+  pointer-events: none;
+  opacity: 0.7;
 }
 .cam-overlay video, .cam-overlay canvas {
   position: absolute;

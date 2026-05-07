@@ -9,7 +9,6 @@ import {
 import {
   Physics,
   RigidBody,
-  CuboidCollider,
   type RapierRigidBody,
 } from '@react-three/rapier';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -17,11 +16,45 @@ import * as THREE from 'three';
 import { useStore, type ObjectKind } from '../store/useStore';
 import { Conveyor } from './Conveyor';
 import { ImportedAssets } from './ImportedAssets';
+import { InferenceMarkers3D } from './InferenceMarkers3D';
+import { SceneEnvironment } from './SceneEnvironment';
 import { SpawnedObjects } from './SpawnedObjects';
 import { VirtualCamera } from './VirtualCamera';
 
 const GRAVITY: [number, number, number] = [0, -9.81, 0];
 const FOLLOW_LERP = 0.35;
+
+function backgroundForPreset(preset: string): string {
+  switch (preset) {
+    case 'whitebox':
+      return 'linear-gradient(180deg, #f5f5f2 0%, #e8e8e3 100%)';
+    case 'outdoor':
+      return 'linear-gradient(180deg, #87b9d8 0%, #c4d9e8 100%)';
+    case 'warehouse':
+      return 'linear-gradient(180deg, #2a2620 0%, #1a1612 100%)';
+    case 'studio':
+    default:
+      return 'linear-gradient(180deg, #0b0d10 0%, #14181d 100%)';
+  }
+}
+
+/** Solid color used as `scene.background` so it shows up in both the
+ * live render AND captured frames. The CSS gradient on the canvas div
+ * still drives the visible look in the main view, but for offscreen
+ * captures the GL renderer needs an explicit clear color. */
+function sceneBackgroundColor(preset: string): string {
+  switch (preset) {
+    case 'whitebox':
+      return '#eeeeea';
+    case 'outdoor':
+      return '#a3cae1';
+    case 'warehouse':
+      return '#1f1c18';
+    case 'studio':
+    default:
+      return '#0e1115';
+  }
+}
 
 // ---------- Motion-mode body ----------
 function ManipulatedObject() {
@@ -179,6 +212,34 @@ function ManipulatedMesh({
           {material}
         </mesh>
       );
+    case 'cylinder':
+      return (
+        <mesh ref={meshRef} castShadow>
+          <cylinderGeometry args={[0.4, 0.4, 0.9, 24]} />
+          {material}
+        </mesh>
+      );
+    case 'cone':
+      return (
+        <mesh ref={meshRef} castShadow>
+          <coneGeometry args={[0.5, 1.0, 24]} />
+          {material}
+        </mesh>
+      );
+    case 'torus':
+      return (
+        <mesh ref={meshRef} castShadow>
+          <torusGeometry args={[0.4, 0.15, 16, 32]} />
+          {material}
+        </mesh>
+      );
+    case 'soda_can':
+      return (
+        <mesh ref={meshRef} castShadow>
+          <cylinderGeometry args={[0.27, 0.27, 0.8, 32]} />
+          {material}
+        </mesh>
+      );
     default:
       return (
         <mesh ref={meshRef} castShadow>
@@ -189,21 +250,12 @@ function ManipulatedMesh({
   }
 }
 
-function Ground({ visible = true }: { visible?: boolean }) {
-  // Visual ground stays thin (0.1) so the surface is visually flush with y=0,
-  // but the collider is much thicker (extends 1m down) so fast-falling objects
-  // can never tunnel through it even without CCD.
-  return (
-    <RigidBody type="fixed" colliders={false} friction={0.8} restitution={0.3}>
-      <CuboidCollider args={[20, 0.5, 20]} position={[0, -0.5, 0]} />
-      {visible && (
-        <mesh position={[0, -0.05, 0]} receiveShadow>
-          <boxGeometry args={[40, 0.1, 40]} />
-          <meshStandardMaterial color="#1c2128" roughness={0.95} metalness={0.05} />
-        </mesh>
-      )}
-    </RigidBody>
-  );
+function SceneBackground({ color }: { color: string }) {
+  const { scene } = useThree();
+  useEffect(() => {
+    scene.background = new THREE.Color(color);
+  }, [scene, color]);
+  return null;
 }
 
 function PinchMarker() {
@@ -268,6 +320,7 @@ export function Scene({
 }) {
   const mode = useStore((s) => s.mode);
   const showConveyor = useStore((s) => s.showConveyor);
+  const envPreset = useStore((s) => s.envPreset);
 
   return (
     <Canvas
@@ -278,9 +331,16 @@ export function Scene({
         toneMapping: THREE.ACESFilmicToneMapping,
         toneMappingExposure: 1.0,
       }}
-      style={{ background: 'linear-gradient(180deg, #0b0d10 0%, #14181d 100%)' }}
+      style={{ background: backgroundForPreset(envPreset) }}
     >
       <SoftShadows size={20} samples={12} />
+      {/* Solid scene background so the off-screen capture renderer sees the
+          same backdrop as the on-canvas preview (CSS body backgrounds don't
+          carry into a fresh WebGLRenderer). Outdoor gets a sky-blue, the
+          rest match their gradient's middle tone. Set imperatively via
+          useThree because the `<color attach="background">` JSX form
+          doesn't reconcile reliably across preset changes. */}
+      <SceneBackground color={sceneBackgroundColor(envPreset)} />
       <SceneLighting />
 
       <Grid
@@ -306,10 +366,9 @@ export function Scene({
       />
 
       <Physics gravity={GRAVITY}>
-        {/* Ground is visible in every mode now — when the conveyor is on
-            it forms the surrounding floor; in motion / clean detection
-            it's the only floor. The conveyor sits on top of it. */}
-        <Ground visible />
+        {/* Floor (and optional walls) — controlled by the env preset. The
+            conveyor and any spawned objects sit on top of this. */}
+        <SceneEnvironment preset={envPreset} />
         {mode === 'motion' ? (
           <>
             <ManipulatedObject />
@@ -325,6 +384,7 @@ export function Scene({
       </Physics>
 
       {mode !== 'motion' && <VirtualCamera previewCanvas={previewCanvas} />}
+      {mode !== 'motion' && <InferenceMarkers3D />}
 
       <OrbitControls
         makeDefault

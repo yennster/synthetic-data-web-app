@@ -206,8 +206,8 @@ export function CameraFeed() {
   }, [setGrabbed, setHandDetected, setPinchStrength, setPinchTarget]);
 
   return (
-    <div className="cam-overlay">
-      <span className="label">Webcam · hand tracking</span>
+    <div className="cam-overlay resizable fixed-aspect-43">
+      <span className="label">Webcam · hand tracking · drag ↘</span>
       <video ref={videoRef} muted playsInline />
       <canvas ref={canvasRef} />
     </div>

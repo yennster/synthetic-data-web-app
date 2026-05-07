@@ -110,7 +110,25 @@ export function Conveyor() {
         </mesh>
       </RigidBody>
 
-      {/* Side rails — sit just above the belt slab on its outer edges. */}
+      {/* Side rails — visual mesh + matching fixed collider so objects can't
+          slip through and fall off the conveyor. The visual box and the
+          collider share the same half-extents and position so what you see
+          is exactly what objects bounce off. The collider extends downward
+          from the rail top to the belt surface, sealing the gap that
+          previously let cans tip over the edge. */}
+      <RigidBody type="fixed" colliders={false} friction={0.4} restitution={0.05}>
+        {[-1, 1].map((side) => (
+          <CuboidCollider
+            key={`rail-col-${side}`}
+            // half-width 0.06, centered at ±(BELT_WIDTH/2 + 0.06) so the
+            // inner face sits exactly at the belt edge — no gap for small
+            // objects to slip through. Half-height 0.22 covers from y=0.44
+            // (below belt top) up to y=0.88 (well above any settled can).
+            args={[0.06, 0.22, BELT_LENGTH / 2]}
+            position={[side * (BELT_WIDTH / 2 + 0.06), BELT_TOP_Y + 0.16, 0]}
+          />
+        ))}
+      </RigidBody>
       {[-1, 1].map((side) => (
         <mesh
           key={side}

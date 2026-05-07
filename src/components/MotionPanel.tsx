@@ -1,11 +1,16 @@
 import { useStore, type ObjectKind } from '../store/useStore';
 import { buildFileName, uploadSample } from '../lib/edgeImpulse';
+import { EiAuthCard } from './EiAuthCard';
 
 const OBJECTS: { value: ObjectKind; label: string }[] = [
   { value: 'cube', label: 'Cube' },
   { value: 'sphere', label: 'Sphere' },
-  { value: 'phone', label: 'Phone slab' },
+  { value: 'cylinder', label: 'Cylinder' },
+  { value: 'cone', label: 'Cone' },
+  { value: 'torus', label: 'Torus' },
   { value: 'capsule', label: 'Capsule' },
+  { value: 'phone', label: 'Phone slab' },
+  { value: 'soda_can', label: 'Soda can' },
 ];
 
 export function MotionPanel() {
@@ -102,6 +107,18 @@ export function MotionPanel() {
         <div style={{ fontSize: 12, color: 'var(--muted)' }}>
           {samples.length} samples · {durationSec.toFixed(2)}s
         </div>
+      </div>
+
+      <EiAuthCard showHmac />
+
+      <div className="card">
+        <h3>Upload to Edge Impulse</h3>
+        {!ei.apiKey && (
+          <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+            Set your API key in the <strong>Edge Impulse · auth</strong>
+            card above.
+          </div>
+        )}
         <button
           className="primary"
           onClick={onUpload}
@@ -112,7 +129,7 @@ export function MotionPanel() {
             status.kind === 'busy'
           }
         >
-          ⤴ Upload to Edge Impulse
+          ⤴ Upload {samples.length} samples
         </button>
       </div>
     </>

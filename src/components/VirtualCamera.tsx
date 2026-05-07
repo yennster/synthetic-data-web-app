@@ -2,7 +2,15 @@ import { useFrame, useThree } from '@react-three/fiber';
 import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { useStore } from '../store/useStore';
-import { captureFrame, makeFilename, saveBlob } from '../lib/capture';
+import {
+  buildBoundingBoxLabelsFile,
+  captureFrame,
+  makeFilename,
+  saveBlob,
+} from '../lib/capture';
+import { BELT_TRANSPORTABLES, isOnBelt } from '../lib/beltDynamics';
+import { buildZip } from '../lib/zip';
+import { canvasToFeatures } from '../lib/eiModel';
 
 /**
  * The virtual camera has two responsibilities:
@@ -28,6 +36,8 @@ import { captureFrame, makeFilename, saveBlob } from '../lib/capture';
  */
 const PREVIEW_HZ = 15;
 const PREVIEW_INTERVAL_MS = 1000 / PREVIEW_HZ;
+const INFERENCE_HZ = 5;
+const INFERENCE_INTERVAL_MS = 1000 / INFERENCE_HZ;
 
 export function VirtualCamera({
   previewCanvas,
@@ -64,6 +74,9 @@ export function VirtualCamera({
   // Pixel buffer for readback — reused across frames.
   const pixelBuf = useRef<Uint8Array | null>(null);
   const lastPreviewMs = useRef(0);
+  const lastInferenceMs = useRef(0);
+  const inferenceSignal = useStore((s) => s.inferenceSignal);
+  const inferenceSignalRef = useRef(0);
 
   useEffect(() => {
     return () => {
@@ -101,7 +114,39 @@ export function VirtualCamera({
     lastPreviewMs.current = now;
 
     renderPreview();
+
+    // Run live inference on the freshly-painted preview if requested. We
+    // gate this both on the eiLive toggle (continuous) and on the
+    // inferenceSignal (one-shot). Throttled separately from preview so a
+    // chunky model doesn't drag the preview HZ down.
+    const { eiLive, eiModel, eiModelInfo } = useStore.getState();
+    const oneShot = inferenceSignal !== inferenceSignalRef.current;
+    inferenceSignalRef.current = inferenceSignal;
+    if (eiModel && eiModelInfo && (oneShot || eiLive)) {
+      if (oneShot || now - lastInferenceMs.current >= INFERENCE_INTERVAL_MS) {
+        lastInferenceMs.current = now;
+        runInference();
+      }
+    }
   });
+
+  function runInference() {
+    if (!previewCanvas) return;
+    const { eiModel, eiModelInfo, setEiResult, setStatus } = useStore.getState();
+    if (!eiModel || !eiModelInfo) return;
+    try {
+      const features = canvasToFeatures(
+        previewCanvas,
+        eiModelInfo.inputWidth,
+        eiModelInfo.inputHeight,
+        eiModelInfo.isRgb,
+      );
+      const res = eiModel.classifier.classify(features);
+      setEiResult(res);
+    } catch (e) {
+      setStatus('err', `Inference: ${(e as Error).message}`);
+    }
+  }
 
   function renderPreview() {
     if (!previewCanvas) return;
@@ -167,9 +212,9 @@ export function VirtualCamera({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [batchSignal]);
 
-  async function doCapture() {
+  async function doCapture(opts: { skipSave?: boolean } = {}) {
     const cam = camera;
-    setStatus('busy', 'Capturing…');
+    if (!opts.skipSave) setStatus('busy', 'Capturing…');
     try {
       const { width, height } = cameraSettings;
       // Hide helper for the capture too, so the frustum gizmo isn't burned
@@ -193,15 +238,18 @@ export function VirtualCamera({
         mode === 'anomaly' ? anomalyLabel || 'sample' : 'frame';
       const filename = makeFilename(labelPrefix, idx);
 
-      // Save to FS if directory chosen, else fall back to download.
-      try {
-        await saveBlob(
-          saveDirHandle ? { kind: 'fs', dir: saveDirHandle } : { kind: 'download' },
-          filename,
-          blob,
-        );
-      } catch (e) {
-        setStatus('err', `Save failed: ${(e as Error).message}`);
+      // Single-shot path saves immediately. The batch path collects all
+      // blobs and packages them into a single .zip at the end.
+      if (!opts.skipSave) {
+        try {
+          await saveBlob(
+            saveDirHandle ? { kind: 'fs', dir: saveDirHandle } : { kind: 'download' },
+            filename,
+            blob,
+          );
+        } catch (e) {
+          setStatus('err', `Save failed: ${(e as Error).message}`);
+        }
       }
 
       addCapture({
@@ -214,14 +262,16 @@ export function VirtualCamera({
         height,
         ts: Date.now(),
       });
-      setStatus('ok', `Captured ${filename} (${boxes.length} boxes)`);
+      if (!opts.skipSave) {
+        setStatus('ok', `Captured ${filename} (${boxes.length} boxes)`);
+      }
     } catch (e) {
       setStatus('err', `Capture error: ${(e as Error).message}`);
     }
   }
 
   async function doBatch() {
-    const { capture: cs, sceneObjects } = useStore.getState();
+    const { capture: cs, sceneObjects, showConveyor } = useStore.getState();
     const total = cs.batchCount;
 
     // Snapshot the user's chosen camera/light origin to jitter around.
@@ -234,6 +284,9 @@ export function VirtualCamera({
       (o) => [...o.position] as [number, number, number],
     );
 
+    // Index from which the captures emitted by this batch begin — used to
+    // slice them out of the store at the end and bundle into a single zip.
+    const startIdx = useStore.getState().captures.length;
     setStatus('busy', `Batch 0/${total}`);
     try {
       for (let i = 0; i < total; i++) {
@@ -266,28 +319,56 @@ export function VirtualCamera({
         }
         if (cs.randomizeObjects) {
           const updateSceneObject = useStore.getState().updateSceneObject;
-          sceneObjects.forEach((o, idx) => {
-            const base = baseObjPositions[idx] ?? [0, 0.5, 0];
-            updateSceneObject(o.id, {
-              position: [
-                base[0] + (Math.random() - 0.5) * 0.6,
-                Math.max(0.2, base[1] + (Math.random() - 0.5) * 0.2),
-                base[2] + (Math.random() - 0.5) * 0.6,
-              ],
-              rotation: [
-                Math.random() * Math.PI * 2,
-                Math.random() * Math.PI * 2,
-                Math.random() * Math.PI * 2,
-              ],
+          // When the conveyor is on, drop the objects from above the belt
+          // so we can wait for them to settle ON the belt before capturing.
+          // Otherwise, jitter within a small radius of their original spots.
+          if (showConveyor) {
+            sceneObjects.forEach((o) => {
+              updateSceneObject(o.id, {
+                position: [
+                  (Math.random() - 0.5) * 1.2, // belt is ~1.6m wide
+                  1.6 + Math.random() * 0.4, // above belt top
+                  (Math.random() - 0.5) * 6, // belt is 8m long
+                ],
+                rotation: [
+                  Math.random() * Math.PI * 2,
+                  Math.random() * Math.PI * 2,
+                  Math.random() * Math.PI * 2,
+                ],
+              });
             });
-          });
+          } else {
+            sceneObjects.forEach((o, idx) => {
+              const base = baseObjPositions[idx] ?? [0, 0.5, 0];
+              updateSceneObject(o.id, {
+                position: [
+                  base[0] + (Math.random() - 0.5) * 0.6,
+                  Math.max(0.2, base[1] + (Math.random() - 0.5) * 0.2),
+                  base[2] + (Math.random() - 0.5) * 0.6,
+                ],
+                rotation: [
+                  Math.random() * Math.PI * 2,
+                  Math.random() * Math.PI * 2,
+                  Math.random() * Math.PI * 2,
+                ],
+              });
+            });
+          }
         }
 
         // Allow one frame for state → matrices to update
         await new Promise(requestAnimationFrame);
         await new Promise(requestAnimationFrame);
 
-        await doCapture();
+        // When dropping randomized objects onto the conveyor, wait until
+        // they've actually landed (and slowed) before capturing. Otherwise
+        // the bounding boxes label objects mid-air, which isn't what the
+        // user is trying to generate training data for.
+        if (cs.randomizeObjects && showConveyor) {
+          await waitForObjectsToSettle();
+        }
+
+        await doCapture({ skipSave: true });
         setStatus('busy', `Batch ${i + 1}/${total}`);
       }
       // Restore base settings
@@ -298,9 +379,90 @@ export function VirtualCamera({
         lightIntensity: baseLight,
         envRotation: baseEnvRot,
       });
-      setStatus('ok', `Batch complete: ${total} images`);
+
+      // Bundle the captures from this batch into a single zip and either
+      // write it to the chosen save directory or download it.
+      const allCaptures = useStore.getState().captures;
+      const batchCaptures = allCaptures.slice(startIdx);
+      if (batchCaptures.length > 0) {
+        setStatus('busy', `Packaging zip (${batchCaptures.length})…`);
+        const zipName = makeFilename(
+          mode === 'anomaly' ? anomalyLabel || 'batch' : 'batch',
+          startIdx,
+          'zip',
+        );
+        const entries = batchCaptures.map((c) => ({
+          name: c.filename,
+          data: c.blob,
+        }));
+        // Detection mode includes the EI sidecar so the user can drop the
+        // zip straight into the Studio uploader.
+        if (mode === 'detection') {
+          entries.push({
+            name: 'bounding_boxes.labels',
+            data: new Blob([buildBoundingBoxLabelsFile(batchCaptures)], {
+              type: 'application/json',
+            }),
+          });
+        }
+        const zipBlob = await buildZip(entries);
+        try {
+          await saveBlob(
+            saveDirHandle ? { kind: 'fs', dir: saveDirHandle } : { kind: 'download' },
+            zipName,
+            zipBlob,
+          );
+        } catch (e) {
+          setStatus('err', `Save zip failed: ${(e as Error).message}`);
+          return;
+        }
+        setStatus(
+          'ok',
+          `Batch complete: ${batchCaptures.length} images → ${zipName}`,
+        );
+      } else {
+        setStatus('ok', `Batch complete: 0 images`);
+      }
     } catch (e) {
       setStatus('err', `Batch error: ${(e as Error).message}`);
+    }
+  }
+
+  /**
+   * Block until all conveyor-tracked rigid bodies have either landed on the
+   * belt or come to rest, or a timeout fires (2.5s). Polls per animation
+   * frame so the renderer & physics solver keep ticking.
+   *
+   * "Settled" = on belt AND linear speed below threshold. We don't require
+   * every body to satisfy this — falling into the gap or off the side is
+   * legitimate state — so we declare the scene settled when no body is
+   * still moving fast OR we hit the timeout.
+   */
+  async function waitForObjectsToSettle(): Promise<void> {
+    const TIMEOUT_MS = 2500;
+    const SPEED_THRESHOLD = 0.15; // m/s
+    const start = performance.now();
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      await new Promise(requestAnimationFrame);
+      let allRest = true;
+      for (const body of BELT_TRANSPORTABLES) {
+        const lv = body.linvel();
+        const speed = Math.hypot(lv.x, lv.y, lv.z);
+        if (speed > SPEED_THRESHOLD) {
+          allRest = false;
+          break;
+        }
+        const t = body.translation();
+        // Bodies that fell off the edge are below belt level — count as
+        // "settled" for the purposes of this wait.
+        if (!isOnBelt(t) && t.y > 0.4) {
+          allRest = false;
+          break;
+        }
+      }
+      if (allRest) return;
+      if (performance.now() - start > TIMEOUT_MS) return;
     }
   }
 

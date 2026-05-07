@@ -25,6 +25,8 @@ function colliderForKind(kind: ObjectKind): RigidBodyAutoCollider {
       return 'cuboid';
     case 'sphere':
       return 'ball';
+    case 'soda_can':
+      return 'hull';
     default:
       return 'hull';
   }
@@ -44,10 +46,46 @@ function Geometry({ kind }: { kind: ObjectKind }) {
       return <coneGeometry args={[0.4, 0.8, 24]} />;
     case 'torus':
       return <torusGeometry args={[0.35, 0.12, 16, 32]} />;
+    case 'soda_can':
+      // Real 355ml can ≈ 6.6cm Ø × 12.3cm. Scaled so it visually matches the
+      // other primitives but reads as taller than wide.
+      return <cylinderGeometry args={[0.22, 0.22, 0.62, 32]} />;
     case 'cube':
     default:
       return <boxGeometry args={[0.6, 0.6, 0.6]} />;
   }
+}
+
+/**
+ * Visual-only path used when the user has turned physics off for this
+ * object — no RigidBody, no collider, no belt transport. The mesh sits at
+ * its store position, still draggable via Shift+drag (the drag handler
+ * just writes the new position back to the store).
+ */
+function StaticSpawnedMesh({ obj }: { obj: SceneObject }) {
+  const updateSceneObject = useStore((s) => s.updateSceneObject);
+  const dragHandlers = useDragMove({
+    getPosition: () => obj.position,
+    setPosition: (p) => updateSceneObject(obj.id, { position: p }),
+  });
+  return (
+    <mesh
+      position={obj.position}
+      rotation={obj.rotation}
+      scale={obj.scale}
+      castShadow
+      receiveShadow
+      userData={{ label: obj.label, sceneObjectId: obj.id }}
+      {...dragHandlers}
+    >
+      <Geometry kind={obj.kind} />
+      <meshStandardMaterial
+        color={obj.color}
+        roughness={obj.roughness}
+        metalness={obj.metalness}
+      />
+    </mesh>
+  );
 }
 
 function SpawnedMesh({ obj }: { obj: SceneObject }) {
@@ -157,9 +195,18 @@ export function SpawnedObjects() {
   const sceneObjects = useStore((s) => s.sceneObjects);
   return (
     <>
-      {sceneObjects.map((obj) => (
-        <SpawnedMesh key={obj.id} obj={obj} />
-      ))}
+      {sceneObjects.map((obj) => {
+        // Include scale + physics flag in the key so:
+        //  - Resizing recomputes the rapier auto-collider for the new mesh.
+        //  - Toggling physics swaps the entire branch (RigidBody ↔ plain mesh)
+        //    instead of trying to mutate a body in place.
+        const key = `${obj.id}-${obj.scale.toFixed(3)}-${obj.physics ? 'p' : 's'}`;
+        return obj.physics ? (
+          <SpawnedMesh key={key} obj={obj} />
+        ) : (
+          <StaticSpawnedMesh key={key} obj={obj} />
+        );
+      })}
     </>
   );
 }

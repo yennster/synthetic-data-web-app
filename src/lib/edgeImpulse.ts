@@ -6,6 +6,7 @@ import type {
 } from '../store/useStore';
 
 const INGESTION_BASE = 'https://ingestion.edgeimpulse.com/api';
+const STUDIO_BASE = 'https://studio.edgeimpulse.com/v1/api';
 
 // Build the unsigned (alg: "none") Edge Impulse data acquisition format.
 // HMAC signing is supported if hmacKey is provided.
@@ -147,6 +148,77 @@ export type BatchUploadProgress = {
   failed: number;
   current?: string;
 };
+
+// ---------- Studio API: list projects, fetch deployment ----------
+
+export type EiProject = { id: number; name: string; owner?: string };
+
+async function studioGet<T>(path: string, apiKey: string): Promise<T> {
+  const res = await fetch(`${STUDIO_BASE}${path}`, {
+    headers: { 'x-api-key': apiKey, accept: 'application/json' },
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}: ${text.slice(0, 200)}`);
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`Bad JSON from Studio: ${text.slice(0, 200)}`);
+  }
+}
+
+/** List all projects accessible to the supplied API key. */
+export async function listEiProjects(apiKey: string): Promise<EiProject[]> {
+  const r = await studioGet<{
+    success: boolean;
+    error?: string;
+    projects: Array<{ id: number; name: string; owner?: { username?: string } }>;
+  }>('/projects', apiKey);
+  if (!r.success) throw new Error(r.error || 'Studio rejected the API key');
+  return (r.projects ?? []).map((p) => ({
+    id: p.id,
+    name: p.name,
+    owner: p.owner?.username,
+  }));
+}
+
+/**
+ * Check whether a project has a built WebAssembly deployment ready for
+ * download. EI returns `hasDeployment: false` when the user hasn't built one
+ * yet — we surface that as a clear actionable error.
+ */
+export async function getEiDeployment(
+  apiKey: string,
+  projectId: number,
+  type = 'wasm',
+): Promise<{ hasDeployment: boolean; version?: number }> {
+  const r = await studioGet<{
+    success: boolean;
+    error?: string;
+    hasDeployment?: boolean;
+    version?: number;
+  }>(`/${projectId}/deployment?type=${encodeURIComponent(type)}`, apiKey);
+  if (!r.success) throw new Error(r.error || 'Failed to query deployment');
+  return { hasDeployment: !!r.hasDeployment, version: r.version };
+}
+
+/** Download the deployment zip from the Studio. */
+export async function downloadEiDeployment(
+  apiKey: string,
+  projectId: number,
+  type = 'wasm',
+): Promise<Blob> {
+  const url = `${STUDIO_BASE}/${projectId}/deployment/download?type=${encodeURIComponent(
+    type,
+  )}`;
+  const res = await fetch(url, { headers: { 'x-api-key': apiKey } });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(
+      `Download failed: ${res.status} ${res.statusText} — ${text.slice(0, 200)}`,
+    );
+  }
+  return await res.blob();
+}
 
 export async function uploadCaptures(
   cfg: EdgeImpulseConfig,

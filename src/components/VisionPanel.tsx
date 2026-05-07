@@ -6,8 +6,16 @@ import {
   pickDirectory,
   saveBlob,
 } from '../lib/capture';
-import { uploadCaptures } from '../lib/edgeImpulse';
+import {
+  downloadEiDeployment,
+  getEiDeployment,
+  listEiProjects,
+  uploadCaptures,
+  type EiProject,
+} from '../lib/edgeImpulse';
+import { loadEiModel, loadEiModelFromZip } from '../lib/eiModel';
 import { disposeUsdz, loadUsdz } from '../lib/usdz';
+import { EiAuthCard } from './EiAuthCard';
 
 const OBJECT_OPTIONS: ObjectKind[] = [
   'cube',
@@ -17,6 +25,7 @@ const OBJECT_OPTIONS: ObjectKind[] = [
   'torus',
   'capsule',
   'phone',
+  'soda_can',
 ];
 
 export function VisionPanel() {
@@ -31,6 +40,8 @@ export function VisionPanel() {
     setShowConveyor,
     conveyorSpeed,
     setConveyorSpeed,
+    envPreset,
+    setEnvPreset,
     assets,
     addAsset,
     removeAsset,
@@ -51,6 +62,128 @@ export function VisionPanel() {
     status,
     setStatus,
   } = useStore();
+
+  const eiModel = useStore((s) => s.eiModel);
+  const eiModelInfo = useStore((s) => s.eiModelInfo);
+  const eiModelName = useStore((s) => s.eiModelName);
+  const setEiModel = useStore((s) => s.setEiModel);
+  const eiThreshold = useStore((s) => s.eiThreshold);
+  const setEiThreshold = useStore((s) => s.setEiThreshold);
+  const eiLive = useStore((s) => s.eiLive);
+  const setEiLive = useStore((s) => s.setEiLive);
+  const eiResult = useStore((s) => s.eiResult);
+  const eiShow3D = useStore((s) => s.eiShow3D);
+  const setEiShow3D = useStore((s) => s.setEiShow3D);
+  const triggerInference = useStore((s) => s.triggerInference);
+  const modelFilesRef = useRef<HTMLInputElement>(null);
+  const [modelLoading, setModelLoading] = useState(false);
+  const [eiProjects, setEiProjects] = useState<EiProject[] | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
+
+  const onListProjects = async () => {
+    if (!ei.apiKey) {
+      setStatus('err', 'Enter your Edge Impulse API key first');
+      return;
+    }
+    setStatus('busy', 'Listing projects…');
+    try {
+      const list = await listEiProjects(ei.apiKey);
+      setEiProjects(list);
+      if (list.length === 0) {
+        setStatus('err', 'No projects accessible to this API key');
+      } else {
+        if (list.length === 1) setSelectedProjectId(list[0].id);
+        setStatus('ok', `Found ${list.length} project${list.length === 1 ? '' : 's'}`);
+      }
+    } catch (e) {
+      setStatus('err', `List projects: ${(e as Error).message}`);
+    }
+  };
+
+  const onFetchModel = async () => {
+    if (!ei.apiKey) {
+      setStatus('err', 'Enter your Edge Impulse API key first');
+      return;
+    }
+    if (!selectedProjectId) {
+      setStatus('err', 'Pick a project first');
+      return;
+    }
+    setModelLoading(true);
+    try {
+      setStatus('busy', 'Checking deployment…');
+      const info = await getEiDeployment(ei.apiKey, selectedProjectId, 'wasm');
+      if (!info.hasDeployment) {
+        setStatus(
+          'err',
+          'No WebAssembly deployment built yet. In the Studio: Deployment → Build with target "WebAssembly".',
+        );
+        return;
+      }
+      setStatus('busy', 'Downloading model…');
+      const zip = await downloadEiDeployment(ei.apiKey, selectedProjectId, 'wasm');
+      setStatus('busy', `Loading model (${(zip.size / 1024).toFixed(0)} KB)…`);
+      const projName =
+        eiProjects?.find((p) => p.id === selectedProjectId)?.name ??
+        `project-${selectedProjectId}`;
+      const loaded = await loadEiModelFromZip(zip, projName);
+      setEiModel(loaded, projName);
+      const i = loaded.info;
+      setStatus(
+        'ok',
+        `Loaded ${projName}: ${i.inputWidth}×${i.inputHeight} ${
+          i.isRgb ? 'RGB' : 'GRAY'
+        }${i.isObjectDetection ? ' · object detection' : ''}`,
+      );
+    } catch (e) {
+      setStatus('err', `Fetch model: ${(e as Error).message}`);
+    } finally {
+      setModelLoading(false);
+    }
+  };
+
+  const onLoadModel = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    let jsFile: File | null = null;
+    let wasmFile: File | null = null;
+    for (const f of Array.from(files)) {
+      if (f.name.toLowerCase().endsWith('.wasm')) wasmFile = f;
+      else if (f.name.toLowerCase().endsWith('.js')) jsFile = f;
+    }
+    if (!jsFile || !wasmFile) {
+      setStatus(
+        'err',
+        'Pick BOTH the EI .js and .wasm from the unzipped WebAssembly deployment.',
+      );
+      return;
+    }
+    setModelLoading(true);
+    setStatus('busy', `Loading model ${jsFile.name}…`);
+    try {
+      const loaded = await loadEiModel(jsFile, wasmFile, jsFile.name);
+      setEiModel(loaded, jsFile.name.replace(/\.js$/i, ''));
+      const i = loaded.info;
+      setStatus(
+        'ok',
+        `Loaded ${jsFile.name}: ${i.inputWidth}×${i.inputHeight} ${
+          i.isRgb ? 'RGB' : 'GRAY'
+        }${i.isObjectDetection ? ' · object detection' : ''}${
+          i.hasVisualAnomaly ? ' · visual anomaly' : ''
+        }`,
+      );
+    } catch (e) {
+      setStatus('err', `Model load: ${(e as Error).message}`);
+    } finally {
+      setModelLoading(false);
+      if (modelFilesRef.current) modelFilesRef.current.value = '';
+    }
+  };
+
+  const onUnloadModel = () => {
+    setEiModel(null);
+    setEiLive(false);
+    setStatus('ok', 'Model unloaded');
+  };
 
   const [newKind, setNewKind] = useState<ObjectKind>('cube');
   const [newLabel, setNewLabel] = useState('cube');
@@ -214,6 +347,20 @@ export function VisionPanel() {
       <div className="card">
         <h3>Scene</h3>
         <label className="field">
+          Environment
+          <select
+            value={envPreset}
+            onChange={(e) =>
+              setEnvPreset(e.target.value as typeof envPreset)
+            }
+          >
+            <option value="studio">Studio (dark, no walls)</option>
+            <option value="warehouse">Warehouse (concrete + walls)</option>
+            <option value="whitebox">White box (cyclorama)</option>
+            <option value="outdoor">Outdoor (grass + sky)</option>
+          </select>
+        </label>
+        <label className="field">
           <span className="row" style={{ alignItems: 'center' }}>
             <input
               type="checkbox"
@@ -282,34 +429,108 @@ export function VisionPanel() {
                 key={o.id}
                 style={{
                   display: 'flex',
-                  gap: 6,
-                  alignItems: 'center',
+                  flexDirection: 'column',
+                  gap: 4,
                   fontSize: 12,
+                  border: '1px solid var(--border)',
+                  borderRadius: 6,
+                  padding: 6,
                 }}
               >
-                <input
-                  type="color"
-                  value={o.color}
-                  onChange={(e) =>
-                    updateSceneObject(o.id, { color: e.target.value })
-                  }
-                  title={`Color: ${o.color}`}
-                  style={{ flex: 'none', width: 16, height: 16 }}
-                />
-                <input
-                  value={o.label}
-                  onChange={(e) =>
-                    updateSceneObject(o.id, { label: e.target.value })
-                  }
-                  style={{ flex: 1, padding: '3px 6px' }}
-                />
-                <span style={{ color: 'var(--muted)' }}>{o.kind}</span>
-                <button
-                  onClick={() => removeSceneObject(o.id)}
-                  style={{ padding: '2px 6px' }}
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: 6,
+                    alignItems: 'center',
+                  }}
                 >
-                  ×
-                </button>
+                  <input
+                    type="color"
+                    value={o.color}
+                    onChange={(e) =>
+                      updateSceneObject(o.id, { color: e.target.value })
+                    }
+                    title={`Color: ${o.color}`}
+                    style={{ flex: 'none', width: 16, height: 16 }}
+                  />
+                  <input
+                    value={o.label}
+                    onChange={(e) =>
+                      updateSceneObject(o.id, { label: e.target.value })
+                    }
+                    style={{ flex: 1, padding: '3px 6px' }}
+                  />
+                  <span style={{ color: 'var(--muted)' }}>{o.kind}</span>
+                  <button
+                    onClick={() => removeSceneObject(o.id)}
+                    style={{ padding: '2px 6px' }}
+                  >
+                    ×
+                  </button>
+                </div>
+                <label
+                  className="field"
+                  style={{ gap: 2, fontSize: 10 }}
+                >
+                  Size
+                  <div
+                    style={{
+                      display: 'flex',
+                      gap: 6,
+                      alignItems: 'center',
+                    }}
+                  >
+                    <input
+                      type="range"
+                      min={0.1}
+                      max={5}
+                      step={0.05}
+                      value={o.scale}
+                      onChange={(e) =>
+                        updateSceneObject(o.id, {
+                          scale: Number(e.target.value),
+                        })
+                      }
+                      style={{ flex: 1 }}
+                    />
+                    <input
+                      type="number"
+                      min={0.1}
+                      max={5}
+                      step={0.05}
+                      value={o.scale}
+                      onChange={(e) =>
+                        updateSceneObject(o.id, {
+                          scale: Number(e.target.value) || 0.1,
+                        })
+                      }
+                      style={{
+                        width: 64,
+                        flex: 'none',
+                        padding: '3px 6px',
+                      }}
+                    />
+                  </div>
+                </label>
+                <label
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    fontSize: 11,
+                    color: 'var(--muted)',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={o.physics}
+                    onChange={(e) =>
+                      updateSceneObject(o.id, { physics: e.target.checked })
+                    }
+                    style={{ width: 'auto', flex: 'none' }}
+                  />
+                  <span>Physics (falls, collides, rides belt)</span>
+                </label>
               </div>
             ))}
           </div>
@@ -391,17 +612,45 @@ export function VisionPanel() {
                     style={{ padding: '3px 6px' }}
                   />
                   <label className="field" style={{ gap: 2 }}>
-                    Scale {a.scale.toFixed(2)}
-                    <input
-                      type="range"
-                      min={0.001}
-                      max={5}
-                      step={0.01}
-                      value={a.scale}
-                      onChange={(e) =>
-                        updateAsset(a.id, { scale: Number(e.target.value) })
-                      }
-                    />
+                    Scale
+                    <div
+                      style={{
+                        display: 'flex',
+                        gap: 6,
+                        alignItems: 'center',
+                      }}
+                    >
+                      <input
+                        type="range"
+                        min={0.001}
+                        max={5}
+                        step={0.01}
+                        value={a.scale}
+                        onChange={(e) =>
+                          updateAsset(a.id, {
+                            scale: Number(e.target.value),
+                          })
+                        }
+                        style={{ flex: 1 }}
+                      />
+                      <input
+                        type="number"
+                        min={0.001}
+                        max={5}
+                        step={0.01}
+                        value={a.scale}
+                        onChange={(e) =>
+                          updateAsset(a.id, {
+                            scale: Number(e.target.value) || 0.001,
+                          })
+                        }
+                        style={{
+                          width: 64,
+                          flex: 'none',
+                          padding: '3px 6px',
+                        }}
+                      />
+                    </div>
                   </label>
                   <div className="row">
                     {(['X', 'Y', 'Z'] as const).map((axis, i) => (
@@ -695,6 +944,150 @@ export function VisionPanel() {
         </div>
       </div>
 
+      <EiAuthCard />
+
+      <div className="card ei-inference-card">
+        <h3>Inference (Edge Impulse model)</h3>
+        {!eiModel ? (
+          <>
+            <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+              Fetch directly from your Edge Impulse project, or upload the
+              <code> .js</code> + <code>.wasm</code> from a WebAssembly
+              deployment. Object detection (YOLO/MobileNet) and FOMO models
+              are supported.
+            </div>
+
+            <fieldset className="ei-fetch-group">
+              <legend>From your project</legend>
+              <button
+                onClick={onListProjects}
+                disabled={modelLoading || !ei.apiKey}
+                title={
+                  !ei.apiKey
+                    ? 'Set your API key in the Edge Impulse · auth card above'
+                    : undefined
+                }
+              >
+                {eiProjects ? '↻ Refresh projects' : '🔑 List projects'}
+              </button>
+            {eiProjects && eiProjects.length > 0 && (
+              <>
+                <label className="field">
+                  Project
+                  <select
+                    value={selectedProjectId ?? ''}
+                    onChange={(e) =>
+                      setSelectedProjectId(
+                        e.target.value ? Number(e.target.value) : null,
+                      )
+                    }
+                  >
+                    <option value="">(pick one)</option>
+                    {eiProjects.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                        {p.owner ? ` · ${p.owner}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  onClick={onFetchModel}
+                  disabled={modelLoading || !selectedProjectId}
+                  className="primary"
+                >
+                  ⤓ Fetch & load model
+                </button>
+              </>
+            )}
+            </fieldset>
+
+            <fieldset className="ei-fetch-group">
+              <legend>From file</legend>
+              <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                Upload the <code>.js</code> + <code>.wasm</code> from an
+                unzipped EI WebAssembly deployment.
+              </div>
+              <input
+                ref={modelFilesRef}
+                type="file"
+                accept=".js,.wasm"
+                multiple
+                disabled={modelLoading}
+                onChange={(e) => onLoadModel(e.target.files)}
+                style={{ fontSize: 11 }}
+              />
+            </fieldset>
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize: 11 }}>
+              <strong>{eiModelName ?? 'model'}</strong>
+              <div style={{ color: 'var(--muted)' }}>
+                {eiModelInfo &&
+                  `${eiModelInfo.inputWidth}×${eiModelInfo.inputHeight} · ${
+                    eiModelInfo.isRgb ? 'RGB' : 'GRAY'
+                  }${eiModelInfo.isObjectDetection ? ' · obj-det' : ''}${
+                    eiModelInfo.hasVisualAnomaly ? ' · anomaly' : ''
+                  }`}
+                {eiModelInfo && eiModelInfo.labels.length > 0 && (
+                  <div style={{ marginTop: 2 }}>
+                    {eiModelInfo.labels.length} labels
+                    {eiModelInfo.labels.length <= 6 &&
+                      `: ${eiModelInfo.labels.join(', ')}`}
+                  </div>
+                )}
+              </div>
+            </div>
+            <label className="field">
+              Threshold {(eiThreshold * 100).toFixed(0)}%
+              <input
+                type="range"
+                min={0.05}
+                max={0.95}
+                step={0.05}
+                value={eiThreshold}
+                onChange={(e) => setEiThreshold(Number(e.target.value))}
+              />
+            </label>
+            <div className="row">
+              <button onClick={() => triggerInference()} className="primary">
+                Run once
+              </button>
+              <button
+                onClick={() => setEiLive(!eiLive)}
+                className={eiLive ? 'danger' : ''}
+              >
+                {eiLive ? '■ Stop live' : '▶ Live'}
+              </button>
+            </div>
+            <label className="check-row" style={{ fontSize: 12 }}>
+              <input
+                type="checkbox"
+                checked={eiShow3D}
+                onChange={(e) => setEiShow3D(e.target.checked)}
+              />
+              <span>Show detections in 3D scene</span>
+            </label>
+            {eiResult && (
+              <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                {eiResult.bounding_boxes.length} boxes
+                {eiResult.classification.length > 0 &&
+                  ` · top: ${(() => {
+                    const top = [...eiResult.classification].sort(
+                      (a, b) => b.value - a.value,
+                    )[0];
+                    return top ? `${top.label} ${(top.value * 100).toFixed(0)}%` : '';
+                  })()}`}
+                {typeof eiResult.anomaly === 'number' &&
+                  ` · anomaly ${eiResult.anomaly.toFixed(2)}`}
+              </div>
+            )}
+            <button onClick={onUnloadModel}>Unload model</button>
+          </>
+        )}
+      </div>
+
       <div className="card">
         <h3>Save directory</h3>
         {fsAccessSupported() ? (
@@ -720,29 +1113,13 @@ export function VisionPanel() {
       </div>
 
       <div className="card">
-        <h3>Edge Impulse</h3>
-        <label className="field">
-          API Key
-          <input
-            type="password"
-            value={ei.apiKey}
-            onChange={(e) => setEi({ apiKey: e.target.value })}
-            placeholder="ei_..."
-            autoComplete="off"
-          />
-        </label>
-        <label className="field">
-          Category
-          <select
-            value={ei.category}
-            onChange={(e) =>
-              setEi({ category: e.target.value as 'training' | 'testing' })
-            }
-          >
-            <option value="training">Training</option>
-            <option value="testing">Testing</option>
-          </select>
-        </label>
+        <h3>Upload to Edge Impulse</h3>
+        {!ei.apiKey && (
+          <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+            Set your API key in the <strong>Edge Impulse · auth</strong> card
+            at the top of this panel.
+          </div>
+        )}
         {mode === 'anomaly' && (
           <div style={{ fontSize: 11, color: 'var(--muted)' }}>
             Each capture is uploaded with the batch label above. Bounding
