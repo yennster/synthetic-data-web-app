@@ -103,106 +103,195 @@ function num(v: unknown, fallback = 0): number {
 
 // --- Classifier wrapper ---------------------------------------------------
 
+/**
+ * Wraps the Edge Impulse Embind module. Mirrors the contract documented by
+ * EI's own run-impulse.js test harness:
+ *
+ *   - Module.init() — returns 0 on success, non-zero error code otherwise.
+ *   - Module.get_properties() — returns an Embind object whose getters
+ *     expose `model_type`, `has_object_tracking`, `has_visual_anomaly_detection`,
+ *     etc. We walk Module.emcc_classification_properties_t.prototype to copy
+ *     them into a plain JS object.
+ *   - Module.get_project() — same shape as properties for project metadata.
+ *   - Module.run_classifier(featuresPtr, len, debug) — features must be in
+ *     the wasm heap as Float32 (so we malloc + memcpy), returns a result
+ *     struct with `.result` (error code), `.anomaly`, `.size()`, `.get(i)`,
+ *     and (for visual anomaly) `.visual_ad_*` accessors.
+ *   - Module._malloc / Module._free / Module.HEAPU8 — heap helpers.
+ */
 class EdgeImpulseClassifier {
   private initialized = false;
+  private propsCache: Record<string, unknown> | null = null;
   constructor(private mod: any) {}
 
   async init(): Promise<void> {
     if (this.initialized) return;
-    // The factory we awaited already resolves once runtime is initialized,
-    // so the explicit init call below is the only thing needed in practice.
-    if (typeof this.mod._run_classifier_init === 'function') {
-      this.mod._run_classifier_init();
+    if (typeof this.mod.init === 'function') {
+      const ret = this.mod.init();
+      if (typeof ret === 'number' && ret !== 0) {
+        throw new Error(`Module.init() failed with code ${ret}`);
+      }
     }
     this.initialized = true;
   }
 
   getProperties(): Record<string, unknown> {
-    if (typeof this.mod.get_properties === 'function') {
-      const p = this.mod.get_properties();
-      // Embind returns a struct; copy into a plain object so consumers can
-      // iterate it freely (and so `delete()`-able handles aren't held).
-      return shallowCopyEmbind(p);
-    }
-    return {};
+    if (this.propsCache) return this.propsCache;
+    if (typeof this.mod.get_properties !== 'function') return {};
+    const raw = this.mod.get_properties();
+    const proto = this.mod.emcc_classification_properties_t?.prototype;
+    const obj = unwrapEmbindStruct(raw, proto);
+    this.propsCache = obj;
+    return obj;
   }
 
   getProject(): Record<string, unknown> {
-    if (typeof this.mod.get_project === 'function') {
+    if (typeof this.mod.get_project !== 'function') return {};
+    const raw = this.mod.get_project();
+    if (typeof raw === 'string') {
       try {
-        const raw = this.mod.get_project();
-        if (typeof raw === 'string') return JSON.parse(raw);
-        return shallowCopyEmbind(raw);
+        return JSON.parse(raw);
       } catch {
-        // fall through
+        return {};
       }
     }
-    return {};
+    const proto = this.mod.emcc_classification_project_t?.prototype;
+    return unwrapEmbindStruct(raw, proto);
   }
 
   classify(features: number[]): EiResult {
     if (!this.initialized) throw new Error('Classifier not initialized');
-    let res: any;
+    // Copy the JS feature array into a Float32Array, then malloc a chunk of
+    // wasm heap and memcpy the bytes in. run_classifier gets the heap
+    // pointer (in bytes) and the feature count (NOT byte count).
+    const typed = new Float32Array(features);
+    const numBytes = typed.length * Float32Array.BYTES_PER_ELEMENT;
+    const ptr = this.mod._malloc(numBytes);
     try {
-      // Modern EI exports accept a plain JS array; Embind auto-converts.
-      res = this.mod.run_classifier(features, false);
-    } catch (e) {
-      // Older / stricter exports want a vector<float>. Build one explicitly.
-      if (this.mod.VectorFloat) {
-        const v = new this.mod.VectorFloat();
-        try {
-          for (let i = 0; i < features.length; i++) v.push_back(features[i]);
-          res = this.mod.run_classifier(v, false);
-        } finally {
-          if (typeof v.delete === 'function') v.delete();
+      const heap = new Uint8Array(this.mod.HEAPU8.buffer, ptr, numBytes);
+      heap.set(new Uint8Array(typed.buffer));
+      const ret = this.mod.run_classifier(ptr, typed.length, false);
+      try {
+        if (ret && typeof ret.result === 'number' && ret.result !== 0) {
+          throw new Error(`run_classifier failed (code ${ret.result})`);
         }
-      } else {
-        throw e;
+        return parseResult(ret, this.getProperties());
+      } finally {
+        if (ret && typeof ret.delete === 'function') ret.delete();
       }
+    } finally {
+      this.mod._free(ptr);
     }
-    return parseResult(res);
   }
 }
 
-function shallowCopyEmbind(obj: any): Record<string, unknown> {
-  if (!obj) return {};
+/**
+ * Embind classes expose their fields as getter properties on the class
+ * prototype, not as own properties of each instance. To get a plain JS
+ * object we walk the prototype, grab everything that has a getter, and
+ * call it through the live instance. (This is exactly what EI's own
+ * run-impulse.js does.)
+ */
+function unwrapEmbindStruct(
+  embindObj: any,
+  prototype: any,
+): Record<string, unknown> {
+  if (!embindObj) return {};
+  // Fall back to own keys if the prototype isn't available.
+  if (!prototype) {
+    const out: Record<string, unknown> = {};
+    for (const k of Object.keys(embindObj)) out[k] = embindObj[k];
+    return out;
+  }
   const out: Record<string, unknown> = {};
-  for (const k of Object.keys(obj)) {
-    out[k] = obj[k];
+  for (const key of Object.getOwnPropertyNames(prototype)) {
+    const desc = Object.getOwnPropertyDescriptor(prototype, key);
+    if (desc && typeof desc.get === 'function') {
+      try {
+        out[key] = embindObj[key];
+      } catch {
+        // Some getters throw if optional fields aren't populated; skip them.
+      }
+    }
   }
   return out;
 }
 
-function parseResult(r: any): EiResult {
-  const boxes = readVector<any>(r?.bounding_boxes).map((b) => ({
-    label: String(b.label ?? ''),
-    value: num(b.value),
-    x: num(b.x),
-    y: num(b.y),
-    width: num(b.width),
-    height: num(b.height),
-  }));
-  const classification = readVector<any>(r?.classification).map((c) => ({
-    label: String(c.label ?? ''),
-    value: num(c.value),
-  }));
-  const cells = readVector<any>(r?.visual_ad_grid_cells).map((c) => ({
-    label: String(c.label ?? ''),
-    value: num(c.value),
-    x: num(c.x),
-    y: num(c.y),
-    width: num(c.width),
-    height: num(c.height),
-  }));
+/**
+ * Convert an EI run_classifier result into the shape the rest of the app
+ * consumes. The result struct is an Embind vector — iterate via .size() and
+ * .get(i), each entry being a per-detection or per-class struct. Visual
+ * anomaly cells live on a separate `visual_ad_grid_cells_*` accessor.
+ */
+function parseResult(r: any, props: Record<string, unknown>): EiResult {
+  const modelType = String(props.model_type ?? '');
+  const isObjectDetection =
+    modelType === 'object_detection' ||
+    modelType === 'constrained_object_detection';
+  const hasVisualAnomaly = !!props.has_visual_anomaly_detection;
+
+  const bounding_boxes: EiResult['bounding_boxes'] = [];
+  const classification: EiResult['classification'] = [];
+  if (typeof r?.size === 'function') {
+    const n = r.size();
+    for (let i = 0; i < n; i++) {
+      const c = r.get(i);
+      try {
+        if (isObjectDetection) {
+          bounding_boxes.push({
+            label: String(c.label ?? ''),
+            value: num(c.value),
+            x: num(c.x),
+            y: num(c.y),
+            width: num(c.width),
+            height: num(c.height),
+          });
+        } else {
+          classification.push({
+            label: String(c.label ?? ''),
+            value: num(c.value),
+          });
+        }
+      } finally {
+        if (typeof c.delete === 'function') c.delete();
+      }
+    }
+  }
+
+  let visual_ad_grid_cells: EiResult['visual_ad_grid_cells'];
+  let visual_ad_max: number | undefined;
+  let visual_ad_mean: number | undefined;
+  if (hasVisualAnomaly) {
+    visual_ad_max = typeof r?.visual_ad_max === 'number' ? r.visual_ad_max : undefined;
+    visual_ad_mean = typeof r?.visual_ad_mean === 'number' ? r.visual_ad_mean : undefined;
+    if (typeof r?.visual_ad_grid_cells_size === 'function') {
+      visual_ad_grid_cells = [];
+      const n = r.visual_ad_grid_cells_size();
+      for (let i = 0; i < n; i++) {
+        const c = r.visual_ad_grid_cells_get(i);
+        try {
+          visual_ad_grid_cells.push({
+            label: String(c.label ?? ''),
+            value: num(c.value),
+            x: num(c.x),
+            y: num(c.y),
+            width: num(c.width),
+            height: num(c.height),
+          });
+        } finally {
+          if (typeof c.delete === 'function') c.delete();
+        }
+      }
+    }
+  }
+
   return {
-    bounding_boxes: boxes,
+    bounding_boxes,
     classification,
     anomaly: typeof r?.anomaly === 'number' ? r.anomaly : undefined,
-    visual_ad_grid_cells: cells.length > 0 ? cells : undefined,
-    visual_ad_max:
-      typeof r?.visual_ad_max === 'number' ? r.visual_ad_max : undefined,
-    visual_ad_mean:
-      typeof r?.visual_ad_mean === 'number' ? r.visual_ad_mean : undefined,
+    visual_ad_grid_cells,
+    visual_ad_max,
+    visual_ad_mean,
   };
 }
 
@@ -438,47 +527,43 @@ function buildModelInfo(
   props: Record<string, unknown>,
   project: Record<string, unknown>,
 ): EiModelInfo {
-  // EI uses a few different field names across versions; try them all.
+  // EI's emcc_classification_properties_t uses snake_case getters. Older
+  // builds also expose camelCase aliases — fall back to those if needed.
   const w = num(
-    props.imageInputWidth ??
-      props.image_input_width ??
-      props.inputWidth ??
-      props.input_width ??
-      96,
+    props.image_input_width ?? props.imageInputWidth ?? 96,
     96,
   );
   const h = num(
-    props.imageInputHeight ??
-      props.image_input_height ??
-      props.inputHeight ??
-      props.input_height ??
-      96,
+    props.image_input_height ?? props.imageInputHeight ?? 96,
     96,
   );
-  const channels = num(
-    props.imageChannelCount ??
-      props.image_channel_count ??
-      props.imageInputChannels ??
-      3,
-    3,
+  const frameSize = num(props.image_input_frames ?? props.imageInputFrames ?? 1, 1);
+  // RGB models report image_channel_count = 3; grayscale = 1. Some builds
+  // use input_features_count = w*h*channels, so derive from that as a fallback.
+  let channels = num(
+    props.image_channel_count ?? props.imageChannelCount ?? 0,
+    0,
   );
-  const isObjectDetection = !!(
-    props.isObjectDetection ??
-    props.is_object_detection ??
-    props.objectDetection ??
-    false
-  );
-  const hasAnomaly = !!(props.hasAnomaly ?? props.has_anomaly ?? false);
+  if (!channels) {
+    const total = num(props.input_features_count ?? 0, 0);
+    if (w > 0 && h > 0 && total > 0) {
+      const ch = Math.round(total / (w * h * frameSize));
+      channels = ch === 1 || ch === 3 ? ch : 3;
+    } else {
+      channels = 3;
+    }
+  }
+  const modelType = String(props.model_type ?? props.modelType ?? '');
+  const isObjectDetection =
+    modelType === 'object_detection' ||
+    modelType === 'constrained_object_detection';
+  const hasAnomaly = !!(props.has_anomaly ?? props.hasAnomaly ?? false);
   const hasVisualAnomaly = !!(
-    props.hasVisualAnomalyDetection ??
-    props.has_visual_anomaly_detection ??
-    props.hasVisualAnomaly ??
-    false
-  );
-  const modelType = String(
-    props.modelType ?? props.model_type ?? project.modelType ?? '',
+    props.has_visual_anomaly_detection ?? props.hasVisualAnomalyDetection ?? false
   );
 
+  // Labels can come from the project struct (`labels`, `label_names`) or
+  // from the properties struct.
   let labels: string[] = [];
   const rawLabels =
     project.labels ?? project.label_names ?? props.labels ?? null;
@@ -614,6 +699,23 @@ async function loadEmscriptenViaPreseed(
       if (msg && !msg.startsWith('Warning')) capturedErrors.push(`[EI] ${msg}`);
     },
     onRuntimeInitialized() {
+      // Some EI WebAssembly builds don't run their C++ static
+      // initializers (the EMSCRIPTEN_BINDINGS blocks that register
+      // `init`, `run_classifier`, `get_properties`, etc. on Module) as
+      // part of the standard Emscripten run() flow. Their `addOnInit`
+      // queues `__wasm_call_ctors` but it never seems to execute under
+      // some hosting conditions — so we belt-and-braces invoke it
+      // ourselves once the runtime says it's ready. Idempotent: a second
+      // call to ctors after they've already run is a no-op (Embind's
+      // `exposePublicSymbol` skips re-registration).
+      try {
+        const ctors = ModuleSeed.asm?.['__wasm_call_ctors'];
+        if (typeof ctors === 'function' && !ModuleSeed.run_classifier) {
+          ctors();
+        }
+      } catch (e) {
+        capturedErrors.push(`call_ctors: ${(e as Error).message}`);
+      }
       resolveInit(ModuleSeed);
     },
     onAbort(what: any) {
@@ -676,12 +778,16 @@ function rewriteToCaptureFactory(
   source: string,
   captureKey: string,
 ): { code: string; didRewrite: boolean; matchedName?: string } {
-  // Look for `var/let/const <Name> = ` at the start of a line. The factory
-  // is almost always the first such top-level binding in EI's output. We
-  // require the RHS to look like a function or arrow expression so we don't
-  // accidentally rewrite a string constant.
+  // MODULARIZE output declares the factory near the top of the file —
+  // typically in the first 200 lines after the comment header. We only
+  // scan the head of the source to avoid false-positive matches on
+  // unrelated `var foo = (...)` lines deep inside non-MODULARIZE output
+  // (e.g. EI's standalone script has `var lang = ((typeof navigator...`
+  // ~240KB into the file; matching that and rewriting would corrupt the
+  // script).
+  const head = source.slice(0, 4096);
   const re = /^(\s*)(var|let|const)(\s+)([A-Za-z_$][\w$]*)(\s*=\s*)(?=(?:\(\s*(?:function|\(|async\s+function)|function\s|async\s+function\s|class\s))/m;
-  const match = re.exec(source);
+  const match = re.exec(head);
   if (!match) return { code: source, didRewrite: false };
   const [whole, ws, kw, ws2, name, eq] = match;
   const replacement = `${ws}${kw}${ws2}${name}${eq}globalThis[${JSON.stringify(captureKey)}] = `;
