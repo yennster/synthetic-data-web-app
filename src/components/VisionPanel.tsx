@@ -1123,25 +1123,39 @@ export function VisionPanel() {
               </button>
             {eiProjects && eiProjects.length > 0 && (
               <>
-                <label className="field">
-                  Project
-                  <select
-                    value={selectedProjectId ?? ''}
-                    onChange={(e) =>
-                      setSelectedProjectId(
-                        e.target.value ? Number(e.target.value) : null,
-                      )
-                    }
-                  >
-                    <option value="">(pick one)</option>
-                    {eiProjects.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                        {p.owner ? ` · ${p.owner}` : ''}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                {/* Project API keys (the common case) only ever resolve to
+                    a single project — no point rendering a 1-item picker.
+                    Show the name as a static label instead. Multi-project
+                    keys still get the dropdown. */}
+                {eiProjects.length === 1 ? (
+                  <div className="field">
+                    <span className="field-label">Project</span>
+                    <div className="ei-project-name">
+                      {eiProjects[0].name}
+                      {eiProjects[0].owner ? ` · ${eiProjects[0].owner}` : ''}
+                    </div>
+                  </div>
+                ) : (
+                  <label className="field">
+                    Project
+                    <select
+                      value={selectedProjectId ?? ''}
+                      onChange={(e) =>
+                        setSelectedProjectId(
+                          e.target.value ? Number(e.target.value) : null,
+                        )
+                      }
+                    >
+                      <option value="">(pick one)</option>
+                      {eiProjects.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                          {p.owner ? ` · ${p.owner}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
                 {/* Build button stays first in the visual order (primary
                     recovery action when Fetch fails) but is rendered as
                     secondary so Fetch — the most common happy-path action

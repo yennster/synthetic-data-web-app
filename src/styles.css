@@ -73,7 +73,8 @@ input[type="color"]::-webkit-color-swatch { border: none; border-radius: 2px; }
 input[type="color"]::-moz-color-swatch { border: none; border-radius: 2px; }
 input[type="color"]:hover { border-color: var(--accent-2); }
 
-label.field {
+label.field,
+div.field {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -81,6 +82,17 @@ label.field {
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+.ei-project-name {
+  padding: 8px 10px;
+  background: #1a1f26;
+  border: 1px solid #2a313b;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text);
+  text-transform: none;
+  letter-spacing: normal;
 }
 
 .app {
