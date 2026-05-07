@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import { CameraFeed } from './components/CameraFeed';
 import { Hud } from './components/Hud';
 import { InferenceOverlay } from './components/InferenceOverlay';
@@ -99,6 +100,7 @@ export default function App() {
         )}
       </div>
       <Sidebar />
+      <Analytics />
     </div>
   );
 }
