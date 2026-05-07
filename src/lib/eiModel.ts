@@ -307,9 +307,15 @@ export async function loadEiModel(
   }
 
   const wasmUrl = URL.createObjectURL(wasmFile);
+  // Pre-read the wasm bytes once so we can hand them straight to the
+  // Emscripten runtime via Module.wasmBinary, avoiding the runtime's own
+  // fetch on the blob URL. (That fetch can fail under COEP credentialless
+  // or when the runtime expects a fs path, not a URL.)
+  const wasmBytes = new Uint8Array(await (wasmFile as Blob).arrayBuffer());
 
   const id = ++_moduleCounter;
   const captureKey = `__ei_module_${id}`;
+  const preseedErrors: string[] = [];
 
   // EI WebAssembly deployments come in two distinct Emscripten flavors:
   //
@@ -347,6 +353,7 @@ export async function loadEiModel(
     if (typeof captured === 'function') {
       try {
         mod = await captured({
+          wasmBinary: wasmBytes,
           locateFile: (path: string) =>
             path.endsWith('.wasm') ? wasmUrl : path,
           print: () => {},
@@ -371,7 +378,14 @@ export async function loadEiModel(
       URL.revokeObjectURL(scriptUrl);
       scriptUrl = null;
     }
-    mod = await loadEmscriptenViaPreseed(jsText, wasmUrl, id);
+    const preseed = await loadEmscriptenViaPreseed(
+      jsText,
+      wasmUrl,
+      wasmBytes,
+      id,
+    );
+    mod = preseed.mod;
+    if (preseed.err) preseedErrors.push(preseed.err);
   }
 
   // (C) ESM fallback: `export default Module` style outputs that classic
@@ -403,7 +417,9 @@ export async function loadEiModel(
     const head = jsText.slice(0, 240).replace(/\s+/g, ' ');
     throw new Error(
       `Could not initialize Edge Impulse module ${modelName ?? ''}. ` +
-        `Tried MODULARIZE-factory + onRuntimeInitialized + ESM import. ` +
+        (preseedErrors.length
+          ? `onRuntimeInitialized path: ${preseedErrors.join(' || ')}. `
+          : 'Tried MODULARIZE-factory + onRuntimeInitialized + ESM import. ') +
         `Source preview: ${head}…`,
     );
   }
@@ -559,8 +575,9 @@ function firstStatementIsRequire(source: string): boolean {
 async function loadEmscriptenViaPreseed(
   jsText: string,
   wasmUrl: string,
+  wasmBytes: Uint8Array,
   id: number,
-): Promise<any> {
+): Promise<{ mod: any; err: string | null }> {
   const TIMEOUT_MS = 15000;
   const prevModule = (globalThis as any).Module;
   let resolveInit!: (m: any) => void;
@@ -570,12 +587,31 @@ async function loadEmscriptenViaPreseed(
     rejectInit = rej;
   });
 
+  // Capture errors thrown by the injected script. The classic <script> tag
+  // doesn't surface synchronous errors via the load event, and some
+  // Emscripten outputs throw via window.onerror or unhandled rejections —
+  // we want to attach those to the user-facing diagnostic.
+  const capturedErrors: string[] = [];
+  const onWinError = (e: ErrorEvent) => {
+    if (e.filename?.includes(`ei-preseed-${id}`)) capturedErrors.push(e.message);
+  };
+  const onUnhandled = (e: PromiseRejectionEvent) => {
+    capturedErrors.push(`Unhandled rejection: ${String(e.reason)}`);
+  };
+  window.addEventListener('error', onWinError);
+  window.addEventListener('unhandledrejection', onUnhandled);
+
+  // Pre-supply the wasm bytes via Module.wasmBinary so Emscripten's
+  // initialization doesn't need to do its own fetch on the blob URL — that
+  // path can fail under COEP credentialless or when the runtime can't
+  // resolve the locateFile result.
   const ModuleSeed: any = {
+    wasmBinary: wasmBytes,
     locateFile: (path: string) =>
       path.endsWith('.wasm') ? wasmUrl : path,
     print: () => {},
     printErr: (msg: string) => {
-      if (msg && !msg.startsWith('Warning')) console.warn('[EI]', msg);
+      if (msg && !msg.startsWith('Warning')) capturedErrors.push(`[EI] ${msg}`);
     },
     onRuntimeInitialized() {
       resolveInit(ModuleSeed);
@@ -600,19 +636,28 @@ async function loadEmscriptenViaPreseed(
         () =>
           rej(
             new Error(
-              `onRuntimeInitialized never fired (${TIMEOUT_MS}ms). ` +
-                `If this is a Node.js-only build, rebuild as "WebAssembly (browser)" in the Studio.`,
+              `onRuntimeInitialized never fired in ${TIMEOUT_MS}ms` +
+                (capturedErrors.length
+                  ? ` — captured: ${capturedErrors.join(' | ')}`
+                  : ''),
             ),
           ),
         TIMEOUT_MS,
       );
     });
-    return await Promise.race([initPromise, timeout]);
+    const mod = await Promise.race([initPromise, timeout]);
+    return { mod, err: null };
   } catch (e) {
-    return null;
+    const detail = (e as Error).message;
+    const merged = capturedErrors.length
+      ? `${detail} — captured: ${capturedErrors.join(' | ')}`
+      : detail;
+    return { mod: null, err: merged };
   } finally {
     if (timer) clearTimeout(timer);
     URL.revokeObjectURL(scriptUrl);
+    window.removeEventListener('error', onWinError);
+    window.removeEventListener('unhandledrejection', onUnhandled);
     (globalThis as any).Module = prevModule;
   }
 }
