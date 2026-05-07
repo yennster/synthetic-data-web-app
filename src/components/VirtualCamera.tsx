@@ -252,6 +252,14 @@ export function VirtualCamera({
         }
       }
 
+      const snapshot = useStore.getState();
+      const sceneKinds = Array.from(
+        new Set(snapshot.sceneObjects.map((o) => o.kind)),
+      );
+      const assetSnapshot = snapshot.assets.map((a) => ({
+        name: a.name,
+        label: a.label,
+      }));
       addCapture({
         id: crypto.randomUUID(),
         filename,
@@ -261,6 +269,8 @@ export function VirtualCamera({
         width,
         height,
         ts: Date.now(),
+        shapes: sceneKinds,
+        assetSnapshot,
       });
       if (!opts.skipSave) {
         setStatus('ok', `Captured ${filename} (${boxes.length} boxes)`);

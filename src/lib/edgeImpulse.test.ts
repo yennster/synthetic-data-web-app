@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildDataAcquisitionPayload,
   buildFileName,
+  buildIngestionMetadata,
   uploadCaptures,
   uploadImage,
   uploadSample,
@@ -24,6 +25,46 @@ describe('buildFileName', () => {
 
   it('falls back to "sample" for empty input', () => {
     expect(buildFileName('')).toMatch(/^sample\./);
+  });
+});
+
+describe('buildIngestionMetadata', () => {
+  it('always tags samples with the studio source name', () => {
+    const meta = JSON.parse(buildIngestionMetadata());
+    expect(meta.source).toBe('Synthetic Data Studio');
+  });
+
+  it('adds source_url when window.location is available', () => {
+    const original = (globalThis as { window?: unknown }).window;
+    (globalThis as { window?: unknown }).window = {
+      location: { origin: 'https://studio.example', pathname: '/app', href: 'https://studio.example/app' },
+    };
+    try {
+      const meta = JSON.parse(buildIngestionMetadata());
+      expect(meta.source_url).toBe('https://studio.example/app');
+    } finally {
+      if (original === undefined) delete (globalThis as { window?: unknown }).window;
+      else (globalThis as { window?: unknown }).window = original;
+    }
+  });
+
+  it('coerces extras to strings and skips undefined / null / empty values', () => {
+    const meta = JSON.parse(
+      buildIngestionMetadata({
+        shape: 'cube',
+        sample_rate_hz: 100,
+        physics: true,
+        empty: '',
+        nope: undefined,
+        nada: null,
+      }),
+    );
+    expect(meta.shape).toBe('cube');
+    expect(meta.sample_rate_hz).toBe('100');
+    expect(meta.physics).toBe('true');
+    expect(meta.empty).toBeUndefined();
+    expect(meta.nope).toBeUndefined();
+    expect(meta.nada).toBeUndefined();
   });
 });
 
@@ -104,6 +145,24 @@ describe('uploadSample', () => {
     ]);
     expect(init.headers['x-api-key']).toBe('ei_test');
     expect(init.headers['x-label']).toBe('idle');
+    const meta = JSON.parse(init.headers['x-metadata']);
+    expect(meta.source).toBe('Synthetic Data Studio');
+  });
+
+  it('forwards metadata extras into the x-metadata header', async () => {
+    await uploadSample(
+      baseCfg,
+      [{ t: 0, ax: 0, ay: 0, az: 9.81, gx: 0, gy: 0, gz: 0 }],
+      100,
+      'foo.json',
+      { mode: 'motion', shape: 'cube', sample_rate_hz: 100 },
+    );
+    const [, init] = fetchMock.mock.calls[0];
+    const meta = JSON.parse(init.headers['x-metadata']);
+    expect(meta.source).toBe('Synthetic Data Studio');
+    expect(meta.mode).toBe('motion');
+    expect(meta.shape).toBe('cube');
+    expect(meta.sample_rate_hz).toBe('100');
   });
 
   it('signs the payload with HMAC-SHA256 when a key is provided', async () => {
@@ -152,7 +211,22 @@ describe('uploadImage', () => {
     expect(init.method).toBe('POST');
     expect(init.headers['x-label']).toBe('sphere');
     expect(init.headers['x-bounding-boxes']).toBeUndefined();
+    const meta = JSON.parse(init.headers['x-metadata']);
+    expect(meta.source).toBe('Synthetic Data Studio');
     expect(init.body).toBeInstanceOf(FormData);
+  });
+
+  it('forwards metadata extras into the x-metadata header', async () => {
+    const blob = new Blob(['fake-png'], { type: 'image/png' });
+    await uploadImage(baseCfg, blob, 'frame.png', 'sphere', null, {
+      mode: 'anomaly',
+      shape: 'sphere',
+    });
+    const [, init] = fetchMock.mock.calls[0];
+    const meta = JSON.parse(init.headers['x-metadata']);
+    expect(meta.source).toBe('Synthetic Data Studio');
+    expect(meta.mode).toBe('anomaly');
+    expect(meta.shape).toBe('sphere');
   });
 
   it('attaches bounding boxes when provided', async () => {
@@ -330,6 +404,65 @@ describe('uploadCaptures', () => {
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toContain('/api/testing/files');
     expect(JSON.parse(init.headers['x-bounding-boxes'])).toEqual(cap.boxes);
+  });
+
+  it('merges batch metadata extras with per-capture shapes + dimensions', async () => {
+    const cap = makeCapture({
+      filename: 'frame.png',
+      width: 320,
+      height: 240,
+      shapes: ['cube', 'sphere'],
+    });
+
+    await uploadCaptures(baseCfg, [cap], 'mixed', false, undefined, {
+      mode: 'detection',
+      env_preset: 'studio',
+    });
+
+    const [, init] = fetchMock.mock.calls[0];
+    const meta = JSON.parse(init.headers['x-metadata']);
+    expect(meta.source).toBe('Synthetic Data Studio');
+    expect(meta.mode).toBe('detection');
+    expect(meta.env_preset).toBe('studio');
+    expect(meta.width).toBe('320');
+    expect(meta.height).toBe('240');
+    expect(meta.shapes).toBe('cube,sphere');
+  });
+
+  it('emits asset filenames and labels from the capture snapshot', async () => {
+    const cap = makeCapture({
+      filename: 'frame.png',
+      assetSnapshot: [
+        { name: 'wrench.usdz', label: 'wrench' },
+        { name: 'bolt.usdz', label: 'bolt' },
+      ],
+    });
+
+    await uploadCaptures(baseCfg, [cap], 'tools', false);
+
+    const [, init] = fetchMock.mock.calls[0];
+    const meta = JSON.parse(init.headers['x-metadata']);
+    expect(meta.asset_files).toBe('wrench.usdz,bolt.usdz');
+    expect(meta.asset_labels).toBe('wrench,bolt');
+    expect(meta.asset_count).toBe('2');
+  });
+
+  it('omits asset metadata when the capture has no imported assets', async () => {
+    const cap = makeCapture({ filename: 'empty.png' });
+    await uploadCaptures(baseCfg, [cap], 'x', false);
+    const [, init] = fetchMock.mock.calls[0];
+    const meta = JSON.parse(init.headers['x-metadata']);
+    expect(meta.asset_files).toBeUndefined();
+    expect(meta.asset_labels).toBeUndefined();
+    expect(meta.asset_count).toBeUndefined();
+  });
+
+  it('omits shapes from metadata when the capture has none', async () => {
+    const cap = makeCapture({ filename: 'empty.png' });
+    await uploadCaptures(baseCfg, [cap], 'x', false);
+    const [, init] = fetchMock.mock.calls[0];
+    const meta = JSON.parse(init.headers['x-metadata']);
+    expect(meta.shapes).toBeUndefined();
   });
 
   it('reports progress before each boxed upload and after the batch finishes', async () => {

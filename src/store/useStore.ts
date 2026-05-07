@@ -18,6 +18,17 @@ export type EnvPreset = 'studio' | 'warehouse' | 'whitebox' | 'outdoor';
 
 export type AppMode = 'motion' | 'detection' | 'anomaly';
 
+/** Procedural motion generator class. Each kind is recorded as its own
+ * label so EI receives correctly-classed training data. */
+export type MotionKind = 'drop' | 'throw' | 'push' | 'shake';
+
+export const ALL_MOTION_KINDS: MotionKind[] = [
+  'drop',
+  'throw',
+  'push',
+  'shake',
+];
+
 /** Per-tick IMU sample. `a*` are accelerometer readings (m/s², body-local
  * proper acceleration — what a real IMU measures: stationary = +9.81 on
  * the up axis, freefall = 0). `g*` are gyroscope readings (rad/s,
@@ -115,6 +126,12 @@ export type Capture = {
   width: number;
   height: number;
   ts: number;
+  /** Default shape kinds (cube/sphere/…) present in the scene at capture
+   * time, deduped. Sent as `shapes` in EI sample metadata. */
+  shapes?: string[];
+  /** Imported USDZ assets present in the scene at capture time. Sent as
+   * `asset_files` / `asset_labels` in EI sample metadata. */
+  assetSnapshot?: { name: string; label: string }[];
 };
 
 type State = {
@@ -130,6 +147,13 @@ type State = {
 
   pinchTarget: [number, number, number] | null;
   setPinchTarget: (p: [number, number, number] | null) => void;
+
+  /** Optional kinematic rotation override (quaternion x,y,z,w) applied while
+   * the body is grabbed. Used by the procedural drop generator to randomize
+   * each drop's starting orientation; null = leave the body's current
+   * rotation alone. */
+  pinchRotation: [number, number, number, number] | null;
+  setPinchRotation: (q: [number, number, number, number] | null) => void;
 
   isRecording: boolean;
   startRecording: () => void;
@@ -152,19 +176,26 @@ type State = {
   handTrackingEnabled: boolean;
   setHandTrackingEnabled: (b: boolean) => void;
 
-  /** Procedural-drop generator config. */
+  /** Procedural motion-generator config. Each batch produces N labelled
+   * IMU samples for the selected `motion` class. */
   drops: {
     count: number;
     heightMin: number;
     heightMax: number;
     /** How long to record after each release before stopping that sample. */
     durationMs: number;
+    motion: MotionKind;
   };
   setDrops: (patch: Partial<State['drops']>) => void;
   /** True while a procedural drop sequence is running. UI uses this to show
    * progress and disable the trigger. */
   dropsRunning: boolean;
   setDropsRunning: (b: boolean) => void;
+  /** Set to true to ask an in-progress procedural run to stop at the next
+   * cancellation checkpoint (between iterations / sleeps). The runner
+   * resets this back to false on its next start. */
+  dropsCancelRequested: boolean;
+  setDropsCancelRequested: (b: boolean) => void;
 
   // ---------- Scene (detection/anomaly) ----------
   sceneObjects: SceneObject[];
@@ -270,6 +301,9 @@ export const useStore = create<State>((set) => ({
   setGrabbed: (b) => set({ isGrabbed: b }),
   pinchTarget: null,
   setPinchTarget: (p) => set({ pinchTarget: p }),
+
+  pinchRotation: null,
+  setPinchRotation: (q) => set({ pinchRotation: q }),
   isRecording: false,
   startRecording: () => set({ isRecording: true, samples: [] }),
   stopRecording: () => set({ isRecording: false }),
@@ -288,10 +322,18 @@ export const useStore = create<State>((set) => ({
   handTrackingEnabled: true,
   setHandTrackingEnabled: (b) => set({ handTrackingEnabled: b }),
 
-  drops: { count: 10, heightMin: 1.0, heightMax: 2.5, durationMs: 1500 },
+  drops: {
+    count: 10,
+    heightMin: 1.0,
+    heightMax: 2.5,
+    durationMs: 1500,
+    motion: 'drop',
+  },
   setDrops: (patch) => set((s) => ({ drops: { ...s.drops, ...patch } })),
   dropsRunning: false,
   setDropsRunning: (b) => set({ dropsRunning: b }),
+  dropsCancelRequested: false,
+  setDropsCancelRequested: (b) => set({ dropsCancelRequested: b }),
 
   // scene
   sceneObjects: [],

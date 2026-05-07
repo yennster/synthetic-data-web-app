@@ -40,9 +40,10 @@ Created with Claude Code.
 - **Throw / drop physics** — released objects inherit your hand's velocity.
 - **6-channel IMU output** — accelerometer (m/s², proper acceleration: `+9.81` up when stationary, near-zero in freefall) **and** gyroscope (rad/s, angular velocity), both transformed from world space into the object's local body frame each tick. EI payload `sensors`: `[accX, accY, accZ, gyrX, gyrY, gyrZ]`.
 - **All eight object kinds available** — cube, sphere, cylinder, cone, torus, capsule, phone slab, soda can. Pick one in the Object card; rapier auto-rebuilds the collider for the new shape.
-- **Procedural drops generator** — set drop count (1–500), height range, and per-drop record duration, then click **⚡ Generate & upload N drops** when an API key is set, or **⚡ Generate & download N drops** when you want local files. Each drop programmatically lifts the body to a random (x, height, z), waits for the kinematic lerp to converge, releases for a clean free-fall, records the IMU trace, and saves that drop as a separate Edge Impulse JSON sample (`{label}_{i}.json`). Hand tracking is auto-paused for the duration so the script doesn't fight with the webcam-driven pinch target.
+- **Procedural motion generator** — pick a class (`drop`, `throw`, `push`, `shake`), set count (1–500), height range, and per-sample record duration, then click **⚡ Generate & upload N samples** when an API key is set, or **⚡ Generate & download N samples** for local files. Each sample lifts the body to a random `(x, y, z)` and a uniformly-random orientation, then runs the chosen motion: free-fall release for **drop**, accelerated kinematic launch with horizontal velocity + small upward arc for **throw**, low-altitude lateral shove that slides on friction for **push**, or sinusoidal oscillation along a random axis at 3–6 Hz for **shake**. The IMU trace is recorded and uploaded as a separate Edge Impulse sample labelled with the motion class (`{motion}_{i}.json`). Click **■ Stop** to cancel mid-run — the runner unwinds at the next checkpoint and packages whatever finished. Hand tracking is auto-paused for the duration.
 - **Configurable sample rate** (20–500 Hz, default 100 Hz).
 - HMAC-SHA256 signed uploads optional.
+- **Auto-attached EI metadata** — every uploaded sample carries an `x-metadata` JSON header (per the [EI metadata API](https://docs.edgeimpulse.com/studio/projects/data-acquisition/metadata)) tagging it with `source: Synthetic Data Studio`, the page URL, the object kind, the motion class (motion mode) or scene contents (vision mode: shapes present, USDZ asset filenames + labels, environment preset, conveyor state, image dimensions, capture timestamp). Lets you filter the EI data view by where samples came from and how they were generated — no UI fields, fully automatic.
 
 ### Object detection / Visual anomaly mode
 - **Environment presets** — pick a backdrop in the Scene card: **Studio** (dark, no walls — original look), **Warehouse** (procedurally-textured concrete floor with cracks/stains and painted concrete walls on all four sides), **White box** (cyclorama for product photography), **Outdoor** (procedural grass + sky-blue gradient backdrop visible to the virtual camera). All textures generated on the fly — no external assets to ship.
@@ -139,16 +140,16 @@ Open **http://localhost:5173** in a Chromium-based browser (Chrome, Edge, Brave)
 
 1. Switch to **Motion** mode and (optionally) turn **Webcam control** off so the camera light stays off.
 2. Pick the object kind that matches the device you'd put a real IMU on (a soda can, phone slab, etc.).
-3. In the **Procedural drops** card: set the **count** (e.g. 50), tweak **Drop height** range and **Per-drop ms** (record window per drop — 1500ms covers free-fall + a few bounces).
-4. Set the EI label in the **Recording** card (e.g. `drop`, `tumble`, `idle`).
-5. Click **⚡ Generate & upload N drops** if an API key is set, or **⚡ Generate & download N drops** to save a local zip without signing in. The app:
+3. In the **Procedural motions** card: pick a motion class (`drop`, `throw`, `push`, or `shake`), set the **count** (e.g. 50), and tweak **Drop height** range and **Per-drop ms** (record window per sample — 1500 ms covers free-fall + a few bounces).
+4. Click **⚡ Generate & upload N samples** if an API key is set, or **⚡ Generate & download N samples** to save a local zip without signing in. The app:
    - Auto-disables hand tracking (so the camera and the script don't fight over the pinch target).
-   - For each drop: lifts the object to a random `(x, y, z)` inside the configured height band, waits for the kinematic body to settle on target, releases it from rest, records the 6-channel IMU trace for the configured duration, and stores it as a separate sample (`{label}_{i}.json`).
+   - For each sample: lifts the object to a random `(x, y, z)` and orientation, performs the chosen motion (free-fall, throw, push, or shake), records the 6-channel IMU trace for the configured duration, and stores it as `{motion}_{i}.json`. The EI sample's `x-label` is set to the motion class so EI auto-classifies the data.
    - With an API key, each sample uploads to your project's `training` (or `testing`) bucket. Without an API key, the samples are bundled into one zip download.
+   - Click **■ Stop** at any time to cancel — the runner unwinds at the next checkpoint and packages whatever finished.
    - After an uploaded batch, use **↻ Retrain model** in the upload card to retrain the project with the new samples.
-   - Status updates after each drop; failures are tallied separately and don't stop the rest of the batch.
+   - Status updates after each sample; failures are tallied separately and don't stop the rest of the batch.
 
-The drops are independent samples in EI, so the model trains on the variation in initial height, orientation, and bounce — not on a single long take.
+Run the generator once per class to build a balanced multi-class dataset (e.g. 50 `drop` + 50 `throw` + 50 `push` + 50 `shake`). The samples are independent in EI, so the model trains on the variation in initial pose, orientation, and trajectory — not on a single long take.
 
 ### Capturing object-detection data
 

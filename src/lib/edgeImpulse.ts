@@ -8,6 +8,33 @@ import type {
 const INGESTION_BASE = 'https://ingestion.edgeimpulse.com/api';
 const STUDIO_BASE = 'https://studio.edgeimpulse.com/v1/api';
 
+const METADATA_SOURCE = 'Synthetic Data Studio';
+
+export type IngestionMetadataExtras = Record<
+  string,
+  string | number | boolean | undefined | null
+>;
+
+/**
+ * Build the JSON string for Edge Impulse's `x-metadata` ingestion header.
+ * Always tags samples with the studio's name + the page URL they were
+ * generated from; callers add per-sample context (mode, shape, etc.).
+ */
+export function buildIngestionMetadata(extras?: IngestionMetadataExtras): string {
+  const meta: Record<string, string> = { source: METADATA_SOURCE };
+  if (typeof window !== 'undefined' && window.location?.href) {
+    const { origin, pathname } = window.location;
+    meta.source_url = `${origin}${pathname}`;
+  }
+  if (extras) {
+    for (const [k, v] of Object.entries(extras)) {
+      if (v === undefined || v === null || v === '') continue;
+      meta[k] = String(v);
+    }
+  }
+  return JSON.stringify(meta);
+}
+
 // Build the unsigned (alg: "none") Edge Impulse data acquisition format.
 // HMAC signing is supported if hmacKey is provided.
 // Format reference: https://docs.edgeimpulse.com/reference/data-acquisition-format
@@ -98,6 +125,7 @@ export async function uploadSample(
   samples: AccelSample[],
   sampleRateHz: number,
   fileName: string,
+  metadataExtras?: IngestionMetadataExtras,
 ): Promise<UploadResult> {
   if (samples.length === 0) {
     return { ok: false, status: 0, body: 'No samples to upload' };
@@ -117,6 +145,7 @@ export async function uploadSample(
       'x-label': cfg.label || 'unlabeled',
       'x-disallow-duplicates': '0',
       'x-add-date-id': '1',
+      'x-metadata': buildIngestionMetadata(metadataExtras),
     },
     body: JSON.stringify(body),
   });
@@ -148,6 +177,7 @@ export async function uploadImage(
   filename: string,
   label: string,
   boxes: BoundingBox[] | null,
+  metadataExtras?: IngestionMetadataExtras,
 ): Promise<UploadResult> {
   if (!cfg.apiKey) return { ok: false, status: 0, body: 'Missing API key' };
 
@@ -161,6 +191,7 @@ export async function uploadImage(
     'x-label': label || 'unlabeled',
     'x-add-date-id': '1',
     'x-disallow-duplicates': '0',
+    'x-metadata': buildIngestionMetadata(metadataExtras),
   };
   if (boxes && boxes.length > 0) {
     headers['x-bounding-boxes'] = JSON.stringify(boxes);
@@ -379,6 +410,7 @@ export async function uploadCaptures(
   defaultLabel: string,
   includeBoxes: boolean,
   onProgress?: (p: BatchUploadProgress) => void,
+  metadataExtras?: IngestionMetadataExtras,
 ): Promise<{ done: number; failed: number; lastError?: string }> {
   let done = 0;
   let failed = 0;
@@ -387,6 +419,22 @@ export async function uploadCaptures(
   for (const c of captures) {
     onProgress?.({ total, done, failed, current: c.filename });
     const lbl = c.label || defaultLabel;
+    // Per-capture metadata: scene shape names + dimensions, on top of the
+    // batch-level extras passed in by the caller.
+    const perCapture: IngestionMetadataExtras = {
+      ...metadataExtras,
+      width: c.width,
+      height: c.height,
+      capture_ts: new Date(c.ts).toISOString(),
+    };
+    if (c.shapes && c.shapes.length > 0) {
+      perCapture.shapes = c.shapes.join(',');
+    }
+    if (c.assetSnapshot && c.assetSnapshot.length > 0) {
+      perCapture.asset_files = c.assetSnapshot.map((a) => a.name).join(',');
+      perCapture.asset_labels = c.assetSnapshot.map((a) => a.label).join(',');
+      perCapture.asset_count = c.assetSnapshot.length;
+    }
     try {
       const res = await uploadImage(
         cfg,
@@ -394,6 +442,7 @@ export async function uploadCaptures(
         c.filename,
         lbl,
         includeBoxes ? c.boxes : null,
+        perCapture,
       );
       if (res.ok) done += 1;
       else {

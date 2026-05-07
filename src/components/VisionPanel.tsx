@@ -423,6 +423,12 @@ export function VisionPanel() {
           `Uploading ${p.done}/${p.total}${p.failed ? ` · ${p.failed} failed` : ''}`,
         );
       },
+      {
+        mode,
+        env_preset: envPreset,
+        conveyor: showConveyor,
+        conveyor_speed: showConveyor ? conveyorSpeed : undefined,
+      },
     );
     if (result.failed === 0) {
       setStatus('ok', `Uploaded ${result.done} images`);

@@ -1,4 +1,10 @@
-import { useStore, type ObjectKind } from '../store/useStore';
+import {
+  ALL_MOTION_KINDS,
+  useStore,
+  type AccelSample,
+  type MotionKind,
+  type ObjectKind,
+} from '../store/useStore';
 import { saveBlob } from '../lib/capture';
 import {
   buildDataAcquisitionPayload,
@@ -24,6 +30,34 @@ const OBJECTS: { value: ObjectKind; label: string }[] = [
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+/** Sentinel thrown by the cancellation-aware `sleepCancellable` when the
+ * user clicks Stop. The runner catches it specifically so it can report
+ * "cancelled" instead of "errored". */
+class CancelledError extends Error {
+  constructor() {
+    super('cancelled');
+    this.name = 'CancelledError';
+  }
+}
+
+/**
+ * Uniformly-random unit quaternion (Shoemake 1992). Returned as
+ * [x, y, z, w] for direct use as a Rapier rotation.
+ */
+function randomQuaternion(): [number, number, number, number] {
+  const u1 = Math.random();
+  const u2 = Math.random();
+  const u3 = Math.random();
+  const s1 = Math.sqrt(1 - u1);
+  const s2 = Math.sqrt(u1);
+  return [
+    s1 * Math.sin(2 * Math.PI * u2),
+    s1 * Math.cos(2 * Math.PI * u2),
+    s2 * Math.sin(2 * Math.PI * u3),
+    s2 * Math.cos(2 * Math.PI * u3),
+  ];
+}
+
 export function MotionPanel() {
   const {
     objectKind,
@@ -47,6 +81,8 @@ export function MotionPanel() {
     setDropsRunning,
     setGrabbed,
     setPinchTarget,
+    setPinchRotation,
+    setDropsCancelRequested,
   } = useStore();
 
   const onUpload = async () => {
@@ -57,6 +93,12 @@ export function MotionPanel() {
         samples,
         sampleRateHz,
         buildFileName(ei.label),
+        {
+          mode: 'motion',
+          shape: objectKind,
+          sample_rate_hz: sampleRateHz,
+          hand_tracking: handTrackingEnabled,
+        },
       );
       if (res.ok) {
         setStatus('ok', `Uploaded ${samples.length} samples (${res.status}).`);
@@ -143,60 +185,210 @@ export function MotionPanel() {
    * Hand tracking is auto-disabled for the duration so the CameraFeed
    * doesn't fight with our scripted pinchTarget writes.
    */
+  /**
+   * Sleep that checks the store's cancel flag at the end of each window.
+   * Throws `CancelledError` if the user clicked Stop, so the runner unwinds
+   * back to its cleanup block instead of finishing the iteration.
+   */
+  const sleepCancellable = async (ms: number): Promise<void> => {
+    await new Promise<void>((r) => setTimeout(r, ms));
+    if (useStore.getState().dropsCancelRequested) throw new CancelledError();
+  };
+
+  /**
+   * Lift the body to a random pose using the kinematic manipulator. Returns
+   * the lift target position. Caller is responsible for the eventual
+   * release. `xyRange` controls the horizontal jitter; `yMin`/`yMax`
+   * default to the user-configured drop height range.
+   */
+  const liftTo = async (
+    xyRange: number,
+    yMin: number,
+    yMax: number,
+    randomize: boolean,
+  ): Promise<[number, number, number]> => {
+    const x = (Math.random() - 0.5) * xyRange;
+    const y = yMin + Math.random() * Math.max(0.001, yMax - yMin);
+    const z = (Math.random() - 0.5) * xyRange;
+    setPinchRotation(randomize ? randomQuaternion() : null);
+    setPinchTarget([x, y, z]);
+    setGrabbed(true);
+    // Wait for the kinematic lerp to converge on the lift target. The
+    // manipulator uses FOLLOW_LERP=0.35 per frame; 600ms is enough at 60 Hz
+    // to reach within ~2 cm of any reachable point.
+    await sleepCancellable(600);
+    return [x, y, z];
+  };
+
+  const releaseBody = () => {
+    setGrabbed(false);
+    setPinchTarget(null);
+    setPinchRotation(null);
+  };
+
+  /**
+   * Drive the kinematic target along a velocity vector for a short window
+   * before releasing. `Scene.tsx` derives the body's release linvel from
+   * the per-frame kinematic delta, so this imparts roughly the requested
+   * horizontal speed at release time. `start` is the current pose;
+   * returns the final commanded target.
+   */
+  const accelerateAndRelease = async (
+    start: [number, number, number],
+    velocity: [number, number, number],
+    steps: number,
+  ): Promise<void> => {
+    const STEP_MS = 16;
+    let [cx, cy, cz] = start;
+    for (let k = 0; k < steps; k++) {
+      cx += velocity[0] * (STEP_MS / 1000);
+      cy += velocity[1] * (STEP_MS / 1000);
+      cz += velocity[2] * (STEP_MS / 1000);
+      setPinchTarget([cx, cy, cz]);
+      await sleepCancellable(STEP_MS);
+    }
+    releaseBody();
+  };
+
+  type RunCtx = { motion: MotionKind; index: number; total: number };
+  const recordSnapshot = (): AccelSample[] => {
+    stopRecording();
+    const snap = useStore.getState().samples.slice();
+    clearSamples();
+    return snap;
+  };
+
+  const runDrop = async (ctx: RunCtx): Promise<AccelSample[]> => {
+    setStatus('busy', `${ctx.index}/${ctx.total} drop: lifting…`);
+    await liftTo(1.2, drops.heightMin, drops.heightMax, true);
+    startRecording();
+    // Brief beat so the first sample is captured before release —
+    // otherwise the very first reading would be the kinematic body's
+    // pre-release linvel, which is artificial.
+    await sleepCancellable(40);
+    setStatus('busy', `${ctx.index}/${ctx.total} drop: falling…`);
+    releaseBody();
+    await sleepCancellable(drops.durationMs);
+    return recordSnapshot();
+  };
+
+  const runThrow = async (ctx: RunCtx): Promise<AccelSample[]> => {
+    setStatus('busy', `${ctx.index}/${ctx.total} throw: winding up…`);
+    const start = await liftTo(0.8, drops.heightMin, drops.heightMax, true);
+    startRecording();
+    await sleepCancellable(40);
+    setStatus('busy', `${ctx.index}/${ctx.total} throw: releasing…`);
+    const angle = Math.random() * 2 * Math.PI;
+    const speed = 3 + Math.random() * 2; // 3–5 m/s horizontal
+    const upKick = 0.4 + Math.random() * 0.8; // gentle upward arc
+    await accelerateAndRelease(
+      start,
+      [Math.cos(angle) * speed, upKick, Math.sin(angle) * speed],
+      8,
+    );
+    await sleepCancellable(drops.durationMs);
+    return recordSnapshot();
+  };
+
+  const runPush = async (ctx: RunCtx): Promise<AccelSample[]> => {
+    // Hold the body just above the ground and accelerate horizontally so
+    // it slides on release. Skip the random orientation — pushes are
+    // usually upright.
+    setStatus('busy', `${ctx.index}/${ctx.total} push: positioning…`);
+    const start = await liftTo(1.2, 0.12, 0.18, false);
+    startRecording();
+    await sleepCancellable(40);
+    setStatus('busy', `${ctx.index}/${ctx.total} push: shoving…`);
+    const angle = Math.random() * 2 * Math.PI;
+    const speed = 2 + Math.random() * 2; // 2–4 m/s
+    await accelerateAndRelease(
+      start,
+      [Math.cos(angle) * speed, 0, Math.sin(angle) * speed],
+      8,
+    );
+    await sleepCancellable(drops.durationMs);
+    return recordSnapshot();
+  };
+
+  const runShake = async (ctx: RunCtx): Promise<AccelSample[]> => {
+    setStatus('busy', `${ctx.index}/${ctx.total} shake: winding up…`);
+    const center = await liftTo(0.6, drops.heightMin, drops.heightMax, false);
+    const axisAngle = Math.random() * 2 * Math.PI;
+    const ax = Math.cos(axisAngle);
+    const az = Math.sin(axisAngle);
+    const freq = 3 + Math.random() * 3; // 3–6 Hz
+    const amp = 0.12 + Math.random() * 0.15; // 12–27 cm peak displacement
+    startRecording();
+    setStatus('busy', `${ctx.index}/${ctx.total} shake: oscillating…`);
+    const t0 = performance.now();
+    while (performance.now() - t0 < drops.durationMs) {
+      const t = (performance.now() - t0) / 1000;
+      const off = Math.sin(2 * Math.PI * freq * t) * amp;
+      setPinchTarget([center[0] + ax * off, center[1], center[2] + az * off]);
+      await sleepCancellable(16);
+    }
+    releaseBody();
+    return recordSnapshot();
+  };
+
+  const runMotion = async (ctx: RunCtx): Promise<AccelSample[]> => {
+    switch (ctx.motion) {
+      case 'drop':
+        return await runDrop(ctx);
+      case 'throw':
+        return await runThrow(ctx);
+      case 'push':
+        return await runPush(ctx);
+      case 'shake':
+        return await runShake(ctx);
+    }
+  };
+
   const onRunDrops = async () => {
+    const motion: MotionKind = drops.motion;
     const runEi = { ...ei, apiKey: ei.apiKey.trim() };
     const shouldUpload = runEi.apiKey.length > 0;
     const wasHandTracking = handTrackingEnabled;
     setHandTrackingEnabled(false);
+    setDropsCancelRequested(false);
     setDropsRunning(true);
     let uploaded = 0;
     let captured = 0;
     let failed = 0;
+    let cancelled = false;
     const zipEntries: ZipEntry[] = [];
     try {
       // Allow a frame for CameraFeed to unmount and stop writing pinchTarget.
-      await sleep(80);
+      await sleepCancellable(80);
       for (let i = 0; i < drops.count; i++) {
-        setStatus('busy', `Drop ${i + 1}/${drops.count}: lifting…`);
-        const x = (Math.random() - 0.5) * 1.2;
-        const y =
-          drops.heightMin + Math.random() * (drops.heightMax - drops.heightMin);
-        const z = (Math.random() - 0.5) * 1.2;
-        setPinchTarget([x, y, z]);
-        setGrabbed(true);
-        // Wait for the kinematic lerp to converge on the lift target. The
-        // manipulator uses FOLLOW_LERP=0.35 per frame; 600ms is enough at
-        // 60Hz to reach within ~2cm of any reachable point.
-        await sleep(600);
-
-        startRecording();
-        // Brief beat so the first sample is captured before release —
-        // otherwise the very first reading would be the kinematic body's
-        // pre-release linvel, which is artificial.
-        await sleep(40);
-
-        setStatus('busy', `Drop ${i + 1}/${drops.count}: falling…`);
-        setGrabbed(false);
-        setPinchTarget(null);
-
-        await sleep(drops.durationMs);
-
-        stopRecording();
-        const sampleSnapshot = useStore.getState().samples.slice();
-        clearSamples();
+        const ctx: RunCtx = {
+          motion,
+          index: i + 1,
+          total: drops.count,
+        };
+        const sampleSnapshot = await runMotion(ctx);
 
         if (sampleSnapshot.length === 0) {
           failed += 1;
           continue;
         }
-        const fileName = buildFileName(`${runEi.label || 'drop'}_${i + 1}`);
+        const fileName = buildFileName(`${motion}_${i + 1}`);
         if (shouldUpload) {
           try {
             const res = await uploadSample(
-              runEi,
+              { ...runEi, label: motion },
               sampleSnapshot,
               sampleRateHz,
               fileName,
+              {
+                mode: 'motion',
+                shape: objectKind,
+                sample_rate_hz: sampleRateHz,
+                generator: 'procedural',
+                motion,
+                motion_index: i + 1,
+                motion_total: drops.count,
+              },
             );
             if (res.ok) uploaded += 1;
             else failed += 1;
@@ -218,38 +410,73 @@ export function MotionPanel() {
         setStatus(
           'busy',
           shouldUpload
-            ? `Drops: ${uploaded} uploaded · ${failed} failed (of ${i + 1}/${drops.count})`
-            : `Drops: ${captured} captured · ${failed} failed (of ${i + 1}/${drops.count})`,
+            ? `Motions: ${uploaded} uploaded · ${failed} failed (of ${i + 1}/${drops.count})`
+            : `Motions: ${captured} captured · ${failed} failed (of ${i + 1}/${drops.count})`,
         );
       }
+      const headline = cancelled ? 'Procedural motions stopped' : 'Procedural motions complete';
       if (shouldUpload) {
         setStatus(
-          failed === 0 ? 'ok' : 'err',
-          `Procedural drops complete: ${uploaded} uploaded${
+          cancelled || failed > 0 ? 'err' : 'ok',
+          `${headline}: ${uploaded} uploaded${
             failed ? ` · ${failed} failed` : ''
           }`,
         );
       } else if (zipEntries.length > 0) {
-        setStatus('busy', `Packaging ${zipEntries.length} drop samples…`);
+        setStatus('busy', `Packaging ${zipEntries.length} motion samples…`);
         const zipName = buildFileName(
-          `${runEi.label || 'drop'}_${zipEntries.length}_drops`,
+          `motions_${zipEntries.length}`,
         ).replace(/\.json$/, '.zip');
         const zip = await buildZip(zipEntries);
         await saveBlob({ kind: 'download' }, zipName, zip);
         setStatus(
-          failed === 0 ? 'ok' : 'err',
-          `Procedural drops complete: downloaded ${zipEntries.length} samples${
+          cancelled || failed > 0 ? 'err' : 'ok',
+          `${headline}: downloaded ${zipEntries.length} samples${
             failed ? ` · ${failed} failed` : ''
           }`,
         );
       } else {
-        setStatus('err', 'Procedural drops complete: no samples captured');
+        setStatus(
+          'err',
+          `${headline}: no samples captured`,
+        );
       }
     } catch (e) {
-      setStatus('err', `Drops error: ${(e as Error).message}`);
+      if (e instanceof CancelledError) {
+        cancelled = true;
+        // Drain whatever finished before the cancel checkpoint into a zip
+        // so the user keeps partial work when not uploading directly.
+        if (!shouldUpload && zipEntries.length > 0) {
+          try {
+            setStatus('busy', `Packaging ${zipEntries.length} motion samples…`);
+            const zipName = buildFileName(
+              `motions_${zipEntries.length}`,
+            ).replace(/\.json$/, '.zip');
+            const zip = await buildZip(zipEntries);
+            await saveBlob({ kind: 'download' }, zipName, zip);
+          } catch {
+            /* ignore zip failure on cancel */
+          }
+        }
+        setStatus(
+          'err',
+          shouldUpload
+            ? `Procedural motions stopped: ${uploaded} uploaded${
+                failed ? ` · ${failed} failed` : ''
+              }`
+            : `Procedural motions stopped: ${zipEntries.length} samples saved`,
+        );
+      } else {
+        setStatus('err', `Motions error: ${(e as Error).message}`);
+      }
     } finally {
       setDropsRunning(false);
       setHandTrackingEnabled(wasHandTracking);
+      setDropsCancelRequested(false);
+      // Defensive cleanup in case an error left the rotation override set.
+      setPinchRotation(null);
+      // And release the body if a cancel happened mid-grab.
+      releaseBody();
     }
   };
 
@@ -351,11 +578,32 @@ export function MotionPanel() {
       </div>
 
       <div className="card">
-        <h3>Procedural drops</h3>
+        <h3>Procedural motions</h3>
         <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-          Generate N drops automatically — each lifts the object to a random
-          height, releases it, records the IMU trace, and then uploads or
-          downloads the samples. Webcam tracking is paused while running.
+          Generate N samples automatically. Pick which motion classes to
+          include — the runner cycles through them and records one labelled
+          IMU trace per iteration. Webcam tracking is paused while running.
+        </div>
+        <div className="motion-pills" role="radiogroup" aria-label="Motion class">
+          {ALL_MOTION_KINDS.map((kind) => {
+            const selected = drops.motion === kind;
+            return (
+              <label
+                key={kind}
+                className={`motion-pill ${selected ? 'on' : ''}`}
+              >
+                <input
+                  type="radio"
+                  name="procedural-motion"
+                  value={kind}
+                  checked={selected}
+                  disabled={dropsRunning}
+                  onChange={() => setDrops({ motion: kind })}
+                />
+                {kind}
+              </label>
+            );
+          })}
         </div>
         <div className="row">
           <label className="field">
@@ -425,17 +673,24 @@ export function MotionPanel() {
             disabled={dropsRunning}
           />
         </label>
-        <button
-          className="primary"
-          onClick={onRunDrops}
-          disabled={dropsRunning || isRecording}
-        >
-          {dropsRunning
-            ? '… running'
-            : `⚡ Generate & ${
-                hasApiKey ? 'upload' : 'download'
-              } ${drops.count} drops`}
-        </button>
+        {dropsRunning ? (
+          <button
+            className="danger"
+            onClick={() => setDropsCancelRequested(true)}
+          >
+            ■ Stop
+          </button>
+        ) : (
+          <button
+            className="primary"
+            onClick={onRunDrops}
+            disabled={isRecording}
+          >
+            {`⚡ Generate & ${
+              hasApiKey ? 'upload' : 'download'
+            } ${drops.count} samples`}
+          </button>
+        )}
       </div>
 
       <EiAuthCard showHmac />

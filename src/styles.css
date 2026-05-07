@@ -206,6 +206,43 @@ label.field {
   transform: translateX(20px);
 }
 
+.motion-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.motion-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid #2a313b;
+  background: #1a1f26;
+  color: #9aa4af;
+  font-size: 12px;
+  text-transform: capitalize;
+  cursor: pointer;
+  user-select: none;
+}
+
+.motion-pill input {
+  /* Hide the native checkbox; the pill itself reflects the state. */
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.motion-pill.on {
+  border-color: var(--accent);
+  background: rgba(94, 234, 212, 0.18);
+  color: #d6ecea;
+}
+
+.motion-pill:hover { background: #262d36; }
+.motion-pill.on:hover { background: rgba(94, 234, 212, 0.24); }
+
 .capture-card {
   gap: 12px;
 }

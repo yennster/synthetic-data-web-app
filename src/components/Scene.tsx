@@ -72,8 +72,14 @@ function ManipulatedObject() {
     const body = bodyRef.current;
     if (!body) return;
 
-    const { isGrabbed, pinchTarget, sampleRateHz, isRecording, pushSample } =
-      useStore.getState();
+    const {
+      isGrabbed,
+      pinchTarget,
+      pinchRotation,
+      sampleRateHz,
+      isRecording,
+      pushSample,
+    } = useStore.getState();
 
     if (isGrabbed && pinchTarget) {
       if (body.bodyType() !== 2) {
@@ -88,6 +94,14 @@ function ManipulatedObject() {
         FOLLOW_LERP,
       );
       body.setNextKinematicTranslation({ x: next.x, y: next.y, z: next.z });
+      if (pinchRotation) {
+        body.setNextKinematicRotation({
+          x: pinchRotation[0],
+          y: pinchRotation[1],
+          z: pinchRotation[2],
+          w: pinchRotation[3],
+        });
+      }
       releaseVel.current.set(
         (next.x - prevPos.current.x) / Math.max(dt, 1e-3),
         (next.y - prevPos.current.y) / Math.max(dt, 1e-3),
