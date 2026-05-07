@@ -301,10 +301,10 @@ export async function loadEiModel(
     throw new Error(
       `${
         modelName ?? 'Uploaded JS'
-      } is a Node.js-only build (uses require/__dirname/process). ` +
-        `In the Edge Impulse Studio, build the "WebAssembly (browser)" deployment instead — ` +
-        `the Node.js variant won't run in a browser. ` +
-        `If you uploaded a folder, make sure to pick edge-impulse-standalone.js (NOT run-impulse.js).`,
+      } is a Node.js-only build (uses require/__dirname/process), can't run in a browser. ` +
+        `Click 🔨 Build browser deployment above to have the app trigger a "WebAssembly (browser)" build via the Studio API and auto-load it. ` +
+        `(Or build the "WebAssembly (browser)" block manually in the Studio's Deployment tab — NOT the "Node.js, SIMD" / "Linux" / "C++ library" variants.) ` +
+        `If you uploaded a folder, make sure edge-impulse-standalone.js was picked, not run-impulse.js.`,
     );
   }
 

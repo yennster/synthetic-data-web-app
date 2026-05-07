@@ -1093,19 +1093,23 @@ export function VisionPanel() {
                     ))}
                   </select>
                 </label>
-                <button
-                  onClick={onFetchModel}
-                  disabled={modelLoading || !selectedProjectId}
-                  className="primary"
-                >
-                  {modelLoading ? '… loading' : '⤓ Fetch & load model'}
-                </button>
+                {/* Build button is FIRST because it's the primary recovery
+                    path when Fetch fails (existing deployment is Node-only
+                    or doesn't exist yet). The user sees it before the
+                    failure message ever appears. */}
                 <button
                   onClick={onBuildBrowserDeployment}
                   disabled={modelLoading || !selectedProjectId}
-                  title="Trigger a fresh WebAssembly (browser) build in the Studio, then auto-load it. Useful if the existing deployment is Node.js-only or there isn't one yet."
+                  className="primary"
+                  title="Trigger a fresh WebAssembly (browser) build in the Studio, then auto-load it. Use this if the existing deployment is Node.js-only or there isn't one yet."
                 >
                   🔨 Build browser deployment
+                </button>
+                <button
+                  onClick={onFetchModel}
+                  disabled={modelLoading || !selectedProjectId}
+                >
+                  {modelLoading ? '… loading' : '⤓ Fetch & load existing'}
                 </button>
               </>
             )}
@@ -1114,8 +1118,13 @@ export function VisionPanel() {
             <fieldset className="ei-fetch-group">
               <legend>From file</legend>
               <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                Upload the <code>.js</code> + <code>.wasm</code> from an
-                unzipped EI WebAssembly deployment.
+                Upload the <code>edge-impulse-standalone.js</code> +{' '}
+                <code>.wasm</code> from an unzipped EI{' '}
+                <strong>WebAssembly (browser)</strong> deployment. The
+                <em> Node.js</em>, <em>SIMD</em>, or <em>Linux</em> variants
+                use APIs that don&apos;t exist in browsers and won&apos;t
+                load — pick the plain Browser block in the Studio when
+                building.
               </div>
               <input
                 ref={modelFilesRef}
