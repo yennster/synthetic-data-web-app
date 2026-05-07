@@ -273,23 +273,30 @@ export async function loadEiModel(
   const id = ++_moduleCounter;
   const captureKey = `__ei_module_${id}`;
 
-  // Different EI builds emit the WebAssembly module factory under different
-  // top-level patterns:
-  //   var Module = (...)            ← classic Emscripten MODULARIZE=1
-  //   let|const Module = (...)      ← block-scoped, NOT a global property
-  //   var <CustomName> = (...)      ← when EI builds with EXPORT_NAME=...
-  //   IIFE-wrapped (no global)
-  //   export default Module         ← ESM
+  // EI WebAssembly deployments come in two distinct Emscripten flavors:
   //
-  // Trying to read `Module` from a global after script-tag injection only
-  // works for case 1. To handle the rest, we rewrite the source so the
-  // first top-level factory assignment also lands on a known global key.
-  // If the rewrite doesn't match anything, we fall back to ESM dynamic
-  // import (which handles export-default).
+  //   (A) MODULARIZE=1 — the script defines `var Module = (cfg) => Promise<runtime>`,
+  //       a factory function we call ourselves. Used by the standard
+  //       "WebAssembly (browser)" deployment.
+  //
+  //   (B) Non-MODULARIZE — the script *itself* mutates a `Module` object
+  //       and asynchronously initializes the runtime, calling
+  //       `Module.onRuntimeInitialized()` when ready. The
+  //       "WebAssembly (Node.js, SIMD)" deployment uses this format; it
+  //       works in browsers too as long as we pre-seed `globalThis.Module`
+  //       with `locateFile` (so it can find the .wasm) before the script
+  //       runs.
+  //
+  // We try (A) first — rewrite the top-level `Module` (or any custom-named)
+  // factory binding so it lands on a known global. If that produces a
+  // callable, great. Otherwise we set up (B) by pre-seeding the global
+  // Module with our hooks, then injecting the unmodified script and
+  // waiting for onRuntimeInitialized.
   const rewrite = rewriteToCaptureFactory(jsText, captureKey);
   let scriptUrl: string | null = null;
-  let factory: ((cfg: unknown) => Promise<any>) | null = null;
+  let mod: any = null;
 
+  // (A) Factory-style attempt
   if (rewrite.didRewrite) {
     const wrapped = `${rewrite.code}
 //# sourceURL=ei-model-${id}.js
@@ -299,14 +306,39 @@ export async function loadEiModel(
     );
     await injectScript(scriptUrl);
     const captured = (globalThis as any)[captureKey];
-    if (typeof captured === 'function') factory = captured;
-    // Some EI builds export an already-instantiated Module instead of a
-    // factory. We don't currently handle that — bail to the diagnostic.
+    if (typeof captured === 'function') {
+      try {
+        mod = await captured({
+          locateFile: (path: string) =>
+            path.endsWith('.wasm') ? wasmUrl : path,
+          print: () => {},
+          printErr: (msg: string) => {
+            if (msg && !msg.startsWith('Warning')) console.warn('[EI]', msg);
+          },
+        });
+      } catch (e) {
+        // Factory call itself failed — not a captured-but-wrong-shape
+        // problem; surface it directly.
+        if (scriptUrl) URL.revokeObjectURL(scriptUrl);
+        URL.revokeObjectURL(wasmUrl);
+        throw new Error(`EI module init failed: ${(e as Error).message}`);
+      }
+    }
   }
 
-  // ESM fallback: `export default Module` style outputs need a real ESM
-  // import, since classic <script> can't parse them.
-  if (!factory) {
+  // (B) Non-MODULARIZE attempt: pre-seed Module, inject the *unmodified*
+  // script, wait for onRuntimeInitialized.
+  if (!mod) {
+    if (scriptUrl) {
+      URL.revokeObjectURL(scriptUrl);
+      scriptUrl = null;
+    }
+    mod = await loadEmscriptenViaPreseed(jsText, wasmUrl, id);
+  }
+
+  // (C) ESM fallback: `export default Module` style outputs that classic
+  // <script> can't parse.
+  if (!mod) {
     try {
       const esmUrl = URL.createObjectURL(
         new Blob([jsText], { type: 'text/javascript' }),
@@ -314,43 +346,28 @@ export async function loadEiModel(
       const ns = await import(/* @vite-ignore */ esmUrl);
       URL.revokeObjectURL(esmUrl);
       const candidate = (ns as any)?.default ?? (ns as any)?.Module;
-      if (typeof candidate === 'function') factory = candidate;
+      if (typeof candidate === 'function') {
+        mod = await candidate({
+          locateFile: (path: string) =>
+            path.endsWith('.wasm') ? wasmUrl : path,
+          print: () => {},
+          printErr: () => {},
+        });
+      }
     } catch {
-      // Not an ES module, or import failed for another reason. Fall through
-      // to the rich error below.
+      // Not an ES module, or init failed. Fall through.
     }
   }
 
-  if (typeof factory !== 'function') {
+  if (!mod) {
     if (scriptUrl) URL.revokeObjectURL(scriptUrl);
     URL.revokeObjectURL(wasmUrl);
     const head = jsText.slice(0, 240).replace(/\s+/g, ' ');
     throw new Error(
-      `Could not find Edge Impulse module factory in ${
-        modelName ?? 'uploaded JS'
-      }. ` +
-        `Tried top-level Module/var-rewrite + ESM import, neither produced a callable factory. ` +
-        `If you're using an EI deployment built for a non-browser target (e.g. Node.js), rebuild as ` +
-        `target "WebAssembly (browser)" — Studio → Deployment → WebAssembly. ` +
+      `Could not initialize Edge Impulse module ${modelName ?? ''}. ` +
+        `Tried MODULARIZE-factory + onRuntimeInitialized + ESM import. ` +
         `Source preview: ${head}…`,
     );
-  }
-
-  let mod: any;
-  try {
-    mod = await factory({
-      locateFile: (path: string) =>
-        path.endsWith('.wasm') ? wasmUrl : path,
-      // Silence the default Emscripten console flood; surface as needed.
-      print: () => {},
-      printErr: (msg: string) => {
-        if (msg && !msg.startsWith('Warning')) console.warn('[EI]', msg);
-      },
-    });
-  } catch (e) {
-    if (scriptUrl) URL.revokeObjectURL(scriptUrl);
-    URL.revokeObjectURL(wasmUrl);
-    throw new Error(`EI module init failed: ${(e as Error).message}`);
   }
 
   const classifier = new EdgeImpulseClassifier(mod);
@@ -434,6 +451,82 @@ function buildModelInfo(
 
 async function blobText(b: File | Blob): Promise<string> {
   return await b.text();
+}
+
+/**
+ * Run a non-MODULARIZE Emscripten script — the kind that mutates a
+ * pre-existing `Module` object and asynchronously initializes the runtime.
+ * EI's "WebAssembly (Node.js, SIMD)" build is shaped like this.
+ *
+ * Flow:
+ *   1. Set `globalThis.Module` to an object with locateFile pointing at the
+ *      blob-URL'd .wasm and onRuntimeInitialized resolving the promise.
+ *   2. Inject the script verbatim — it sees the existing Module and
+ *      attaches its runtime to it.
+ *   3. Await onRuntimeInitialized. The Module object IS the runtime.
+ *
+ * Restores `globalThis.Module` to its previous value when done so back-to-
+ * back loads of different models don't trample each other.
+ */
+async function loadEmscriptenViaPreseed(
+  jsText: string,
+  wasmUrl: string,
+  id: number,
+): Promise<any> {
+  const TIMEOUT_MS = 15000;
+  const prevModule = (globalThis as any).Module;
+  let resolveInit!: (m: any) => void;
+  let rejectInit!: (e: Error) => void;
+  const initPromise = new Promise<any>((res, rej) => {
+    resolveInit = res;
+    rejectInit = rej;
+  });
+
+  const ModuleSeed: any = {
+    locateFile: (path: string) =>
+      path.endsWith('.wasm') ? wasmUrl : path,
+    print: () => {},
+    printErr: (msg: string) => {
+      if (msg && !msg.startsWith('Warning')) console.warn('[EI]', msg);
+    },
+    onRuntimeInitialized() {
+      resolveInit(ModuleSeed);
+    },
+    onAbort(what: any) {
+      rejectInit(new Error(`Module aborted: ${what}`));
+    },
+  };
+  (globalThis as any).Module = ModuleSeed;
+
+  const scriptUrl = URL.createObjectURL(
+    new Blob([`${jsText}\n//# sourceURL=ei-preseed-${id}.js\n`], {
+      type: 'text/javascript',
+    }),
+  );
+
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    await injectScript(scriptUrl);
+    const timeout = new Promise<never>((_, rej) => {
+      timer = setTimeout(
+        () =>
+          rej(
+            new Error(
+              `onRuntimeInitialized never fired (${TIMEOUT_MS}ms). ` +
+                `If this is a Node.js-only build, rebuild as "WebAssembly (browser)" in the Studio.`,
+            ),
+          ),
+        TIMEOUT_MS,
+      );
+    });
+    return await Promise.race([initPromise, timeout]);
+  } catch (e) {
+    return null;
+  } finally {
+    if (timer) clearTimeout(timer);
+    URL.revokeObjectURL(scriptUrl);
+    (globalThis as any).Module = prevModule;
+  }
 }
 
 /**
