@@ -106,7 +106,7 @@ Opens on http://localhost:5173 with COOP/COEP preconfigured. Add `--port 8080` t
 
 ### Option B — download the release zip
 
-Grab the latest `synthetic-data-studio-vX.Y.Z.zip` from [Releases](https://github.com/yennster/synthetic-data-studio/releases), unzip, and serve from any static host. The bundle includes a `_headers` file preconfigured for Netlify and Cloudflare Pages.
+Grab the latest `synthetic-data-studio-vX.Y.Z.zip` from [Releases](https://github.com/yennster/synthetic-data-studio/releases), unzip, and serve from any static host. The bundle includes a `_headers` file preconfigured for Netlify and Cloudflare Pages, and a `vercel.json` at the repo root for Vercel deployments — both wire up the cross-origin-isolation headers that the USDZ WASM loader needs.
 
 ### Option C — clone and run
 
@@ -336,7 +336,11 @@ Cross-Origin-Opener-Policy: same-origin
 Cross-Origin-Embedder-Policy: credentialless
 ```
 
-The Vite dev server is preconfigured to send these. If you self-host the production build, your static host needs to send them too — Netlify, Vercel, and Cloudflare Pages all support this via headers config.
+The Vite dev server is preconfigured to send these. If you self-host the production build, your static host needs to send them too:
+
+- **Netlify / Cloudflare Pages** — pick up the `_headers` file shipped in the build output automatically.
+- **Vercel** — uses the `vercel.json` at the repo root. The committed copy already maps both headers to every path. (Note: Vercel does **not** read `_headers`, so the `_headers` file alone won't work there.)
+- **Other static hosts (Caddy, nginx, S3+CloudFront)** — set the two headers via your host's config.
 
 ## How the IMU signal is computed
 
@@ -400,7 +404,7 @@ Result: tight axis-aligned 2D boxes in pixel coordinates with top-left origin �
 
 **Bounding boxes look wrong** — Make sure the object is fully on-screen in the virtual camera preview. Boxes are clipped at image edges, and very small / occluded objects are dropped.
 
-**USDZ import: "module could not initialize"** — the page isn't cross-origin-isolated. Check that your static host is sending `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: credentialless`. The dev server already does.
+**USDZ import: "module could not initialize"** — the page isn't cross-origin-isolated. Check that your static host is sending `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: credentialless`. The dev server already does. **Vercel users**: make sure `vercel.json` is at the repo root (not just `_headers` in `public/` — Vercel doesn't read that file). You can verify with `curl -I https://your-deployment.vercel.app/` and look for both headers in the response.
 
 **USDZ import: file imported but invisible** — the asset may have been auto-scaled too small; drag the **Scale** slider in its row, or check the **Y** position (e.g. lift it onto the belt at `y = 0.1`).
 
