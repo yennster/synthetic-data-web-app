@@ -1120,11 +1120,7 @@ export function VisionPanel() {
               <div style={{ fontSize: 11, color: 'var(--muted)' }}>
                 Upload the <code>edge-impulse-standalone.js</code> +{' '}
                 <code>.wasm</code> from an unzipped EI{' '}
-                <strong>WebAssembly (browser)</strong> deployment. The
-                <em> Node.js</em>, <em>SIMD</em>, or <em>Linux</em> variants
-                use APIs that don&apos;t exist in browsers and won&apos;t
-                load — pick the plain Browser block in the Studio when
-                building.
+                <strong>WebAssembly (browser)</strong> deployment.
               </div>
               <input
                 ref={modelFilesRef}
