@@ -79,64 +79,94 @@ export function VisionPanel() {
   const [modelLoading, setModelLoading] = useState(false);
   const [eiProjects, setEiProjects] = useState<EiProject[] | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
+  /** Inline status shown directly inside the Inference card. The global
+   * status bar lives at the bottom of the sidebar and is easy to miss when
+   * the user is focused on this section, so we mirror progress + errors
+   * here too. `kind: 'busy'` shows a spinner; 'ok'/'err' show a colored
+   * message. */
+  const [inferenceStatus, setInferenceStatus] = useState<{
+    kind: 'idle' | 'busy' | 'ok' | 'err';
+    msg: string;
+  }>({ kind: 'idle', msg: '' });
+  const setBoth = (kind: 'idle' | 'busy' | 'ok' | 'err', msg: string) => {
+    setInferenceStatus({ kind, msg });
+    if (kind !== 'idle') setStatus(kind, msg);
+  };
+
+  /** Translate raw fetch / runtime errors into something actionable. The
+   * generic browser "TypeError: Failed to fetch" is opaque — usually means
+   * either a CORS rejection or the user is offline; either way the user
+   * deserves a hint about what to check. */
+  const explainError = (e: unknown): string => {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/Failed to fetch|NetworkError|Load failed/.test(msg)) {
+      return `Network/CORS error contacting the Edge Impulse Studio API. Check your network, that the API key is valid, and (production hosts only) that the page can reach studio.edgeimpulse.com without a CSP block. Original: ${msg}`;
+    }
+    if (/401/.test(msg)) return `${msg} — API key rejected. Double-check Dashboard → Keys in your project.`;
+    if (/403/.test(msg)) return `${msg} — API key doesn't have access to this project.`;
+    return msg;
+  };
 
   const onListProjects = async () => {
     if (!ei.apiKey) {
-      setStatus('err', 'Enter your Edge Impulse API key first');
+      setBoth('err', 'Enter your Edge Impulse API key first');
       return;
     }
-    setStatus('busy', 'Listing projects…');
+    setBoth('busy', 'Listing projects…');
     try {
       const list = await listEiProjects(ei.apiKey);
       setEiProjects(list);
       if (list.length === 0) {
-        setStatus('err', 'No projects accessible to this API key');
+        setBoth('err', 'No projects accessible to this API key');
       } else {
         if (list.length === 1) setSelectedProjectId(list[0].id);
-        setStatus('ok', `Found ${list.length} project${list.length === 1 ? '' : 's'}`);
+        setBoth(
+          'ok',
+          `Found ${list.length} project${list.length === 1 ? '' : 's'}`,
+        );
       }
     } catch (e) {
-      setStatus('err', `List projects: ${(e as Error).message}`);
+      setBoth('err', `List projects: ${explainError(e)}`);
     }
   };
 
   const onFetchModel = async () => {
     if (!ei.apiKey) {
-      setStatus('err', 'Enter your Edge Impulse API key first');
+      setBoth('err', 'Enter your Edge Impulse API key first');
       return;
     }
     if (!selectedProjectId) {
-      setStatus('err', 'Pick a project first');
+      setBoth('err', 'Pick a project first');
       return;
     }
     setModelLoading(true);
     try {
-      setStatus('busy', 'Checking deployment…');
+      setBoth('busy', 'Checking deployment…');
       const info = await getEiDeployment(ei.apiKey, selectedProjectId, 'wasm');
       if (!info.hasDeployment) {
-        setStatus(
+        setBoth(
           'err',
           'No WebAssembly deployment built yet. In the Studio: Deployment → Build with target "WebAssembly".',
         );
         return;
       }
-      setStatus('busy', 'Downloading model…');
+      setBoth('busy', 'Downloading model…');
       const zip = await downloadEiDeployment(ei.apiKey, selectedProjectId, 'wasm');
-      setStatus('busy', `Loading model (${(zip.size / 1024).toFixed(0)} KB)…`);
+      setBoth('busy', `Unpacking model (${(zip.size / 1024).toFixed(0)} KB)…`);
       const projName =
         eiProjects?.find((p) => p.id === selectedProjectId)?.name ??
         `project-${selectedProjectId}`;
       const loaded = await loadEiModelFromZip(zip, projName);
       setEiModel(loaded, projName);
       const i = loaded.info;
-      setStatus(
+      setBoth(
         'ok',
         `Loaded ${projName}: ${i.inputWidth}×${i.inputHeight} ${
           i.isRgb ? 'RGB' : 'GRAY'
         }${i.isObjectDetection ? ' · object detection' : ''}`,
       );
     } catch (e) {
-      setStatus('err', `Fetch model: ${(e as Error).message}`);
+      setBoth('err', `Fetch model: ${explainError(e)}`);
     } finally {
       setModelLoading(false);
     }
@@ -151,19 +181,19 @@ export function VisionPanel() {
       else if (f.name.toLowerCase().endsWith('.js')) jsFile = f;
     }
     if (!jsFile || !wasmFile) {
-      setStatus(
+      setBoth(
         'err',
         'Pick BOTH the EI .js and .wasm from the unzipped WebAssembly deployment.',
       );
       return;
     }
     setModelLoading(true);
-    setStatus('busy', `Loading model ${jsFile.name}…`);
+    setBoth('busy', `Loading model ${jsFile.name}…`);
     try {
       const loaded = await loadEiModel(jsFile, wasmFile, jsFile.name);
       setEiModel(loaded, jsFile.name.replace(/\.js$/i, ''));
       const i = loaded.info;
-      setStatus(
+      setBoth(
         'ok',
         `Loaded ${jsFile.name}: ${i.inputWidth}×${i.inputHeight} ${
           i.isRgb ? 'RGB' : 'GRAY'
@@ -172,7 +202,7 @@ export function VisionPanel() {
         }`,
       );
     } catch (e) {
-      setStatus('err', `Model load: ${(e as Error).message}`);
+      setBoth('err', `Model load: ${(e as Error).message}`);
     } finally {
       setModelLoading(false);
       if (modelFilesRef.current) modelFilesRef.current.value = '';
@@ -182,7 +212,7 @@ export function VisionPanel() {
   const onUnloadModel = () => {
     setEiModel(null);
     setEiLive(false);
-    setStatus('ok', 'Model unloaded');
+    setBoth('ok', 'Model unloaded');
   };
 
   const [newKind, setNewKind] = useState<ObjectKind>('cube');
@@ -948,6 +978,18 @@ export function VisionPanel() {
 
       <div className="card ei-inference-card">
         <h3>Inference (Edge Impulse model)</h3>
+        {inferenceStatus.kind !== 'idle' && (
+          <div
+            className={`inline-status ${inferenceStatus.kind}`}
+            role="status"
+            aria-live="polite"
+          >
+            {inferenceStatus.kind === 'busy' && (
+              <span className="spinner" aria-hidden />
+            )}
+            <span>{inferenceStatus.msg}</span>
+          </div>
+        )}
         {!eiModel ? (
           <>
             <div style={{ fontSize: 11, color: 'var(--muted)' }}>
@@ -961,14 +1003,23 @@ export function VisionPanel() {
               <legend>From your project</legend>
               <button
                 onClick={onListProjects}
-                disabled={modelLoading || !ei.apiKey}
+                disabled={
+                  modelLoading ||
+                  !ei.apiKey ||
+                  inferenceStatus.kind === 'busy'
+                }
                 title={
                   !ei.apiKey
                     ? 'Set your API key in the Edge Impulse · auth card above'
                     : undefined
                 }
               >
-                {eiProjects ? '↻ Refresh projects' : '🔑 List projects'}
+                {inferenceStatus.kind === 'busy' &&
+                inferenceStatus.msg.startsWith('Listing')
+                  ? '… listing'
+                  : eiProjects
+                    ? '↻ Refresh projects'
+                    : '🔑 List projects'}
               </button>
             {eiProjects && eiProjects.length > 0 && (
               <>
@@ -996,7 +1047,7 @@ export function VisionPanel() {
                   disabled={modelLoading || !selectedProjectId}
                   className="primary"
                 >
-                  ⤓ Fetch & load model
+                  {modelLoading ? '… loading' : '⤓ Fetch & load model'}
                 </button>
               </>
             )}
