@@ -7,10 +7,12 @@ import {
   saveBlob,
 } from '../lib/capture';
 import {
+  buildEiDeployment,
   downloadEiDeployment,
   getEiDeployment,
   listEiProjects,
   uploadCaptures,
+  waitForEiJob,
   type EiProject,
 } from '../lib/edgeImpulse';
 import { loadEiModel, loadEiModelFromZip } from '../lib/eiModel';
@@ -174,12 +176,20 @@ export function VisionPanel() {
 
   const onLoadModel = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    let jsFile: File | null = null;
-    let wasmFile: File | null = null;
-    for (const f of Array.from(files)) {
-      if (f.name.toLowerCase().endsWith('.wasm')) wasmFile = f;
-      else if (f.name.toLowerCase().endsWith('.js')) jsFile = f;
-    }
+    const all = Array.from(files);
+    const wasmFile = all.find((f) => f.name.toLowerCase().endsWith('.wasm')) ?? null;
+    // Pick the .js intentionally: prefer edge-impulse-standalone.js, never
+    // pick run-impulse.js (Node.js test wrapper that uses require()).
+    const jsFiles = all.filter((f) => f.name.toLowerCase().endsWith('.js'));
+    const jsFile =
+      jsFiles.find((f) =>
+        f.name.toLowerCase().includes('edge-impulse-standalone'),
+      ) ??
+      jsFiles.find(
+        (f) => !/^run-impulse|^run-classifier|^index\.js$/i.test(f.name),
+      ) ??
+      jsFiles[0] ??
+      null;
     if (!jsFile || !wasmFile) {
       setBoth(
         'err',
@@ -213,6 +223,59 @@ export function VisionPanel() {
     setEiModel(null);
     setEiLive(false);
     setBoth('ok', 'Model unloaded');
+  };
+
+  /**
+   * Kick off a fresh "WebAssembly (browser)" build via the EI Studio API,
+   * poll until it finishes, then auto-fetch + load the result. Useful when
+   * the user's project either has no deployment yet or the existing
+   * deployment is the Node.js variant (which won't run here).
+   */
+  const onBuildBrowserDeployment = async () => {
+    if (!ei.apiKey) {
+      setBoth('err', 'Enter your Edge Impulse API key first');
+      return;
+    }
+    if (!selectedProjectId) {
+      setBoth('err', 'Pick a project first');
+      return;
+    }
+    setModelLoading(true);
+    try {
+      setBoth('busy', 'Starting WebAssembly (browser) build…');
+      const { jobId } = await buildEiDeployment(ei.apiKey, selectedProjectId);
+      setBoth('busy', `Build job #${jobId} queued, waiting for it to finish…`);
+      await waitForEiJob(ei.apiKey, selectedProjectId, jobId, {
+        onProgress: (elapsed) => {
+          setBoth(
+            'busy',
+            `Build job #${jobId} running (${Math.floor(elapsed / 1000)}s)…`,
+          );
+        },
+      });
+      setBoth('busy', 'Build done — downloading model…');
+      const zip = await downloadEiDeployment(
+        ei.apiKey,
+        selectedProjectId,
+        'wasm',
+      );
+      const projName =
+        eiProjects?.find((p) => p.id === selectedProjectId)?.name ??
+        `project-${selectedProjectId}`;
+      const loaded = await loadEiModelFromZip(zip, projName);
+      setEiModel(loaded, projName);
+      const i = loaded.info;
+      setBoth(
+        'ok',
+        `Built & loaded ${projName}: ${i.inputWidth}×${i.inputHeight} ${
+          i.isRgb ? 'RGB' : 'GRAY'
+        }${i.isObjectDetection ? ' · object detection' : ''}`,
+      );
+    } catch (e) {
+      setBoth('err', `Build deployment: ${explainError(e)}`);
+    } finally {
+      setModelLoading(false);
+    }
   };
 
   const [newKind, setNewKind] = useState<ObjectKind>('cube');
@@ -1036,6 +1099,13 @@ export function VisionPanel() {
                   className="primary"
                 >
                   {modelLoading ? '… loading' : '⤓ Fetch & load model'}
+                </button>
+                <button
+                  onClick={onBuildBrowserDeployment}
+                  disabled={modelLoading || !selectedProjectId}
+                  title="Trigger a fresh WebAssembly (browser) build in the Studio, then auto-load it. Useful if the existing deployment is Node.js-only or there isn't one yet."
+                >
+                  🔨 Build browser deployment
                 </button>
               </>
             )}

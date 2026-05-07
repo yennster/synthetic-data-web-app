@@ -242,6 +242,15 @@ export async function loadEiModelFromZip(
   if (wasms.length === 0) throw new Error('No .wasm found in deployment zip');
   if (jss.length === 0) throw new Error('No .js found in deployment zip');
 
+  // EI deployment zips ship multiple .js files — only the Emscripten
+  // standalone module can actually be loaded in the browser. The rest are
+  // Node.js wrappers and harnesses that throw at runtime here:
+  //   - run-impulse.js / run-classifier.js → use require('fs') etc.
+  //   - index.js (Node test app)             → require('./edge-impulse-standalone')
+  // We hard-prefer `edge-impulse-standalone.*` and explicitly drop the
+  // known Node-only filenames so picking by file size doesn't accidentally
+  // grab the wrong one.
+  const NODE_ONLY = /^run-impulse|^run-classifier|^index\.js$/i;
   const pickPreferred = <T extends { name: string; data: Uint8Array }>(
     arr: T[],
   ): T => {
@@ -249,8 +258,13 @@ export async function loadEiModelFromZip(
       e.name.toLowerCase().includes('edge-impulse-standalone'),
     );
     if (named) return named;
-    // Fallback: largest by size
-    return arr.reduce((a, b) => (a.data.length > b.data.length ? a : b));
+    const filtered = arr.filter((e) => {
+      const base = e.name.split('/').pop() ?? e.name;
+      return !NODE_ONLY.test(base);
+    });
+    const candidates = filtered.length > 0 ? filtered : arr;
+    // Fallback: largest by size from the surviving set.
+    return candidates.reduce((a, b) => (a.data.length > b.data.length ? a : b));
   };
 
   const wasm = pickPreferred(wasms);
@@ -268,6 +282,32 @@ export async function loadEiModel(
   modelName?: string,
 ): Promise<LoadedEiModel> {
   const jsText = await blobText(jsFile);
+
+  // Bail out early if this is a Node.js-only script — `require('fs')`,
+  // `__dirname`, `process.argv`, etc. all throw immediately in a browser
+  // and produce confusing downstream errors. EI's "WebAssembly (Node.js)"
+  // deployment ships these. The user wants the "WebAssembly (browser)"
+  // build, which uses environment-detection to work in both.
+  const head = jsText.slice(0, 4000);
+  const nodeOnlySignals = [
+    /\brequire\s*\(\s*['"]fs['"]\s*\)/,
+    /\brequire\s*\(\s*['"]path['"]\s*\)/,
+    /\brequire\s*\(\s*['"]\.\/edge-impulse-standalone['"]\s*\)/,
+    /\b__dirname\b(?!\s*[!=]==?\s*['"])/, // skip env-detection guards
+    /\bprocess\.argv\b/,
+    /^const\s+Module\s*=\s*require\s*\(/m,
+  ];
+  if (nodeOnlySignals.some((re) => re.test(head))) {
+    throw new Error(
+      `${
+        modelName ?? 'Uploaded JS'
+      } is a Node.js-only build (uses require/__dirname/process). ` +
+        `In the Edge Impulse Studio, build the "WebAssembly (browser)" deployment instead — ` +
+        `the Node.js variant won't run in a browser. ` +
+        `If you uploaded a folder, make sure to pick edge-impulse-standalone.js (NOT run-impulse.js).`,
+    );
+  }
+
   const wasmUrl = URL.createObjectURL(wasmFile);
 
   const id = ++_moduleCounter;

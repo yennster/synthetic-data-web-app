@@ -207,6 +207,100 @@ export async function getEiDeployment(
   return { hasDeployment: !!r.hasDeployment, version: r.version };
 }
 
+/**
+ * Trigger a new build of the WebAssembly (browser) deployment for the
+ * project. Returns the job id; poll `getEiJobStatus` until it completes.
+ *
+ * `engine` defaults to 'tflite' (most universal). `modelType` is the
+ * quantization mode — 'int8' for the smallest/fastest, 'float32' for
+ * highest accuracy.
+ */
+export async function buildEiDeployment(
+  apiKey: string,
+  projectId: number,
+  opts: { engine?: string; modelType?: string } = {},
+): Promise<{ jobId: number }> {
+  const engine = opts.engine ?? 'tflite';
+  const modelType = opts.modelType ?? 'int8';
+  const url = `${STUDIO_BASE}/${projectId}/jobs/build-ondevice-model?type=wasm`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'x-api-key': apiKey,
+      'content-type': 'application/json',
+      accept: 'application/json',
+    },
+    body: JSON.stringify({ engine, modelType }),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(
+      `Build trigger failed: ${res.status} ${res.statusText} — ${text.slice(0, 200)}`,
+    );
+  }
+  const r = JSON.parse(text) as { success: boolean; id?: number; error?: string };
+  if (!r.success || typeof r.id !== 'number') {
+    throw new Error(r.error || 'Build trigger returned no job id');
+  }
+  return { jobId: r.id };
+}
+
+export type EiJobStatus = {
+  finished: boolean;
+  finishedSuccessful: boolean;
+  jobNotificationUids?: string[];
+};
+
+/** Poll a single build job for its current status. */
+export async function getEiJobStatus(
+  apiKey: string,
+  projectId: number,
+  jobId: number,
+): Promise<EiJobStatus> {
+  const r = await studioGet<{
+    success: boolean;
+    error?: string;
+    job?: { finished?: string | null; finishedSuccessful?: boolean };
+  }>(`/${projectId}/jobs/${jobId}/status`, apiKey);
+  if (!r.success) throw new Error(r.error || 'Failed to query job status');
+  return {
+    finished: !!r.job?.finished,
+    finishedSuccessful: !!r.job?.finishedSuccessful,
+  };
+}
+
+/**
+ * Block until an EI build job finishes (or hits the timeout). Calls
+ * `onProgress` once per poll so the UI can update.
+ */
+export async function waitForEiJob(
+  apiKey: string,
+  projectId: number,
+  jobId: number,
+  opts: {
+    onProgress?: (elapsedMs: number) => void;
+    timeoutMs?: number;
+    pollMs?: number;
+  } = {},
+): Promise<void> {
+  const timeout = opts.timeoutMs ?? 10 * 60 * 1000; // 10 minutes
+  const poll = opts.pollMs ?? 3000;
+  const start = Date.now();
+  while (true) {
+    const elapsed = Date.now() - start;
+    if (elapsed > timeout) throw new Error(`Build timed out after ${timeout}ms`);
+    opts.onProgress?.(elapsed);
+    const s = await getEiJobStatus(apiKey, projectId, jobId);
+    if (s.finished) {
+      if (!s.finishedSuccessful) {
+        throw new Error('Build job finished with failure status');
+      }
+      return;
+    }
+    await new Promise((r) => setTimeout(r, poll));
+  }
+}
+
 /** Download the deployment zip from the Studio. */
 export async function downloadEiDeployment(
   apiKey: string,
