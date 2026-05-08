@@ -1,6 +1,8 @@
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import type { Group } from 'three';
 import type { NeedleThreeHydraHandle } from '@needle-tools/usd';
+import { clearAssetBlobs, deleteAssetBlob } from '../lib/assetStore';
 import type { EiModelInfo, EiResult, LoadedEiModel } from '../lib/eiModel';
 
 export type ObjectKind =
@@ -75,6 +77,26 @@ export type ImportedAsset = {
   isAnimated: boolean;
   /** When true and `isAnimated`, the renderer advances animation each frame.
    * Toggled from the asset's play/pause control in the panel. */
+  animationPlaying: boolean;
+};
+
+/** Serializable subset of `ImportedAsset` written to localStorage. The live
+ * three.js Group + needle hydra handle aren't included — those get rebuilt
+ * by re-running `loadUsdz()` against the original `.usdz` bytes stored in
+ * IndexedDB during rehydration. */
+export type PersistedAsset = {
+  id: string;
+  name: string;
+  label: string;
+  position: [number, number, number];
+  rotation: [number, number, number];
+  scale: number;
+  physics: boolean;
+  overrideMaterial: boolean;
+  overrideColor: string;
+  overrideRoughness: number;
+  overrideMetalness: number;
+  isAnimated: boolean;
   animationPlaying: boolean;
 };
 
@@ -244,6 +266,15 @@ type State = {
   updateAsset: (id: string, patch: Partial<ImportedAsset>) => void;
   clearAssets: () => void;
 
+  /** Asset metadata pulled from localStorage on startup, waiting for the
+   * USDZ rehydration hook to fetch the matching `.usdz` blob from IDB,
+   * call `loadUsdz()`, and convert each entry into a live `ImportedAsset`
+   * via `addAsset`. The hook clears this once it finishes. We persist
+   * metadata here rather than in `assets` because `assets` carries live
+   * three.js / WASM objects that can't be JSON-serialized. */
+  pendingAssets: PersistedAsset[];
+  setPendingAssets: (a: PersistedAsset[]) => void;
+
   // ---------- Virtual camera & capture ----------
   capture: CaptureSettings;
   setCapture: (patch: Partial<CaptureSettings>) => void;
@@ -313,7 +344,9 @@ const defaultObject = (kind: ObjectKind, idx: number): SceneObject => {
   };
 };
 
-export const useStore = create<State>((set) => ({
+export const useStore = create<State>()(
+  persist(
+    (set) => ({
   mode: 'motion',
   setMode: (m) => set({ mode: m }),
 
@@ -390,13 +423,21 @@ export const useStore = create<State>((set) => ({
 
   assets: [],
   addAsset: (a) => set((s) => ({ assets: [...s.assets, a] })),
-  removeAsset: (id) =>
-    set((s) => ({ assets: s.assets.filter((a) => a.id !== id) })),
+  removeAsset: (id) => {
+    void deleteAssetBlob(id).catch(() => {});
+    set((s) => ({ assets: s.assets.filter((a) => a.id !== id) }));
+  },
   updateAsset: (id, patch) =>
     set((s) => ({
       assets: s.assets.map((a) => (a.id === id ? { ...a, ...patch } : a)),
     })),
-  clearAssets: () => set({ assets: [] }),
+  clearAssets: () => {
+    void clearAssetBlobs().catch(() => {});
+    set({ assets: [] });
+  },
+
+  pendingAssets: [],
+  setPendingAssets: (a) => set({ pendingAssets: a }),
 
   // capture
   capture: {
@@ -459,6 +500,46 @@ export const useStore = create<State>((set) => ({
   setEiLive: (b) => set({ eiLive: b }),
   eiResult: null,
   setEiResult: (r) => set({ eiResult: r }),
-  inferenceSignal: 0,
-  triggerInference: () => set((s) => ({ inferenceSignal: s.inferenceSignal + 1 })),
-}));
+      inferenceSignal: 0,
+      triggerInference: () => set((s) => ({ inferenceSignal: s.inferenceSignal + 1 })),
+    }),
+    {
+      name: 'sds-store',
+      version: 1,
+      storage: createJSONStorage(() => localStorage),
+      // Persist only the bits worth restoring: scene primitives, scene
+      // settings, capture config, mode, and asset *metadata* (the live
+      // three.js Group + needle handle aren't JSON-friendly, so we map
+      // each `ImportedAsset` to its `PersistedAsset` shape and bin them
+      // into `pendingAssets` for the rehydrate hook to pick up).
+      partialize: (s) => ({
+        mode: s.mode,
+        objectKind: s.objectKind,
+        sceneObjects: s.sceneObjects,
+        showConveyor: s.showConveyor,
+        conveyorSpeed: s.conveyorSpeed,
+        envPreset: s.envPreset,
+        capture: s.capture,
+        anomalyLabel: s.anomalyLabel,
+        sampleRateHz: s.sampleRateHz,
+        drops: s.drops,
+        eiThreshold: s.eiThreshold,
+        pendingAssets: s.assets.map<PersistedAsset>((a) => ({
+          id: a.id,
+          name: a.name,
+          label: a.label,
+          position: a.position,
+          rotation: a.rotation,
+          scale: a.scale,
+          physics: a.physics,
+          overrideMaterial: a.overrideMaterial,
+          overrideColor: a.overrideColor,
+          overrideRoughness: a.overrideRoughness,
+          overrideMetalness: a.overrideMetalness,
+          isAnimated: a.isAnimated,
+          animationPlaying: a.animationPlaying,
+        })),
+      }),
+    },
+  ),
+);
