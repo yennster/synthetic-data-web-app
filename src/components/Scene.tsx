@@ -56,6 +56,41 @@ function sceneBackgroundColor(preset: string): string {
   }
 }
 
+// Anchor at the world origin so the legacy hand-Y → world-Y mapping
+// (hand low in frame ⇒ cube at ground) still holds.
+const HAND_ANCHOR: [number, number, number] = [0, 0, 0];
+const WORLD_UP: [number, number, number] = [0, 1, 0];
+
+/**
+ * Compute the world-space position for a hand-tracking pinchTarget by
+ * applying a yaw-only camera basis around HAND_ANCHOR. Mutates and
+ * returns `out` so callers can pre-allocate. The temporary `back` /
+ * `right` vectors are also caller-owned to keep this allocation-free
+ * inside useFrame loops.
+ */
+function pinchTargetToWorld(
+  target: readonly [number, number, number],
+  camera: THREE.Camera,
+  back: THREE.Vector3,
+  right: THREE.Vector3,
+  out: THREE.Vector3,
+): THREE.Vector3 {
+  back
+    .set(camera.position.x, 0, camera.position.z)
+    .sub(new THREE.Vector3(HAND_ANCHOR[0], 0, HAND_ANCHOR[2]));
+  if (back.lengthSq() < 1e-6) back.set(0, 0, 1);
+  back.normalize();
+  right.set(0, 1, 0).cross(back);
+  const world = cameraRelativeToWorld(
+    target,
+    HAND_ANCHOR,
+    right.toArray() as [number, number, number],
+    WORLD_UP,
+    back.toArray() as [number, number, number],
+  );
+  return out.set(world[0], world[1], world[2]);
+}
+
 // ---------- Motion-mode body ----------
 function ManipulatedObject() {
   const bodyRef = useRef<RapierRigidBody>(null);
@@ -69,17 +104,11 @@ function ManipulatedObject() {
 
   const objectKind = useStore((s) => s.objectKind);
 
-  // Reused per-frame to map hand-tracking input (yaw-only camera basis)
-  // around a world anchor into world space. We deliberately use only the
-  // camera's azimuth (rotation around world-up) so hand-Y still maps to
-  // world-Y exactly — preserving the original feel — while OrbitControls
-  // rotation around the scene rotates the X/Z mapping with the view.
+  // Reused per-frame to map hand-tracking input through pinchTargetToWorld
+  // — see helper above for the math.
   const camBackH = useRef(new THREE.Vector3());
   const camRightH = useRef(new THREE.Vector3());
-  // Anchor at the world origin so the legacy hand-Y → world-Y mapping
-  // (hand low in frame ⇒ cube at ground) still holds.
-  const HAND_ANCHOR: [number, number, number] = useMemo(() => [0, 0, 0], []);
-  const WORLD_UP: [number, number, number] = useMemo(() => [0, 1, 0], []);
+  const worldVec = useRef(new THREE.Vector3());
 
   useFrame((state, dt) => {
     const body = bodyRef.current;
@@ -101,27 +130,15 @@ function ManipulatedObject() {
         body.setAngvel({ x: 0, y: 0, z: 0 }, true);
       }
       const cur = body.translation();
-      // Build a yaw-only basis: project the camera's position onto the
-      // horizontal plane of HAND_ANCHOR to get "back" (toward camera) and
-      // cross with world-up for "right". This keeps hand-Y aligned with
-      // world-Y while still rotating the X/Z mapping with the orbit.
-      camBackH.current
-        .set(state.camera.position.x, 0, state.camera.position.z)
-        .sub(new THREE.Vector3(HAND_ANCHOR[0], 0, HAND_ANCHOR[2]));
-      if (camBackH.current.lengthSq() < 1e-6) camBackH.current.set(0, 0, 1);
-      camBackH.current.normalize();
-      camRightH.current
-        .set(0, 1, 0)
-        .cross(camBackH.current);
-      const world = cameraRelativeToWorld(
+      pinchTargetToWorld(
         pinchTarget,
-        HAND_ANCHOR,
-        camRightH.current.toArray() as [number, number, number],
-        WORLD_UP,
-        camBackH.current.toArray() as [number, number, number],
+        state.camera,
+        camBackH.current,
+        camRightH.current,
+        worldVec.current,
       );
       const next = new THREE.Vector3(cur.x, cur.y, cur.z).lerp(
-        new THREE.Vector3(world[0], world[1], world[2]),
+        worldVec.current,
         FOLLOW_LERP,
       );
       body.setNextKinematicTranslation({ x: next.x, y: next.y, z: next.z });
@@ -313,9 +330,27 @@ function SceneBackground({ color }: { color: string }) {
 function PinchMarker() {
   const target = useStore((s) => s.pinchTarget);
   const grabbed = useStore((s) => s.isGrabbed);
+  const meshRef = useRef<THREE.Mesh>(null);
+  const camBackH = useRef(new THREE.Vector3());
+  const camRightH = useRef(new THREE.Vector3());
+  const worldVec = useRef(new THREE.Vector3());
+
+  useFrame((state) => {
+    const mesh = meshRef.current;
+    if (!mesh || !target) return;
+    pinchTargetToWorld(
+      target,
+      state.camera,
+      camBackH.current,
+      camRightH.current,
+      worldVec.current,
+    );
+    mesh.position.copy(worldVec.current);
+  });
+
   if (!target) return null;
   return (
-    <mesh position={target}>
+    <mesh ref={meshRef}>
       <sphereGeometry args={[0.06, 16, 16]} />
       <meshBasicMaterial
         color={grabbed ? '#5eead4' : '#38bdf8'}
