@@ -45,7 +45,7 @@ export function ObjectCaptureCard() {
         aria-expanded={open}
         style={{ alignSelf: 'center' }}
       >
-        {open ? 'Hide instructions' : 'How to capture →'}
+        {open ? 'Hide instructions ↑' : 'How to capture ↓'}
       </button>
 
       {open && (
