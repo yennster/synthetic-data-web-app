@@ -452,10 +452,8 @@ label.field, div.field {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
-  padding: 10px 0;
+  padding: 6px 0;
   border: 0;
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
   background: transparent;
   border-radius: 0;
 }
