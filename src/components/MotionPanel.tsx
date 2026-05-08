@@ -14,6 +14,7 @@ import {
   uploadSample,
   waitForEiJob,
 } from '../lib/edgeImpulse';
+import { useNumberInput } from '../lib/useNumberInput';
 import { buildZip, type ZipEntry } from '../lib/zip';
 import { EiAuthCard } from './EiAuthCard';
 
@@ -84,6 +85,24 @@ export function MotionPanel() {
     setPinchRotation,
     setDropsCancelRequested,
   } = useStore();
+
+  // Controlled number inputs that tolerate transient empty / partial
+  // entries while the user is typing — without this, clearing "10" snaps
+  // straight back to "10" before the next digit can be typed.
+  const sampleRateInput = useNumberInput(sampleRateHz, setSampleRateHz, {
+    min: 20,
+    max: 500,
+  });
+  const countInput = useNumberInput(
+    drops.count,
+    (n) => setDrops({ count: n }),
+    { min: 1, max: 500 },
+  );
+  const durationInput = useNumberInput(
+    drops.durationMs,
+    (n) => setDrops({ durationMs: n }),
+    { min: 300, max: 6000 },
+  );
 
   const onUpload = async () => {
     setStatus('busy', 'Uploading…');
@@ -592,12 +611,7 @@ export function MotionPanel() {
             min={20}
             max={500}
             step={10}
-            value={sampleRateHz}
-            onChange={(e) =>
-              setSampleRateHz(
-                Math.max(20, Math.min(500, Number(e.target.value) || 100)),
-              )
-            }
+            {...sampleRateInput.inputProps}
             disabled={isRecording}
           />
         </label>
@@ -655,10 +669,7 @@ export function MotionPanel() {
               min={1}
               max={500}
               step={1}
-              value={drops.count}
-              onChange={(e) =>
-                setDrops({ count: Number(e.target.value) || 10 })
-              }
+              {...countInput.inputProps}
               disabled={dropsRunning}
             />
           </label>
@@ -669,10 +680,7 @@ export function MotionPanel() {
               min={300}
               max={6000}
               step={100}
-              value={drops.durationMs}
-              onChange={(e) =>
-                setDrops({ durationMs: Number(e.target.value) || 1500 })
-              }
+              {...durationInput.inputProps}
               disabled={dropsRunning}
             />
           </label>
