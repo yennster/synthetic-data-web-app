@@ -25,6 +25,7 @@ export default function App() {
   const [previewCanvas, setPreviewCanvas] = useState<HTMLCanvasElement | null>(
     null,
   );
+  const [drawerOpen, setDrawerOpen] = useState(false);
   // User-resizable preview width. Height is derived from capture aspect so
   // the canvas content never distorts. CSS `resize: horizontal` on the
   // .cam-overlay drives this via a ResizeObserver.
@@ -99,7 +100,22 @@ export default function App() {
           </div>
         )}
       </div>
-      <Sidebar />
+      <button
+        type="button"
+        className="drawer-toggle"
+        aria-label={drawerOpen ? 'Close controls' : 'Open controls'}
+        aria-expanded={drawerOpen}
+        onClick={() => setDrawerOpen((v) => !v)}
+      >
+        {drawerOpen ? '✕' : '☰'}
+      </button>
+      {drawerOpen && (
+        <div
+          className="drawer-backdrop"
+          onClick={() => setDrawerOpen(false)}
+        />
+      )}
+      <Sidebar drawerOpen={drawerOpen} onClose={() => setDrawerOpen(false)} />
       <Analytics />
     </div>
   );
