@@ -26,34 +26,7 @@ export function ObjectCaptureCard() {
 
   return (
     <div className="card">
-      <button
-        type="button"
-        onClick={() => setOpen((b) => !b)}
-        aria-expanded={open}
-        style={{
-          all: 'unset',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          cursor: 'pointer',
-          gap: 8,
-        }}
-      >
-        <h3 style={{ margin: 0 }}>Capture from real life</h3>
-        <span
-          style={{
-            color: 'var(--muted)',
-            fontSize: 14,
-            lineHeight: 1,
-            padding: '2px 6px',
-            border: '1px solid var(--border)',
-            borderRadius: 4,
-          }}
-          aria-hidden
-        >
-          {open ? 'Hide steps ▾' : 'Show steps ▸'}
-        </span>
-      </button>
+      <h3>Capture from real life</h3>
 
       <p style={{ margin: 0, color: 'var(--muted)', fontSize: 12, lineHeight: 1.4 }}>
         Use Apple's{' '}
@@ -65,6 +38,15 @@ export function ObjectCaptureCard() {
       </p>
 
       <PlatformBadge platform={platform} />
+
+      <button
+        type="button"
+        onClick={() => setOpen((b) => !b)}
+        aria-expanded={open}
+        style={{ alignSelf: 'flex-start' }}
+      >
+        {open ? 'Collapse' : 'Expand'}
+      </button>
 
       {open && (
         <>
