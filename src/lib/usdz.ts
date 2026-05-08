@@ -4,9 +4,17 @@ import * as THREE from 'three';
 // It supports both ASCII (.usda) and Crate (.usdc / binary) USD inside .usdz,
 // unlike three.js's built-in USDZLoader which is ASCII-only.
 import { USDZLoader as WasmUSDZLoader } from 'three-usdz-loader';
+import type { USDZInstance } from 'three-usdz-loader/lib/USDZInstance';
 
 export type LoadedUsdz = {
   object: THREE.Group;
+  /** Live USD instance — call `instance.update(seconds)` to advance any
+   * baked time-sampled animation (skinning, transforms, vertex). */
+  instance: USDZInstance;
+  /** True when the USD stage actually has animation baked on it (i.e.
+   * endTimeCode > startTimeCode). Apple's animated AR Quick Look samples
+   * have this; static models don't. */
+  isAnimated: boolean;
   /** Bounding box of the imported geometry in its own local space. */
   localBox: THREE.Box3;
   /** Largest dimension, useful for normalising scale. */
@@ -43,7 +51,16 @@ export async function loadUsdz(file: File): Promise<LoadedUsdz> {
   const wrapper = new THREE.Group();
   wrapper.userData.usdzWrapper = true;
 
-  await loader.loadFile(file, wrapper);
+  const instance = await loader.loadFile(file, wrapper);
+
+  // Detect whether the USD stage has any time-sampled animation. The loader
+  // exposes endTimecode in seconds-equivalent (relative to its own internal
+  // tick); a value > 1 means the stage was authored with a duration. Static
+  // assets default to endTimecode == 1 with timeCodesPerSecond == 24.
+  const driverStage = instance.driver.GetStage();
+  const startTC = driverStage.GetStartTimeCode?.() ?? 0;
+  const endTC = driverStage.GetEndTimeCode?.() ?? 0;
+  const isAnimated = endTC > startTC + 0.0001;
 
   // Apply nice defaults to the imported meshes, and gather diagnostics.
   let meshCount = 0;
@@ -98,6 +115,8 @@ export async function loadUsdz(file: File): Promise<LoadedUsdz> {
 
   return {
     object: wrapper,
+    instance,
+    isAnimated,
     localBox,
     maxDim,
     meshCount,
