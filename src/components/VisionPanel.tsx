@@ -701,10 +701,18 @@ export function VisionPanel() {
         )}
         <button
           onClick={() => {
-            const total = sceneObjects.length + assets.length;
+            const textureCount =
+              (customFloorTexture ? 1 : 0) + (customWallTexture ? 1 : 0);
+            const total =
+              sceneObjects.length + assets.length + textureCount;
             if (total === 0) return;
+            const parts = [
+              `${sceneObjects.length} object(s)`,
+              `${assets.length} imported asset(s)`,
+            ];
+            if (textureCount) parts.push(`${textureCount} custom texture(s)`);
             const ok = window.confirm(
-              `Reset scene? This removes ${sceneObjects.length} object(s) and ${assets.length} imported asset(s) from this session and from saved storage.`,
+              `Reset scene? This removes ${parts.join(', ')} from this session and from saved storage.`,
             );
             if (!ok) return;
             for (const a of assets) disposeUsdz(a.object, a.handle ?? undefined);
@@ -723,7 +731,12 @@ export function VisionPanel() {
             void deleteCustomTexture('wall').catch(() => {});
             setStatus('ok', 'Scene reset');
           }}
-          disabled={sceneObjects.length === 0 && assets.length === 0}
+          disabled={
+            sceneObjects.length === 0 &&
+            assets.length === 0 &&
+            !customFloorTexture &&
+            !customWallTexture
+          }
           style={{ marginTop: 4 }}
         >
           Reset scene
