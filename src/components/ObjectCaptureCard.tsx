@@ -43,9 +43,9 @@ export function ObjectCaptureCard() {
         type="button"
         onClick={() => setOpen((b) => !b)}
         aria-expanded={open}
-        style={{ alignSelf: 'flex-start' }}
+        style={{ alignSelf: 'center' }}
       >
-        {open ? 'Collapse' : 'Expand'}
+        {open ? 'Hide instructions' : 'How to capture →'}
       </button>
 
       {open && (
