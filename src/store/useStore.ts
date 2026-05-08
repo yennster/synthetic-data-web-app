@@ -275,6 +275,15 @@ type State = {
   pendingAssets: PersistedAsset[];
   setPendingAssets: (a: PersistedAsset[]) => void;
 
+  /** Live progress for the post-reload USDZ rehydrate. `total` is non-zero
+   * while the rehydrate hook is walking pendingAssets and re-running
+   * loadUsdz against each stored blob; `done` increments per restored
+   * asset. Drives a small "Restoring N/M" HUD pill so users see why some
+   * imports take a moment to reappear after refresh. Both stay 0 when no
+   * rehydrate is in flight. */
+  restoringAssets: { done: number; total: number };
+  setRestoringAssets: (p: { done: number; total: number }) => void;
+
   // ---------- Virtual camera & capture ----------
   capture: CaptureSettings;
   setCapture: (patch: Partial<CaptureSettings>) => void;
@@ -438,6 +447,9 @@ export const useStore = create<State>()(
 
   pendingAssets: [],
   setPendingAssets: (a) => set({ pendingAssets: a }),
+
+  restoringAssets: { done: 0, total: 0 },
+  setRestoringAssets: (p) => set({ restoringAssets: p }),
 
   // capture
   capture: {
