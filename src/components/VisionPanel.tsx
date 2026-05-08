@@ -17,7 +17,7 @@ import {
   type EiProject,
 } from '../lib/edgeImpulse';
 import { loadEiModel, loadEiModelFromZip } from '../lib/eiModel';
-import { disposeUsdz, loadUsdz } from '../lib/usdz';
+import { disposeUsdz, loadUsdz, prewarmUsdz } from '../lib/usdz';
 import { EiAuthCard } from './EiAuthCard';
 
 const OBJECT_OPTIONS: ObjectKind[] = [
@@ -362,6 +362,15 @@ export function VisionPanel() {
   }, [newKind]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importLabel, setImportLabel] = useState('');
+
+  // Kick off the OpenUSD WASM download + instantiation as soon as the
+  // panel mounts, instead of waiting for the user to actually pick a file.
+  // The 16 MB `.wasm` + `.data` fetch and the WASM compile dominate first-
+  // import latency; pre-warming makes the first usdz feel close to the
+  // second one.
+  useEffect(() => {
+    prewarmUsdz();
+  }, []);
 
   const onImportFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
