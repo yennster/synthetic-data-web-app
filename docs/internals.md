@@ -52,7 +52,12 @@ a_proper = a_inertial − g_world
 
 where `g_world = (0, −9.81, 0)`.
 
-Per sampling tick: read Rapier `linvel` → numerically differentiate → subtract gravity → rotate into the body's local frame using the inverse orientation quaternion → push to buffer.
+Per sampling tick (at most one per render frame, using the actual time elapsed since the last sample):
+
+- **Dynamic body** — read Rapier's integrator state (`body.linvel()`), differentiate once over `sampleDt` to get inertial acceleration, subtract `g_world`, rotate into the body's local frame.
+- **Kinematic body** (held by a pinch, or driven by the procedural-motions controller) — Rapier reports `linvel = 0`, so we fall back to a single position-delta over `sampleDt` for the velocity estimate, then differentiate as above.
+
+This is one finite-difference, not two. An earlier version chained two — pos → velocity → accel, each divided by the nominal period — and combined with multiple sample emissions per frame produced ±500 m/s² aliasing spikes (the same body position got read twice in one frame, the second sample's "velocity" collapsed to zero, and the next frame's first sample saw `(V − 0)/period` ≈ 100 × V).
 
 So: stationary object reads `(0, +9.81, 0)` (ground pushes up against gravity), freefall reads `(0, 0, 0)`, hand-driven shake gives a realistic IMU waveform.
 
