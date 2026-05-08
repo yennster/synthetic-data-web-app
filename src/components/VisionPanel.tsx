@@ -768,8 +768,6 @@ export function VisionPanel() {
         )}
       </div>
 
-      <ObjectCaptureCard />
-
       <div className="card">
         <h3>Import (.usdz) ({assets.length})</h3>
         <input
@@ -1031,6 +1029,8 @@ export function VisionPanel() {
           first via Blender, Omniverse, or <code>usdcat</code> (see README).
         </div>
       </div>
+
+      <ObjectCaptureCard />
 
       <div className="card">
         <h3>Virtual camera</h3>
