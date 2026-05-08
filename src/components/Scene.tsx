@@ -69,13 +69,17 @@ function ManipulatedObject() {
 
   const objectKind = useStore((s) => s.objectKind);
 
-  // Reused per-frame to map hand-tracking input (camera-frame offsets
-  // around a world anchor) into world space, so OrbitControls rotation
-  // doesn't break the spatial mapping between hand and held object.
-  const camRight = useRef(new THREE.Vector3());
-  const camUp = useRef(new THREE.Vector3());
-  const camBack = useRef(new THREE.Vector3());
-  const HAND_ANCHOR: [number, number, number] = useMemo(() => [0, 0.5, 0], []);
+  // Reused per-frame to map hand-tracking input (yaw-only camera basis)
+  // around a world anchor into world space. We deliberately use only the
+  // camera's azimuth (rotation around world-up) so hand-Y still maps to
+  // world-Y exactly — preserving the original feel — while OrbitControls
+  // rotation around the scene rotates the X/Z mapping with the view.
+  const camBackH = useRef(new THREE.Vector3());
+  const camRightH = useRef(new THREE.Vector3());
+  // Anchor at the world origin so the legacy hand-Y → world-Y mapping
+  // (hand low in frame ⇒ cube at ground) still holds.
+  const HAND_ANCHOR: [number, number, number] = useMemo(() => [0, 0, 0], []);
+  const WORLD_UP: [number, number, number] = useMemo(() => [0, 1, 0], []);
 
   useFrame((state, dt) => {
     const body = bodyRef.current;
@@ -97,20 +101,24 @@ function ManipulatedObject() {
         body.setAngvel({ x: 0, y: 0, z: 0 }, true);
       }
       const cur = body.translation();
-      // Treat pinchTarget as offsets in the camera's view frame (right /
-      // up / toward-camera) anchored at HAND_ANCHOR. This keeps "hand
-      // right" pointing right on screen even after orbiting.
-      state.camera.matrixWorld.extractBasis(
-        camRight.current,
-        camUp.current,
-        camBack.current,
-      );
+      // Build a yaw-only basis: project the camera's position onto the
+      // horizontal plane of HAND_ANCHOR to get "back" (toward camera) and
+      // cross with world-up for "right". This keeps hand-Y aligned with
+      // world-Y while still rotating the X/Z mapping with the orbit.
+      camBackH.current
+        .set(state.camera.position.x, 0, state.camera.position.z)
+        .sub(new THREE.Vector3(HAND_ANCHOR[0], 0, HAND_ANCHOR[2]));
+      if (camBackH.current.lengthSq() < 1e-6) camBackH.current.set(0, 0, 1);
+      camBackH.current.normalize();
+      camRightH.current
+        .set(0, 1, 0)
+        .cross(camBackH.current);
       const world = cameraRelativeToWorld(
         pinchTarget,
         HAND_ANCHOR,
-        camRight.current.toArray() as [number, number, number],
-        camUp.current.toArray() as [number, number, number],
-        camBack.current.toArray() as [number, number, number],
+        camRightH.current.toArray() as [number, number, number],
+        WORLD_UP,
+        camBackH.current.toArray() as [number, number, number],
       );
       const next = new THREE.Vector3(cur.x, cur.y, cur.z).lerp(
         new THREE.Vector3(world[0], world[1], world[2]),
