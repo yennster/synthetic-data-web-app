@@ -13,7 +13,10 @@ import {
 } from '@react-three/rapier';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { cameraRelativeToWorld } from '../lib/handMath';
+import {
+  angularVelocityFromQuats as angVelFromQuats,
+  cameraRelativeToWorld,
+} from '../lib/handMath';
 import { useStore, type ObjectKind } from '../store/useStore';
 import { Conveyor } from './Conveyor';
 import { ImportedAssets } from './ImportedAssets';
@@ -91,16 +94,60 @@ function pinchTargetToWorld(
   return out.set(world[0], world[1], world[2]);
 }
 
+/**
+ * Camera-yaw angle around +Y, as the angle of the camera's projected
+ * "back" vector (camera position → hand anchor, on the ground plane)
+ * from world +Z. We compose this with the hand-derived `pinchRotation`
+ * so orbiting the camera doesn't desync the held body's rotation from
+ * the user's hand pose.
+ */
+function cameraYawAngle(camera: THREE.Camera): number {
+  const dx = camera.position.x - HAND_ANCHOR[0];
+  const dz = camera.position.z - HAND_ANCHOR[2];
+  if (dx === 0 && dz === 0) return 0;
+  return Math.atan2(dx, dz);
+}
+
+/**
+ * Three.js wrapper around the pure `angVelFromQuats` helper — keeps the
+ * unit tests in `handMath.test.ts` decoupled from three.js while letting
+ * the per-frame loop reuse a single pre-allocated `Vector3` for the
+ * world-frame angular velocity it returns.
+ */
+function angularVelocityFromQuats(
+  qPrev: THREE.Quaternion,
+  qCur: THREE.Quaternion,
+  dt: number,
+  out: THREE.Vector3,
+): THREE.Vector3 {
+  const w = angVelFromQuats(
+    [qPrev.x, qPrev.y, qPrev.z, qPrev.w],
+    [qCur.x, qCur.y, qCur.z, qCur.w],
+    dt,
+  );
+  return out.set(w[0], w[1], w[2]);
+}
+
 // ---------- Motion-mode body ----------
 function ManipulatedObject() {
   const bodyRef = useRef<RapierRigidBody>(null);
   const meshRef = useRef<THREE.Mesh>(null);
 
-  const prevLinvel = useRef(new THREE.Vector3());
   const prevPos = useRef(new THREE.Vector3(0, 2, 0));
   const sampleAccumulator = useRef(0);
   const wasGrabbed = useRef(false);
   const releaseVel = useRef(new THREE.Vector3());
+
+  // IMU sampling state — explicit pose history per sample period. We derive
+  // linvel/angvel from these deltas instead of reading body.linvel/angvel,
+  // because Rapier reports both as zero while the body is kinematic (held
+  // by a pinch). With pose deltas the IMU stays correct in both kinematic
+  // and dynamic phases — including a hand-driven rotation while pinched
+  // and the entire procedural-shake recording window.
+  const sampleInit = useRef(false);
+  const prevSamplePos = useRef(new THREE.Vector3());
+  const prevSampleQuat = useRef(new THREE.Quaternion());
+  const prevSampleLinvel = useRef(new THREE.Vector3());
 
   const objectKind = useStore((s) => s.objectKind);
 
@@ -109,6 +156,19 @@ function ManipulatedObject() {
   const camBackH = useRef(new THREE.Vector3());
   const camRightH = useRef(new THREE.Vector3());
   const worldVec = useRef(new THREE.Vector3());
+  // Reused per-sample scratch for IMU pose-delta math.
+  const angVelWorld = useRef(new THREE.Vector3());
+  // Reused per-frame scratch for camera-yaw composition of pinchRotation.
+  const yawAxis = useRef(new THREE.Vector3(0, 1, 0));
+  const yawQuat = useRef(new THREE.Quaternion());
+  const handQuatScratch = useRef(new THREE.Quaternion());
+
+  // Body remount (objectKind change) gives us a fresh body at a different
+  // pose — drop the IMU history so we don't emit a one-sample velocity
+  // spike from the pre-remount position.
+  useEffect(() => {
+    sampleInit.current = false;
+  }, [objectKind]);
 
   useFrame((state, dt) => {
     const body = bodyRef.current;
@@ -143,11 +203,23 @@ function ManipulatedObject() {
       );
       body.setNextKinematicTranslation({ x: next.x, y: next.y, z: next.z });
       if (pinchRotation) {
+        // Compose with camera yaw so the held body's rotation tracks the
+        // hand even after the user orbits the scene — same yaw basis as
+        // the position mapping above.
+        const yaw = cameraYawAngle(state.camera);
+        yawQuat.current.setFromAxisAngle(yawAxis.current, yaw);
+        handQuatScratch.current.set(
+          pinchRotation[0],
+          pinchRotation[1],
+          pinchRotation[2],
+          pinchRotation[3],
+        );
+        const composed = yawQuat.current.multiply(handQuatScratch.current);
         body.setNextKinematicRotation({
-          x: pinchRotation[0],
-          y: pinchRotation[1],
-          z: pinchRotation[2],
-          w: pinchRotation[3],
+          x: composed.x,
+          y: composed.y,
+          z: composed.z,
+          w: composed.w,
         });
       }
       releaseVel.current.set(
@@ -178,21 +250,48 @@ function ManipulatedObject() {
     sampleAccumulator.current += dt;
     while (sampleAccumulator.current >= period) {
       sampleAccumulator.current -= period;
-      const lv = body.linvel();
-      const cur = new THREE.Vector3(lv.x, lv.y, lv.z);
-      const aInertial = cur.clone().sub(prevLinvel.current).divideScalar(period);
+
+      const t = body.translation();
+      const r = body.rotation();
+      const curPos = new THREE.Vector3(t.x, t.y, t.z);
+      const curQuat = new THREE.Quaternion(r.x, r.y, r.z, r.w);
+
+      // First sample after init (or remount) seeds the history with no
+      // emission — otherwise the apparent velocity would be (curPos − 0)/dt
+      // and the gyro would jump from identity to the body's current pose.
+      if (!sampleInit.current) {
+        prevSamplePos.current.copy(curPos);
+        prevSampleQuat.current.copy(curQuat);
+        prevSampleLinvel.current.set(0, 0, 0);
+        sampleInit.current = true;
+        continue;
+      }
+
+      const linvel = curPos.clone().sub(prevSamplePos.current).divideScalar(period);
+      const aInertial = linvel
+        .clone()
+        .sub(prevSampleLinvel.current)
+        .divideScalar(period);
       const aProper = aInertial.sub(
         new THREE.Vector3(GRAVITY[0], GRAVITY[1], GRAVITY[2]),
       );
-      const rot = body.rotation();
+      angularVelocityFromQuats(
+        prevSampleQuat.current,
+        curQuat,
+        period,
+        angVelWorld.current,
+      );
+
       // Inverse body rotation maps world-frame vectors into the body's
-      // local frame — used both for the proper-acceleration readout and
-      // for the gyroscope (rapier's angvel is reported in world frame).
-      const qInv = new THREE.Quaternion(rot.x, rot.y, rot.z, rot.w).invert();
+      // local frame — used for both the proper-acceleration readout and
+      // the gyroscope (we computed angvel in world frame above).
+      const qInv = curQuat.clone().invert();
       aProper.applyQuaternion(qInv);
-      const av = body.angvel();
-      const angVelLocal = new THREE.Vector3(av.x, av.y, av.z).applyQuaternion(qInv);
-      prevLinvel.current.copy(cur);
+      const angVelLocal = angVelWorld.current.clone().applyQuaternion(qInv);
+
+      prevSamplePos.current.copy(curPos);
+      prevSampleQuat.current.copy(curQuat);
+      prevSampleLinvel.current.copy(linvel);
 
       if (isRecording) {
         pushSample({

@@ -329,26 +329,59 @@ label.field, div.field {
  * ---------------------------------------------------------------------- */
 
 .card {
+  position: relative;
   background: transparent;
   border: 0;
   border-radius: 0;
-  padding: 16px 0 0;
+  padding: 24px 0 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  border-top: 1px solid var(--line);
+  gap: 14px;
+}
+/* Full-bleed divider above each card. Pulled out of the card via negative
+   left/right offsets so it spans the entire sidebar width (the sidebar
+   has 18px horizontal padding) instead of stopping at the card's own
+   left/right edges. */
+.card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -18px;
+  right: -18px;
+  height: 1px;
+  background: var(--line-strong);
 }
 .sidebar > .card:first-of-type {
-  border-top: 0;
-  padding-top: 0;
+  padding-top: 4px;
 }
+.sidebar > .card:first-of-type::before {
+  display: none;
+}
+/* Headings are tracked uppercase at sidebar-label scale so they read as
+   editorial section breaks rather than chunky H3s. The slim accent bar
+   gives them a visual anchor; the small font size + open tracking is
+   what makes the all-caps feel intentional instead of shouty. */
 .card h3 {
   margin: 0;
-  font-size: var(--t-sm);
-  font-weight: 600;
-  letter-spacing: 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
   color: var(--text);
-  text-transform: none;
+  text-transform: uppercase;
+  position: relative;
+  padding-left: 14px;
+  line-height: 1;
+}
+.card h3::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 13px;
+  background: var(--accent);
+  border-radius: 999px;
 }
 
 .row { display: flex; gap: 8px; }
@@ -357,8 +390,9 @@ label.field, div.field {
 /* ---------------------------------------------------------------------- *
  * Section-toggle: collapsible sub-section header inside a card           *
  *                                                                         *
- * Reads as a quiet field label until you hover; the chevron tilts on      *
- * open. No accent fill — accents are reserved for state.                  *
+ * Quiet at rest — same tracked-uppercase label as a field, but with a     *
+ * brighter chevron and a hover tint that reveals it's a clickable row.    *
+ * No filled chrome; the hover state is the affordance.                    *
  * ---------------------------------------------------------------------- */
 .section-toggle {
   display: flex;
@@ -367,29 +401,44 @@ label.field, div.field {
   width: 100%;
   text-align: left;
   background: transparent;
-  border: 1px solid transparent;
+  border: 0;
   border-radius: var(--r-sm);
-  padding: 5px 0;
+  padding: 4px 0;
+  margin: 0;
   font-size: var(--t-overline);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   font-weight: 600;
   color: var(--text-muted);
   cursor: pointer;
+  transition: color 120ms ease;
 }
+/* Explicitly transparent — overrides the global `button:hover` rule that
+   would otherwise paint a dark surface fill behind the row and make it
+   look like a misaligned filled chip. */
 .section-toggle:hover {
   background: transparent;
   color: var(--text);
 }
+.section-toggle:focus-visible {
+  outline: 2px solid var(--accent-line);
+  outline-offset: 2px;
+}
 .section-toggle[aria-expanded="true"] { color: var(--text); }
 .section-toggle-chevron {
   display: inline-block;
-  font-size: 9px;
-  color: var(--text-dim);
-  transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-.section-toggle[aria-expanded="true"] .section-toggle-chevron {
+  /* Order: park the chevron on the trailing edge of the row. The optional
+     summary span uses its own margin-left: auto to sit between the label
+     and the chevron rather than fighting it for trailing space. */
+  order: 1;
+  margin-left: auto;
+  font-size: 11px;
   color: var(--text-muted);
+  transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1), color 120ms ease;
+}
+.section-toggle:hover .section-toggle-chevron { color: var(--text); }
+.section-toggle[aria-expanded="true"] .section-toggle-chevron {
+  color: var(--accent);
 }
 
 /* ---------------------------------------------------------------------- *
@@ -403,10 +452,8 @@ label.field, div.field {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
-  padding: 10px 0;
+  padding: 6px 0;
   border: 0;
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
   background: transparent;
   border-radius: 0;
 }

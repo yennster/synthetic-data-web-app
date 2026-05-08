@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  angularVelocityFromQuats,
   cameraRelativeToWorld,
   computePinchStrength,
+  handOrientation,
   handSize,
   pinchCentroid,
+  quatFromBasis,
   type Landmark,
 } from './handMath';
 
@@ -190,5 +193,166 @@ describe('cameraRelativeToWorld', () => {
     );
     expect(a).toEqual([0, 0, 1]);
     expect(b).toEqual([0, 0, -1]);
+  });
+});
+
+describe('quatFromBasis', () => {
+  it('returns identity for the world-aligned basis', () => {
+    const q = quatFromBasis([1, 0, 0], [0, 1, 0], [0, 0, 1]);
+    expect(q[0]).toBeCloseTo(0, 6);
+    expect(q[1]).toBeCloseTo(0, 6);
+    expect(q[2]).toBeCloseTo(0, 6);
+    expect(q[3]).toBeCloseTo(1, 6);
+  });
+
+  it('represents a 90° rotation around +Z (right→+Y, up→-X)', () => {
+    // After a +90° rotation around +Z, world +X (right) maps to +Y, and
+    // world +Y (up) maps to -X. Quaternion = (0, 0, sin(45°), cos(45°)).
+    const q = quatFromBasis([0, 1, 0], [-1, 0, 0], [0, 0, 1]);
+    expect(q[0]).toBeCloseTo(0, 5);
+    expect(q[1]).toBeCloseTo(0, 5);
+    expect(q[2]).toBeCloseTo(Math.SQRT1_2, 5);
+    expect(q[3]).toBeCloseTo(Math.SQRT1_2, 5);
+  });
+
+  it('emits a unit quaternion', () => {
+    // Arbitrary basis: 60° around +Y
+    const c = Math.cos(Math.PI / 3);
+    const s = Math.sin(Math.PI / 3);
+    const q = quatFromBasis([c, 0, -s], [0, 1, 0], [s, 0, c]);
+    const len = Math.hypot(q[0], q[1], q[2], q[3]);
+    expect(len).toBeCloseTo(1, 5);
+  });
+});
+
+describe('handOrientation', () => {
+  /** Same fixture helper as above but with the extra landmarks 5 and 17
+   * that handOrientation reads. */
+  function makeOrientedHand(opts: {
+    wrist: [number, number, number];
+    middleMcp: [number, number, number];
+    indexMcp: [number, number, number];
+    pinkyMcp: [number, number, number];
+  }): Landmark[] {
+    const arr: Landmark[] = Array.from({ length: 21 }, () => ({
+      x: 0,
+      y: 0,
+      z: 0,
+    }));
+    arr[0] = { x: opts.wrist[0], y: opts.wrist[1], z: opts.wrist[2] };
+    arr[5] = { x: opts.indexMcp[0], y: opts.indexMcp[1], z: opts.indexMcp[2] };
+    arr[9] = {
+      x: opts.middleMcp[0],
+      y: opts.middleMcp[1],
+      z: opts.middleMcp[2],
+    };
+    arr[17] = { x: opts.pinkyMcp[0], y: opts.pinkyMcp[1], z: opts.pinkyMcp[2] };
+    return arr;
+  }
+
+  it('returns ~identity for a right hand showing the palm with fingers up', () => {
+    // Right hand, palm facing camera. In raw MediaPipe image coords:
+    //   wrist below center, middleMCP above wrist (smaller y),
+    //   index MCP on the LEFT of the image (smaller x),
+    //   pinky MCP on the RIGHT of the image (larger x).
+    // After camera-space conversion (negate each axis), this resolves to
+    //   up = +Y, right = +X, forward = +Z — i.e. body identity.
+    const q = handOrientation(
+      makeOrientedHand({
+        wrist: [0.5, 0.7, 0],
+        middleMcp: [0.5, 0.4, 0],
+        indexMcp: [0.4, 0.5, 0],
+        pinkyMcp: [0.6, 0.5, 0],
+      }),
+    )!;
+    expect(q[0]).toBeCloseTo(0, 5);
+    expect(q[1]).toBeCloseTo(0, 5);
+    expect(q[2]).toBeCloseTo(0, 5);
+    expect(q[3]).toBeCloseTo(1, 5);
+  });
+
+  it('rotates the body around +Z when the hand rolls counter-clockwise on screen', () => {
+    // Same right hand, rolled 90° counter-clockwise on the mirrored screen
+    // (fingers point to screen-left). In raw MediaPipe coords (un-mirrored)
+    // that puts middleMCP to the right of the wrist. Camera-space up =
+    // +X, so body-local +Y maps to world +X — a +90° rotation around +Z
+    // (q = (0, 0, +sin(45°), cos(45°))).
+    const q = handOrientation(
+      makeOrientedHand({
+        wrist: [0.3, 0.5, 0],
+        middleMcp: [0.6, 0.5, 0],
+        indexMcp: [0.45, 0.4, 0],
+        pinkyMcp: [0.45, 0.6, 0],
+      }),
+    )!;
+    expect(q[0]).toBeCloseTo(0, 4);
+    expect(q[1]).toBeCloseTo(0, 4);
+    expect(q[2]).toBeCloseTo(Math.SQRT1_2, 4);
+    expect(q[3]).toBeCloseTo(Math.SQRT1_2, 4);
+  });
+
+  it('returns null when palm-up landmarks coincide (degenerate)', () => {
+    expect(
+      handOrientation(
+        makeOrientedHand({
+          wrist: [0.5, 0.5, 0],
+          middleMcp: [0.5, 0.5, 0],
+          indexMcp: [0.4, 0.5, 0],
+          pinkyMcp: [0.6, 0.5, 0],
+        }),
+      ),
+    ).toBeNull();
+  });
+});
+
+describe('angularVelocityFromQuats', () => {
+  /** Quaternion for a rotation of `angle` rad around a unit axis. */
+  function aa(axis: [number, number, number], angle: number): [number, number, number, number] {
+    const s = Math.sin(angle / 2);
+    return [axis[0] * s, axis[1] * s, axis[2] * s, Math.cos(angle / 2)];
+  }
+
+  it('returns the zero vector when the rotation is unchanged', () => {
+    const q = aa([0, 1, 0], 0.4);
+    const w = angularVelocityFromQuats(q, q, 0.01);
+    expect(w[0]).toBeCloseTo(0, 9);
+    expect(w[1]).toBeCloseTo(0, 9);
+    expect(w[2]).toBeCloseTo(0, 9);
+  });
+
+  it('reports the right magnitude and axis for a steady spin', () => {
+    // Two samples 10 ms apart along a +Y spin at 1 rad/s — angular velocity
+    // should read as +1 rad/s around +Y.
+    const dt = 0.01;
+    const t0 = 0.5;
+    const q0 = aa([0, 1, 0], t0);
+    const q1 = aa([0, 1, 0], t0 + dt);
+    const w = angularVelocityFromQuats(q0, q1, dt);
+    expect(w[0]).toBeCloseTo(0, 6);
+    expect(w[1]).toBeCloseTo(1, 5);
+    expect(w[2]).toBeCloseTo(0, 6);
+  });
+
+  it('takes the short arc — 359° of yaw reads as -1°/dt, not +359°/dt', () => {
+    // Without the dw < 0 flip, a near-full-revolution sample would emit a
+    // huge positive ω and the "kinematic spin while pinching" use case
+    // would report nonsense whenever the wrap-around frame happened.
+    const dt = 0.01;
+    const q0: [number, number, number, number] = [0, 0, 0, 1];
+    const q1 = aa([0, 1, 0], (-2 * Math.PI / 180) * 1); // -2° around +Y, near identity but going the "long" way
+    // Construct the long-way quaternion explicitly: same rotation, opposite hemisphere.
+    const long: [number, number, number, number] = [-q1[0], -q1[1], -q1[2], -q1[3]];
+    const w = angularVelocityFromQuats(q0, long, dt);
+    // Magnitude should be 2°/0.01 ≈ 3.49 rad/s, NOT 358°/0.01.
+    const mag = Math.hypot(w[0], w[1], w[2]);
+    expect(mag).toBeLessThan(5);
+    expect(w[1]).toBeLessThan(0); // around -Y direction
+  });
+
+  it('returns zero for a numerically near-identity delta', () => {
+    const q0: [number, number, number, number] = [0, 0, 0, 1];
+    const q1: [number, number, number, number] = [1e-10, 0, 0, Math.sqrt(1 - 1e-20)];
+    const w = angularVelocityFromQuats(q0, q1, 0.01);
+    expect(w).toEqual([0, 0, 0]);
   });
 });

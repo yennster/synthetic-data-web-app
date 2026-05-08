@@ -9,6 +9,7 @@ import {
   BELT_TOP_Y,
   BELT_TRANSPORTABLES,
   BELT_WIDTH,
+  beltTextureOffsetDelta,
   isOnBelt,
 } from '../lib/beltDynamics';
 import { useStore } from '../store/useStore';
@@ -71,12 +72,17 @@ export function Conveyor() {
 
   useFrame((_, dt) => {
     // Visual scroll. Three.js box top-face V-axis is along -Z, so to make
-    // stripes visually flow in +Z we *increase* offset.y as speed > 0. The
-    // factor of `repeat / length` converts world-space speed (m/s) into
-    // UV-space offset units — without it the texture appears to slide
-    // ~1.3× faster than the bodies on top, breaking the illusion that
-    // the belt is what's transporting them.
-    texture.offset.y += (speed * dt * TEXTURE_REPEAT_Y) / BELT_LENGTH;
+    // stripes visually flow in +Z we *increase* offset.y as speed > 0.
+    // `beltTextureOffsetDelta` does the world-speed → UV-offset conversion
+    // (scaled by `repeat / length`) so stripes track the bodies at the
+    // same speed; the helper has direct test coverage in beltDynamics.test
+    // so this invariant can't silently regress.
+    texture.offset.y += beltTextureOffsetDelta(
+      speed,
+      dt,
+      TEXTURE_REPEAT_Y,
+      BELT_LENGTH,
+    );
 
     // Transport bodies that are on top of the belt.
     if (Math.abs(speed) < 1e-4) return;

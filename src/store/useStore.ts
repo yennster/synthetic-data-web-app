@@ -361,8 +361,13 @@ const defaultObject = (kind: ObjectKind, idx: number): SceneObject => {
     kind,
     label: kind,
     // Spawn above belt-top + a little headroom so they fall onto whatever
-    // surface is under them (belt or ground) without interpenetrating.
-    position: [(idx % 5) * 0.9 - 1.8, 1.2, Math.floor(idx / 5) * -0.9],
+    // surface is under them. Two columns at x = ±0.4 keep every spawn
+    // within the belt's ±0.8 inner-rail extent (BELT_WIDTH/2 = 0.8 in
+    // beltDynamics) so the conveyor actually carries them — the previous
+    // 5-column ±1.8 spread dropped 4 of every 5 objects onto the floor
+    // beside the belt, where the user saw them sit still while the belt
+    // texture scrolled past, looking like a texture-vs-body speed bug.
+    position: [(idx % 2) * 0.8 - 0.4, 1.2, Math.floor(idx / 2) * -0.9],
     rotation: [0, Math.random() * Math.PI * 2, 0],
     scale: 1,
     color: isCan

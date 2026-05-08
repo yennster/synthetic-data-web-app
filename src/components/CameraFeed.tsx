@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
+import * as THREE from 'three';
 import {
   createHandLandmarker,
   computePinchStrength,
   handSize,
   pinchCentroid,
 } from '../lib/handTracking';
+import { handOrientation } from '../lib/handMath';
 import type { HandLandmarker } from '@mediapipe/tasks-vision';
 import { useStore } from '../store/useStore';
 import { TouchResizeHandle } from './TouchResizeHandle';
@@ -35,11 +37,16 @@ export function CameraFeed() {
   // so the cursor moves steadily instead of jittering, and so brief tracking
   // dropouts don't snap the target to (null) → cube falls.
   const smoothedTarget = useRef<[number, number, number] | null>(null);
+  // Slerp-smoothed hand orientation. Same low-pass purpose as the position,
+  // but on quaternions so a per-frame jitter in MediaPipe's depth doesn't
+  // make the held body wobble.
+  const smoothedRotation = useRef<THREE.Quaternion | null>(null);
 
   const setHandDetected = useStore((s) => s.setHandDetected);
   const setPinchStrength = useStore((s) => s.setPinchStrength);
   const setGrabbed = useStore((s) => s.setGrabbed);
   const setPinchTarget = useStore((s) => s.setPinchTarget);
+  const setPinchRotation = useStore((s) => s.setPinchRotation);
 
   // Mobile front-cameras often ignore the requested 640×480 and deliver
   // a portrait stream (e.g. 480×640). Read the actual frame size after
@@ -148,6 +155,32 @@ export function CameraFeed() {
           smoothedTarget.current = [sx, sy, sz];
           setPinchTarget([sx, sy, sz]);
 
+          // Hand orientation → kinematic rotation override. Slerp-smooth at
+          // a slightly slower rate than the position because MediaPipe's z
+          // (which feeds the palm-normal axis) is noisier than xy. Also
+          // ensure shortest-arc smoothing by flipping the previous quat
+          // when it sits on the opposite hemisphere from the new one.
+          const handQ = handOrientation(hand);
+          if (handQ) {
+            const target = new THREE.Quaternion(
+              handQ[0],
+              handQ[1],
+              handQ[2],
+              handQ[3],
+            );
+            let sQ = smoothedRotation.current;
+            if (!sQ) {
+              sQ = target.clone();
+              smoothedRotation.current = sQ;
+            } else {
+              if (sQ.dot(target) < 0) {
+                target.set(-target.x, -target.y, -target.z, -target.w);
+              }
+              sQ.slerp(target, 0.25);
+            }
+            setPinchRotation([sQ.x, sQ.y, sQ.z, sQ.w]);
+          }
+
           // Draw skeleton
           ctx.lineWidth = 2;
           ctx.strokeStyle = pinch > PINCH_ON ? '#5eead4' : '#38bdf8';
@@ -190,7 +223,9 @@ export function CameraFeed() {
               setGrabbed(false);
             }
             setPinchTarget(null);
+            setPinchRotation(null);
             smoothedTarget.current = null;
+            smoothedRotation.current = null;
           }
           // else: leave isGrabbed and pinchTarget intact; physics body keeps
           // following the last smoothed target.
@@ -210,8 +245,18 @@ export function CameraFeed() {
       if (stream) {
         for (const t of stream.getTracks()) t.stop();
       }
+      // Drop any kinematic rotation we were applying so the body returns
+      // to free physics on toggle-off (procedural drops also rely on this
+      // being null-by-default).
+      setPinchRotation(null);
     };
-  }, [setGrabbed, setHandDetected, setPinchStrength, setPinchTarget]);
+  }, [
+    setGrabbed,
+    setHandDetected,
+    setPinchStrength,
+    setPinchTarget,
+    setPinchRotation,
+  ]);
 
   return (
     <div

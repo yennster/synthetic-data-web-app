@@ -675,17 +675,37 @@ export function VisionPanel() {
             />
           </>
         )}
-        <label className="field">
-          <span className="row" style={{ alignItems: 'center' }}>
-            <input
-              type="checkbox"
-              checked={showConveyor}
-              onChange={(e) => setShowConveyor(e.target.checked)}
-              style={{ width: 'auto', flex: 'none' }}
-            />
-            <span style={{ flex: 1 }}>Conveyor belt</span>
-          </span>
-        </label>
+        <div className="webcam-control">
+          <div className="webcam-control-copy">
+            <div className="webcam-control-heading">
+              <span className="webcam-control-title">Conveyor belt</span>
+              <span
+                className={`webcam-control-state ${
+                  showConveyor ? 'on' : 'off'
+                }`}
+              >
+                {showConveyor ? 'On' : 'Off'}
+              </span>
+            </div>
+            <div className="webcam-control-help">
+              {showConveyor
+                ? 'Spawned objects ride the belt — adjust speed below.'
+                : 'No belt — objects fall onto the floor at spawn position.'}
+            </div>
+          </div>
+          <button
+            type="button"
+            className={`webcam-switch ${showConveyor ? 'on' : ''}`}
+            role="switch"
+            aria-checked={showConveyor}
+            aria-label={
+              showConveyor ? 'Turn conveyor belt off' : 'Turn conveyor belt on'
+            }
+            onClick={() => setShowConveyor(!showConveyor)}
+          >
+            <span className="webcam-switch-thumb" />
+          </button>
+        </div>
         {showConveyor && (
           <label className="field">
             Belt speed {conveyorSpeed.toFixed(2)} m/s

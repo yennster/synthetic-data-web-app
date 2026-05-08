@@ -40,3 +40,45 @@ export function isOnBelt(t: { x: number; y: number; z: number }): boolean {
     t.y < BELT_TOP_Y + 0.8
   );
 }
+
+/**
+ * Per-frame UV-offset advance for the conveyor's stripe texture, given the
+ * belt's `speed` (m/s of world) and the elapsed `dt` (s) since the last
+ * frame.
+ *
+ * The texture tiles `repeat` times across `length` meters of belt, so one
+ * UV unit covers `length / repeat` meters of world. To make the visible
+ * stripes scroll at the same world-space speed as the rigid bodies the
+ * belt transports, the UV offset has to advance at `speed * repeat /
+ * length` per second — the inverse of the world-per-UV ratio. Without
+ * this scaling the stripes drift faster than the bodies (the original
+ * bug — at the default `repeat=6, length=8` the texture used to slide
+ * 1.33× too fast).
+ *
+ * Pure math, exported separately from the React component so the
+ * `belt-texture-tracks-bodies` invariant has direct unit-test coverage
+ * and can't silently regress.
+ */
+export function beltTextureOffsetDelta(
+  speed: number,
+  dt: number,
+  repeat: number,
+  length: number,
+): number {
+  return (speed * dt * repeat) / length;
+}
+
+/**
+ * Convert a UV-offset advance back into the world-space distance the
+ * stripes appear to travel. Inverse of the relationship encoded in
+ * `beltTextureOffsetDelta`. Lets a test write `visualScrollDistance(...)
+ * === bodyTravelDistance(...)` and have it actually be a check on the
+ * speed-matching invariant rather than restating the formula.
+ */
+export function visualScrollDistance(
+  offsetDelta: number,
+  repeat: number,
+  length: number,
+): number {
+  return (offsetDelta * length) / repeat;
+}
