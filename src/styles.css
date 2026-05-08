@@ -329,18 +329,34 @@ label.field, div.field {
  * ---------------------------------------------------------------------- */
 
 .card {
+  position: relative;
   background: transparent;
   border: 0;
   border-radius: 0;
-  padding: 22px 0 0;
+  padding: 24px 0 0;
   display: flex;
   flex-direction: column;
   gap: 14px;
-  border-top: 1px solid var(--line-strong);
+}
+/* Full-bleed divider above each card. Pulled out of the card via negative
+   left/right offsets so it spans the entire sidebar width (the sidebar
+   has 18px horizontal padding) instead of stopping at the card's own
+   left/right edges. 2px + --line-strong makes the section break read
+   clearly from across the room. */
+.card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -18px;
+  right: -18px;
+  height: 2px;
+  background: var(--line-strong);
 }
 .sidebar > .card:first-of-type {
-  border-top: 0;
   padding-top: 4px;
+}
+.sidebar > .card:first-of-type::before {
+  display: none;
 }
 /* Headings are tracked uppercase at sidebar-label scale so they read as
    editorial section breaks rather than chunky H3s. The slim accent bar
