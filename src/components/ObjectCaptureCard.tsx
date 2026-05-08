@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { detectPlatform, type PlatformInfo } from '../lib/platform';
 
 /**
@@ -22,10 +22,33 @@ const HELLO_PHOTOGRAMMETRY_URL =
 
 export function ObjectCaptureCard() {
   const platform: PlatformInfo = useMemo(() => detectPlatform(), []);
+  const [open, setOpen] = useState(false);
 
   return (
     <div className="card">
-      <h3>Capture from real life</h3>
+      <button
+        type="button"
+        onClick={() => setOpen((b) => !b)}
+        aria-expanded={open}
+        style={{
+          all: 'unset',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          cursor: 'pointer',
+          gap: 8,
+        }}
+      >
+        <h3 style={{ margin: 0 }}>Capture from real life</h3>
+        <span style={{ color: 'var(--muted)', fontSize: 11 }} aria-hidden>
+          {open ? '▾' : '▸'}
+        </span>
+      </button>
+
+      {!open && <PlatformBadge platform={platform} />}
+
+      {open && (
+        <>
       <p style={{ margin: 0, color: 'var(--muted)', fontSize: 12, lineHeight: 1.4 }}>
         Use Apple's{' '}
         <a href={APPLE_DOC_URL} target="_blank" rel="noreferrer">
@@ -76,6 +99,8 @@ export function ObjectCaptureCard() {
           </a>{' '}
           CLI on a folder of photos to produce a USDZ headlessly.
         </p>
+      )}
+        </>
       )}
     </div>
   );
