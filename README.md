@@ -278,6 +278,14 @@ The app uses `three-usdz-loader`, which bundles a WASM build of Pixar / NVIDIA's
 - ✅ `.usdz` containing **binary Crate USD** (`.usdc`) — what NVIDIA Omniverse, Reality Composer, and Apple's tools produce by default. *This is what most modern `.usdz` files are.*
 - ⚠️ Plain `.usd`, `.usda`, `.usdc` files (not zipped) — convert to `.usdz` first (see below).
 
+### Capturing real-world objects as USDZ
+
+The **Capture from real life** card (in the Detection / Anomaly sidebar, above the **Import (.usdz)** card) routes you to Apple's [RealityKit Object Capture](https://developer.apple.com/documentation/realitykit/realitykit-object-capture) pipeline — the studio detects whether you're on iOS 17+ or macOS 12+ and tailors the instructions accordingly. Object Capture is native-only (no JavaScript API), so the workflow is:
+
+1. **On iPhone (iOS 17+)**: install [RealityScan](https://apps.apple.com/us/app/realityscan-mobile/id1584832280) (Epic Games, free, built on Object Capture). Walk around the object taking ~50–200 overlapping photos under even lighting (avoid shiny / transparent / featureless surfaces). Export as `.usdz`.
+2. **On Mac (macOS 12+)**: run Apple's [`HelloPhotogrammetry`](https://developer.apple.com/documentation/realitykit/creating-a-photogrammetry-command-line-app) command-line sample on a folder of photos to produce a USDZ headlessly.
+3. AirDrop / copy the resulting `.usdz` over and drop it into the **Import (.usdz)** card. From there it has scale / position / yaw / label / physics controls just like any other imported asset.
+
 ### Converting `.usd` / `.usda` / `.usdc` to `.usdz`
 
 If you have a non-zipped USD file, you can package it with the OpenUSD CLI tools:
