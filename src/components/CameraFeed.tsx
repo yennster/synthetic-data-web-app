@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   createHandLandmarker,
   computePinchStrength,
@@ -39,6 +39,13 @@ export function CameraFeed() {
   const setPinchStrength = useStore((s) => s.setPinchStrength);
   const setGrabbed = useStore((s) => s.setGrabbed);
   const setPinchTarget = useStore((s) => s.setPinchTarget);
+
+  // Mobile front-cameras often ignore the requested 640×480 and deliver
+  // a portrait stream (e.g. 480×640). Read the actual frame size after
+  // metadata loads and apply that aspect ratio to the container so the
+  // video isn't stretched and the hand-tracking canvas (drawn in video
+  // pixel coords) stays aligned with what the user sees.
+  const [videoAspect, setVideoAspect] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -206,9 +213,22 @@ export function CameraFeed() {
   }, [setGrabbed, setHandDetected, setPinchStrength, setPinchTarget]);
 
   return (
-    <div className="cam-overlay resizable fixed-aspect-43">
+    <div
+      className="cam-overlay resizable cam-feed"
+      style={videoAspect ? { aspectRatio: `${videoAspect}` } : undefined}
+    >
       <span className="label">Webcam · hand tracking · drag ↘</span>
-      <video ref={videoRef} muted playsInline />
+      <video
+        ref={videoRef}
+        muted
+        playsInline
+        onLoadedMetadata={(e) => {
+          const v = e.currentTarget;
+          if (v.videoWidth > 0 && v.videoHeight > 0) {
+            setVideoAspect(v.videoWidth / v.videoHeight);
+          }
+        }}
+      />
       <canvas ref={canvasRef} />
     </div>
   );
