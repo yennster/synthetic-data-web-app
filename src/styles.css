@@ -431,11 +431,13 @@ div.field {
   max-width: 720px;
 }
 
-/* Webcam (motion mode) has a fixed 4:3 aspect from getUserMedia. Use the
-   CSS aspect-ratio to keep height in sync as the user drags the corner —
-   no React state needed because the aspect never changes. The `height:
-   auto` overrides the fixed 180px from the base .cam-overlay rule. */
-.cam-overlay.resizable.fixed-aspect-43 {
+/* Webcam (motion mode). Aspect ratio comes from the actual stream —
+   laptop webcams typically deliver 4:3 landscape, but mobile front
+   cameras often ignore the requested resolution and return portrait
+   (e.g. 480×640). CameraFeed sets `aspect-ratio` inline once metadata
+   loads; the 4:3 here is just the fallback while the stream comes up.
+   `height: auto` overrides the fixed 180px from the base rule. */
+.cam-overlay.resizable.cam-feed {
   aspect-ratio: 4 / 3;
   height: auto;
 }
