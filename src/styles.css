@@ -1,69 +1,238 @@
+/* ---------------------------------------------------------------------- *
+ * Synthetic Data Studio — design tokens + base styles                     *
+ *                                                                         *
+ * Surface and text neutrals are tinted toward the Edge Impulse brand hue  *
+ * (~170 oklch) by a tiny chroma so the dark UI feels intentional, not    *
+ * generic. The accent is reserved for live / on / connected / go states; *
+ * --record is for armed/recording; everything else is neutral.            *
+ * ---------------------------------------------------------------------- */
+
 :root {
   color-scheme: dark;
-  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --bg: #0b0d10;
-  --panel: #14181d;
-  --panel-2: #1c2128;
-  --border: #2a313a;
-  --text: #e6edf3;
-  --muted: #8b949e;
-  --accent: #5eead4;
-  --accent-2: #38bdf8;
-  --danger: #f87171;
-  --recording: #ef4444;
+  font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-feature-settings: 'cv11', 'ss01', 'ss03';
+
+  /* Surfaces, lightest below page-bg sits the scene; sidebar a notch up. */
+  --bg:           oklch(0.18 0.010 195);
+  --surface-1:    oklch(0.22 0.011 195);
+  --surface-2:    oklch(0.27 0.012 195);
+  --surface-sunk: oklch(0.16 0.010 195);
+
+  /* Borders. Hairlines stay quiet, line-strong is for input chrome. */
+  --line:        oklch(0.32 0.014 195 / 0.7);
+  --line-strong: oklch(0.40 0.016 195);
+
+  /* Text ladder. */
+  --text:       oklch(0.96 0.010 195);
+  --text-muted: oklch(0.72 0.012 195);
+  --text-dim:   oklch(0.54 0.012 195);
+
+  /* The single accent: live, on, connected, go. */
+  --accent:        oklch(0.78 0.155 170);
+  --accent-soft:   oklch(0.78 0.155 170 / 0.16);
+  --accent-line:   oklch(0.78 0.155 170 / 0.45);
+  --accent-on:     oklch(0.18 0.04 170);
+
+  /* Recording / armed. Distinct from danger in semantic, not hue. */
+  --record:        oklch(0.66 0.21 25);
+  --record-soft:   oklch(0.66 0.21 25 / 0.18);
+  --record-line:   oklch(0.66 0.21 25 / 0.45);
+
+  /* Danger / error. Slightly desaturated relative to record so a stop button
+     reads as "destructive action" without shouting "live recording". */
+  --danger:        oklch(0.66 0.18 25);
+  --danger-soft:   oklch(0.66 0.18 25 / 0.16);
+
+  /* Shadows are tinted toward the brand hue, not pure black. */
+  --shadow-1: 0 1px 2px oklch(0 0 0 / 0.35);
+  --shadow-2: 0 8px 24px oklch(0.10 0.02 195 / 0.55);
+
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-pill: 999px;
+
+  /* Type scale (1.25 ratio). */
+  --t-mono: ui-monospace, 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+  --t-overline: 10px;
+  --t-xs: 11px;
+  --t-sm: 12px;
+  --t-md: 13px;
+  --t-lg: 15px;
+  --t-xl: 18px;
+
+  /* Legacy aliases so any in-component `var(--panel)` / `var(--accent-2)` /
+     `var(--muted)` references keep working without touching JSX. */
+  --panel:    var(--surface-1);
+  --panel-2:  var(--surface-2);
+  --border:   var(--line);
+  --muted:    var(--text-muted);
+  --accent-2: var(--accent);
+  --recording: var(--record);
 }
 
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
-body { background: var(--bg); color: var(--text); overflow: hidden; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+  font-size: var(--t-md);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Tabular numbers anywhere a count or live readout appears. */
+.hud, .status, .inline-status, .capture-footer, input[type="number"],
+.cam-overlay .label, .check-row { font-variant-numeric: tabular-nums; }
+
+::selection { background: var(--accent-soft); color: var(--text); }
+
+/* Focus is visible, calm, and consistent. Never the default browser ring. */
+:focus { outline: none; }
+:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+/* ---------------------------------------------------------------------- *
+ * Buttons                                                                 *
+ *                                                                         *
+ * Default is ghost: no border, no fill, hover lifts a soft surface tint.  *
+ * The visible weight is reserved for primary (the action you came here to *
+ * do) and danger (recording / cancellation).                              *
+ * ---------------------------------------------------------------------- */
 
 button {
-  background: var(--panel-2);
+  background: transparent;
   color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 8px 12px;
-  font-size: 13px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  padding: 7px 12px;
+  font: inherit;
+  font-size: var(--t-md);
+  letter-spacing: 0;
   cursor: pointer;
-  transition: background 120ms, border-color 120ms;
+  transition:
+    background 140ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    color 140ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    border-color 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-button:hover { background: #232a33; }
-button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+button:hover {
+  background: oklch(0.30 0.014 195);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: transparent;
+}
+
+/* Outlined secondary used for "Clear", "Retrain model", etc. Slightly more
+   present than ghost so it reads as a real action button next to plain text. */
+button.outlined,
+button:not(.primary):not(.danger):not(.section-toggle):not(.webcam-switch):not(.motion-pill):not(.drawer-toggle) {
+  border-color: var(--line);
+}
+
 button.primary {
   background: var(--accent);
-  color: #042f2e;
+  color: var(--accent-on);
   border-color: var(--accent);
   font-weight: 600;
 }
-button.primary:hover { background: #4ad6c0; }
+button.primary:hover {
+  background: oklch(0.82 0.155 170);
+  border-color: oklch(0.82 0.155 170);
+}
+button.primary:disabled {
+  background: var(--accent-soft);
+  color: var(--text-dim);
+  border-color: transparent;
+  opacity: 1;
+}
+
 button.danger {
-  background: var(--recording);
-  color: white;
-  border-color: var(--recording);
+  background: var(--record);
+  color: oklch(0.98 0.01 25);
+  border-color: var(--record);
   font-weight: 600;
 }
-
-input, select {
-  background: var(--panel-2);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 7px 10px;
-  font-size: 13px;
-  width: 100%;
+button.danger:hover {
+  background: oklch(0.70 0.21 25);
+  border-color: oklch(0.70 0.21 25);
 }
-input:focus, select:focus { outline: none; border-color: var(--accent-2); }
 
-/* Strip native chrome from color pickers so they render as a flat
-   colored square that respects the inline width/height. The actual
-   colour comes from the input's `value` via the browser; we just
-   hide the OS-default swatch border / wrapper padding. */
+/* Inputs, selects, native range slider all share the same recess surface. */
+input, select {
+  background: var(--surface-sunk);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 7px 10px;
+  font: inherit;
+  font-size: var(--t-md);
+  width: 100%;
+  transition: border-color 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+input::placeholder { color: var(--text-dim); }
+input:hover, select:hover { border-color: var(--line-strong); }
+input:focus, select:focus { border-color: var(--accent); }
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: none;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 2px;
+  background: var(--line-strong);
+  border-radius: 999px;
+}
+input[type="range"]::-moz-range-track {
+  height: 2px;
+  background: var(--line-strong);
+  border-radius: 999px;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -6px;
+  border-radius: 50%;
+  background: var(--text);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow-1);
+  cursor: grab;
+  transition: background 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow-1);
+  cursor: grab;
+}
+input[type="range"]:hover::-webkit-slider-thumb { background: var(--accent); }
+input[type="range"]:hover::-moz-range-thumb { background: var(--accent); }
+input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
+
 input[type="color"] {
   -webkit-appearance: none;
   appearance: none;
   padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 3px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
   background: transparent;
   cursor: pointer;
   overflow: hidden;
@@ -71,80 +240,117 @@ input[type="color"] {
 input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
 input[type="color"]::-webkit-color-swatch { border: none; border-radius: 2px; }
 input[type="color"]::-moz-color-swatch { border: none; border-radius: 2px; }
-input[type="color"]:hover { border-color: var(--accent-2); }
+input[type="color"]:hover { border-color: var(--accent); }
 
-label.field,
-div.field {
+/* Field labels are quiet sub-labels. They sit above the input with tight
+   spacing so the whole row reads as a single instrument. */
+label.field, div.field {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 11px;
-  color: var(--muted);
+  font-size: var(--t-overline);
+  color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
+  font-weight: 600;
 }
 
+/* Read-only EI project name display. Kept distinct from inputs because it's
+   not editable, and slightly heavier so the project the user is wired into
+   is unambiguous. */
 .ei-project-name {
   padding: 8px 10px;
-  background: #1a1f26;
-  border: 1px solid #2a313b;
-  border-radius: 6px;
-  font-size: 13px;
+  background: var(--surface-sunk);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  font-size: var(--t-md);
   color: var(--text);
   text-transform: none;
   letter-spacing: normal;
+  font-variant-numeric: tabular-nums;
 }
+
+/* ---------------------------------------------------------------------- *
+ * App shell                                                               *
+ *                                                                         *
+ * The 3D scene is the document; the sidebar is a thin instrument rail.   *
+ * No card chrome on either side, only spacing + hairlines.                *
+ * ---------------------------------------------------------------------- */
 
 .app {
   position: relative;
   width: 100vw;
-  /* `dvh` (dynamic viewport height) excludes browser chrome like iOS
-     Safari's bottom toolbar, so absolutely-positioned overlays anchored
-     to `bottom` aren't clipped by it. Falls back to vh on older
-     browsers that don't understand dvh. */
+  /* dvh excludes iOS Safari's bottom toolbar so cam-overlay isn't clipped. */
   height: 100vh;
   height: 100dvh;
   display: grid;
-  grid-template-columns: 1fr 340px;
+  grid-template-columns: 1fr 360px;
+  background: var(--bg);
 }
 
 .scene { position: relative; overflow: hidden; }
 
 .sidebar {
-  background: var(--panel);
-  border-left: 1px solid var(--border);
-  padding: 16px;
+  background: var(--surface-1);
+  border-left: 1px solid var(--line);
+  padding: 18px 18px 24px;
   overflow-y: auto;
   overflow-x: hidden;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 22px;
   min-width: 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+.sidebar::-webkit-scrollbar { width: 8px; }
+.sidebar::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 999px;
+  border: 2px solid var(--surface-1);
 }
 
+/* ---------------------------------------------------------------------- *
+ * .card — re-purposed                                                     *
+ *                                                                         *
+ * Was: bordered, filled box. Now: a section block with a hairline rule    *
+ * above its heading and tighter spacing inside. Stacking these reads as   *
+ * a sequence of grouped controls, not as a stack of identical SaaS cards. *
+ * The first card in the sidebar drops the leading rule.                   *
+ * ---------------------------------------------------------------------- */
+
 .card {
-  background: var(--panel-2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 16px 0 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+}
+.sidebar > .card:first-of-type {
+  border-top: 0;
+  padding-top: 0;
 }
 .card h3 {
   margin: 0;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--muted);
+  font-size: var(--t-sm);
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--text);
+  text-transform: none;
 }
 
 .row { display: flex; gap: 8px; }
 .row > * { flex: 1; }
 
-/* Header-style toggle for collapsible sub-sections inside a card. Looks
- * like a quiet section label until you hover. The chevron rotates
- * smoothly when the section opens. */
+/* ---------------------------------------------------------------------- *
+ * Section-toggle: collapsible sub-section header inside a card           *
+ *                                                                         *
+ * Reads as a quiet field label until you hover; the chevron tilts on      *
+ * open. No accent fill — accents are reserved for state.                  *
+ * ---------------------------------------------------------------------- */
 .section-toggle {
   display: flex;
   align-items: center;
@@ -153,157 +359,170 @@ div.field {
   text-align: left;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 6px;
-  padding: 6px 8px;
-  font-size: 11px;
-  letter-spacing: 0.04em;
+  border-radius: var(--r-sm);
+  padding: 5px 0;
+  font-size: var(--t-overline);
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--muted);
+  font-weight: 600;
+  color: var(--text-muted);
   cursor: pointer;
-  transition: background 120ms, color 120ms, border-color 120ms;
 }
 .section-toggle:hover {
-  background: rgba(94, 234, 212, 0.06);
-  border-color: var(--border);
+  background: transparent;
   color: var(--text);
 }
-.section-toggle[aria-expanded="true"] {
-  color: var(--text);
-}
+.section-toggle[aria-expanded="true"] { color: var(--text); }
 .section-toggle-chevron {
   display: inline-block;
-  font-size: 10px;
-  color: var(--muted);
-  transition: transform 160ms ease;
+  font-size: 9px;
+  color: var(--text-dim);
+  transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-.section-toggle:hover .section-toggle-chevron,
 .section-toggle[aria-expanded="true"] .section-toggle-chevron {
-  color: var(--accent);
+  color: var(--text-muted);
 }
 
+/* ---------------------------------------------------------------------- *
+ * Webcam control — inline group                                           *
+ *                                                                         *
+ * Was a card-within-a-card. Now an inline row separated by hairlines      *
+ * above and below, no fill, no rounded box.                               *
+ * ---------------------------------------------------------------------- */
 .webcam-control {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
-  padding: 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: rgba(0, 0, 0, 0.12);
+  padding: 10px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  border-radius: 0;
 }
-
 .webcam-control-copy {
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 3px;
 }
-
 .webcam-control-heading {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
 }
-
 .webcam-control-title {
   color: var(--text);
-  font-size: 13px;
-  font-weight: 650;
+  font-size: var(--t-md);
+  font-weight: 600;
 }
-
 .webcam-control-state {
-  color: var(--muted);
-  font-size: 10px;
+  color: var(--text-dim);
+  font-size: var(--t-overline);
   font-weight: 700;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
 }
-
 .webcam-control-state.on { color: var(--accent); }
-.webcam-control-state.off { color: var(--muted); }
-
 .webcam-control-help {
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.35;
+  color: var(--text-muted);
+  font-size: var(--t-xs);
+  line-height: 1.4;
 }
 
+/* The switch keeps an iOS-style affordance because it's a binary control,
+   but the off-state is neutral and the on-state is the lone accent fill. */
 .webcam-switch {
   flex: none;
-  width: 46px;
-  height: 26px;
+  width: 40px;
+  height: 22px;
   padding: 2px;
-  border-radius: 999px;
-  border-color: #3a4350;
-  background: #20262e;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line-strong);
+  background: var(--surface-sunk);
+  transition:
+    background 160ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    border-color 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-
-.webcam-switch:hover { background: #262d36; }
-
+.webcam-switch:hover { background: oklch(0.20 0.012 195); }
 .webcam-switch.on {
   border-color: var(--accent);
-  background: rgba(94, 234, 212, 0.18);
+  background: var(--accent-soft);
 }
-
-.webcam-switch.on:hover { background: rgba(94, 234, 212, 0.24); }
-
+.webcam-switch.on:hover { background: oklch(0.78 0.155 170 / 0.24); }
 .webcam-switch-thumb {
   display: block;
-  width: 20px;
-  height: 20px;
-  border-radius: 999px;
-  background: #9aa4af;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  width: 16px;
+  height: 16px;
+  border-radius: var(--r-pill);
+  background: var(--text-muted);
+  box-shadow: var(--shadow-1);
   transform: translateX(0);
-  transition: transform 140ms ease, background 140ms ease;
+  transition:
+    transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    background 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-
 .webcam-switch.on .webcam-switch-thumb {
   background: var(--accent);
-  transform: translateX(20px);
+  transform: translateX(18px);
 }
 
+/* ---------------------------------------------------------------------- *
+ * Motion pills — segmented selector for drop / throw / push / shake      *
+ * ---------------------------------------------------------------------- */
 .motion-pills {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px;
+  padding: 3px;
+  background: var(--surface-sunk);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
 }
-
 .motion-pill {
+  flex: 1;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  border: 1px solid #2a313b;
-  background: #1a1f26;
-  color: #9aa4af;
-  font-size: 12px;
+  padding: 5px 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--t-sm);
+  font-weight: 500;
   text-transform: capitalize;
   cursor: pointer;
   user-select: none;
+  position: relative;
+  transition:
+    background 140ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    color 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-
 .motion-pill input {
-  /* Hide the native checkbox; the pill itself reflects the state. */
   position: absolute;
   opacity: 0;
   pointer-events: none;
 }
-
+.motion-pill:hover {
+  background: oklch(0.27 0.012 195);
+  color: var(--text);
+}
 .motion-pill.on {
-  border-color: var(--accent);
-  background: rgba(94, 234, 212, 0.18);
-  color: #d6ecea;
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-1);
 }
 
-.motion-pill:hover { background: #262d36; }
-.motion-pill.on:hover { background: rgba(94, 234, 212, 0.24); }
-
-.capture-card {
-  gap: 12px;
-}
+/* ---------------------------------------------------------------------- *
+ * Capture (Vision panel)                                                  *
+ * ---------------------------------------------------------------------- */
+.capture-card { gap: 12px; }
 
 .capture-footer,
 .capture-batch-topline {
@@ -314,26 +533,20 @@ div.field {
 
 .capture-frame-button {
   width: 100%;
-  min-height: 44px;
-  font-size: 14px;
+  min-height: 40px;
+  font-size: var(--t-md);
 }
 
 .capture-batch-section {
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--line);
   padding-top: 12px;
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-.capture-batch-count {
-  flex: 0 0 92px;
-}
-
-.capture-batch-button {
-  flex: 1;
-  min-height: 40px;
-}
+.capture-batch-count { flex: 0 0 92px; }
+.capture-batch-button { flex: 1; min-height: 36px; }
 
 .capture-randomize-group {
   border: 0;
@@ -343,13 +556,13 @@ div.field {
   flex-direction: column;
   gap: 7px;
 }
-
 .capture-randomize-group legend {
   padding: 0;
-  color: var(--muted);
-  font-size: 11px;
+  color: var(--text-muted);
+  font-size: var(--t-overline);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
+  font-weight: 600;
 }
 
 .capture-toggle-list {
@@ -358,45 +571,59 @@ div.field {
   gap: 6px;
 }
 
+/* ---------------------------------------------------------------------- *
+ * EI fetch group — secondary inset (e.g. "Fetch projects")               *
+ * ---------------------------------------------------------------------- */
 .ei-fetch-group {
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
   padding: 10px 12px 12px;
   margin: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  background: rgba(0, 0, 0, 0.15);
+  background: var(--surface-sunk);
+}
+.ei-fetch-group legend {
+  padding: 0 6px;
+  font-size: var(--t-overline);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  font-weight: 600;
 }
 
-/* Inline status banner shown inside cards (mirrors the global status bar
-   so the user can see progress / errors without scrolling). Color matches
-   the kind, with a soft background fill for emphasis. */
+/* ---------------------------------------------------------------------- *
+ * Inline status                                                           *
+ *                                                                         *
+ * Status is never colour-only: the icon + label always carries the state. *
+ * ---------------------------------------------------------------------- */
 .inline-status {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 8px;
-  border-radius: 6px;
-  font-size: 11px;
-  font-family: ui-monospace, monospace;
-  line-height: 1.35;
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  font-size: var(--t-xs);
+  font-family: var(--t-mono);
+  line-height: 1.4;
   word-break: break-word;
+  border: 1px solid transparent;
 }
 .inline-status.busy {
-  color: var(--accent-2);
-  background: rgba(56, 189, 248, 0.08);
-  border: 1px solid rgba(56, 189, 248, 0.3);
+  color: var(--text);
+  background: var(--surface-2);
+  border-color: var(--line);
 }
 .inline-status.ok {
   color: var(--accent);
-  background: rgba(94, 234, 212, 0.08);
-  border: 1px solid rgba(94, 234, 212, 0.3);
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
 }
 .inline-status.err {
   color: var(--danger);
-  background: rgba(248, 113, 113, 0.08);
-  border: 1px solid rgba(248, 113, 113, 0.3);
+  background: var(--danger-soft);
+  border-color: oklch(0.66 0.18 25 / 0.45);
 }
 
 .spinner {
@@ -408,35 +635,24 @@ div.field {
   border-top-color: transparent;
   animation: spin 0.8s linear infinite;
 }
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-.ei-fetch-group legend {
-  padding: 0 6px;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--accent-2);
-}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 .check-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1;
+  color: var(--text-muted);
+  font-size: var(--t-sm);
+  line-height: 1.4;
 }
-
 .check-row input[type="checkbox"] {
   flex: none;
   width: 16px;
   height: 16px;
   margin: 0;
+  accent-color: var(--accent);
 }
-
 .check-row span {
   min-width: 0;
   overflow: hidden;
@@ -446,53 +662,39 @@ div.field {
 
 .capture-footer {
   justify-content: space-between;
-  color: var(--muted);
-  font-size: 12px;
+  color: var(--text-muted);
+  font-size: var(--t-sm);
 }
-
 .capture-footer button {
   min-width: 64px;
   padding: 5px 10px;
 }
 
+/* ---------------------------------------------------------------------- *
+ * Cam-overlay — bottom-left preview / webcam feed                         *
+ *                                                                         *
+ * The frame is a thin instrument window: dark inside (the canvas paints   *
+ * itself), a soft ring outside. The label is a quiet pill, not a sticker. *
+ * ---------------------------------------------------------------------- */
 .cam-overlay {
   position: absolute;
   bottom: 16px;
   left: 16px;
   width: 240px;
   height: 180px;
-  border-radius: 8px;
+  border-radius: var(--r-md);
   overflow: hidden;
-  border: 1px solid var(--border);
-  background: #000;
+  border: 1px solid var(--line);
+  background: var(--surface-sunk);
+  box-shadow: var(--shadow-2);
   z-index: 5;
 }
-
-/* Width is set via the custom resize handle (TouchResizeHandle) using
-   pointer events; native CSS `resize` was bottom-right only and didn't
-   work with touch. Height is reactively derived from the capture aspect
-   (App.tsx ResizeObserver) or from the live video aspect (CameraFeed),
-   so the canvas content stays undistorted. */
-.cam-overlay.resizable {
-  min-width: 160px;
-  max-width: 720px;
-}
-
-/* Webcam (motion mode). Aspect ratio comes from the actual stream —
-   laptop webcams typically deliver 4:3 landscape, but mobile front
-   cameras often ignore the requested resolution and return portrait
-   (e.g. 480×640). CameraFeed sets `aspect-ratio` inline once metadata
-   loads; the 4:3 here is just the fallback while the stream comes up.
-   `height: auto` overrides the fixed 180px from the base rule. */
+.cam-overlay.resizable { min-width: 160px; max-width: 720px; }
 .cam-overlay.resizable.cam-feed {
   aspect-ratio: 4 / 3;
   height: auto;
 }
 
-/* Pointer-driven resize handle (mouse + touch) anchored to the top-right
-   corner of the cam-overlay. The 28×28 tap/hit target carries a small
-   ↗ visual indicator via ::after. Same affordance on desktop and mobile,
-   replacing the old browser-native bottom-right resize grip. */
 .cam-resize-handle {
   position: absolute;
   top: 0;
@@ -501,25 +703,28 @@ div.field {
   height: 28px;
   z-index: 4;
   cursor: nesw-resize;
-  /* Prevent the browser from interpreting drags as scrolls/zooms on
-     touchscreens. */
   touch-action: none;
 }
-
 .cam-resize-handle::after {
   content: '';
   position: absolute;
   top: 6px;
   right: 6px;
-  width: 12px;
-  height: 12px;
-  border-top: 2px solid var(--accent-2);
-  border-right: 2px solid var(--accent-2);
+  width: 10px;
+  height: 10px;
+  border-top: 1.5px solid var(--text-muted);
+  border-right: 1.5px solid var(--text-muted);
   pointer-events: none;
-  opacity: 0.7;
+  opacity: 0.6;
+  transition: opacity 140ms cubic-bezier(0.2, 0.8, 0.2, 1),
+              border-color 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.cam-resize-handle:hover::after {
+  opacity: 1;
+  border-top-color: var(--accent);
+  border-right-color: var(--accent);
 }
 
-.cam-resize-handle:hover::after { opacity: 1; }
 .cam-overlay video, .cam-overlay canvas {
   position: absolute;
   inset: 0;
@@ -529,65 +734,84 @@ div.field {
 }
 .cam-overlay .label {
   position: absolute;
-  top: 6px;
+  top: 8px;
   left: 8px;
-  font-size: 10px;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  padding: 2px 8px;
+  font-family: var(--t-mono);
+  font-size: var(--t-overline);
+  color: var(--text-muted);
+  background: oklch(0.16 0.010 195 / 0.7);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  letter-spacing: 0.06em;
   z-index: 2;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.8);
 }
 
+/* ---------------------------------------------------------------------- *
+ * HUD — top-left telemetry pills over the 3D scene                        *
+ *                                                                         *
+ * Solid (not blurred) surface so the chrome is visually quieter than the  *
+ * scene behind it. The 'live' state lifts to the accent; 'rec' fills      *
+ * with --record. Reduced-motion turns the pulse off.                      *
+ * ---------------------------------------------------------------------- */
 .hud {
   position: absolute;
   top: 16px;
   left: 16px;
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 6px;
-  font-size: 12px;
-  color: var(--muted);
-  font-family: ui-monospace, monospace;
+  font-size: var(--t-xs);
+  color: var(--text-muted);
+  font-family: var(--t-mono);
   z-index: 5;
   pointer-events: none;
 }
 .hud .pill {
-  background: rgba(20,24,29,0.7);
-  backdrop-filter: blur(8px);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 4px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: oklch(0.16 0.010 195 / 0.78);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  padding: 3px 10px;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
 }
-.hud .pill.live { color: var(--accent); }
+.hud .pill.live {
+  color: var(--accent);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
 .hud .pill.rec {
-  color: white;
-  background: var(--recording);
-  border-color: var(--recording);
-  animation: pulse 1.2s infinite;
+  color: oklch(0.98 0.01 25);
+  background: var(--record);
+  border-color: var(--record);
+  font-weight: 700;
+  animation: pulse 1.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 @keyframes pulse {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.55; }
+  50% { opacity: 0.6; }
 }
 
 .status {
-  font-size: 11px;
-  color: var(--muted);
-  font-family: ui-monospace, monospace;
+  font-size: var(--t-xs);
+  color: var(--text-muted);
+  font-family: var(--t-mono);
   white-space: pre-wrap;
   max-height: 100px;
   overflow-y: auto;
+  font-variant-numeric: tabular-nums;
 }
 .status.ok { color: var(--accent); }
 .status.err { color: var(--danger); }
 
 /* ---------------------------------------------------------------------- *
- * Drawer toggle button + backdrop                                         *
+ * Drawer toggle (mobile only)                                             *
  *                                                                         *
- * The button is hidden on desktop (sidebar is always visible) and only    *
- * surfaces below the mobile breakpoint. The close (✕) button on the       *
- * sidebar itself is also mobile-only.                                     *
+ * Solid surface, no blur. The icon swaps via the React state.             *
  * ---------------------------------------------------------------------- */
 .drawer-toggle {
   display: none;
@@ -595,25 +819,26 @@ div.field {
   top: 12px;
   right: 12px;
   z-index: 30;
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   padding: 0;
-  font-size: 20px;
+  font-size: 18px;
   line-height: 1;
-  background: rgba(20, 24, 29, 0.85);
-  backdrop-filter: blur(8px);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  background: var(--surface-1);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
   color: var(--text);
+  box-shadow: var(--shadow-2);
 }
+.drawer-toggle:hover { background: var(--surface-2); }
 
 .drawer-backdrop {
   display: none;
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: oklch(0.10 0.01 195 / 0.55);
   z-index: 40;
-  animation: drawer-fade-in 160ms ease;
+  animation: drawer-fade-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 @keyframes drawer-fade-in {
@@ -622,19 +847,32 @@ div.field {
 }
 
 /* ---------------------------------------------------------------------- *
- * Mobile layout (≤ 768px)                                                 *
+ * Reduced motion                                                          *
  *                                                                         *
- * Scene fills the full viewport. The sidebar becomes a slide-in drawer    *
- * from the right, opened via the floating ☰ button. A semi-opaque         *
- * backdrop dismisses on tap. The 3D canvas keeps the full window so       *
- * controls don't compete with it for screen space.                        *
+ * Strip animations and slide transitions when the user prefers reduced    *
+ * motion. The recording pulse becomes a static state; the drawer snaps    *
+ * open instead of sliding.                                                *
+ * ---------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .hud .pill.rec { animation: none; }
+}
+
+/* ---------------------------------------------------------------------- *
+ * Mobile (≤ 768px)                                                        *
  * ---------------------------------------------------------------------- */
 @media (max-width: 768px) {
-  .app {
-    grid-template-columns: 1fr;
-  }
+  .app { grid-template-columns: 1fr; }
 
-  .drawer-toggle { display: inline-flex; align-items: center; justify-content: center; }
+  .drawer-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
 
   .sidebar {
     position: fixed;
@@ -643,41 +881,32 @@ div.field {
     bottom: 0;
     width: min(86vw, 360px);
     z-index: 50;
-    border-left: 1px solid var(--border);
+    border-left: 1px solid var(--line);
     transform: translateX(100%);
-    transition: transform 220ms cubic-bezier(0.2, 0, 0, 1);
-    box-shadow: -8px 0 24px rgba(0, 0, 0, 0.4);
+    transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    box-shadow: -8px 0 24px oklch(0.10 0.02 195 / 0.55);
   }
-
-  .sidebar.open {
-    transform: translateX(0);
-  }
+  .sidebar.open { transform: translateX(0); }
 
   .drawer-backdrop { display: block; }
 
-  /* HUD pills wrap so they don't collide with the drawer toggle. */
   .hud {
     top: 12px;
     left: 12px;
-    right: 68px;
+    right: 64px;
     flex-direction: row;
     flex-wrap: wrap;
-    font-size: 11px;
   }
-  .hud .pill { padding: 3px 8px; }
 
   .cam-overlay {
-    /* Clear the iOS home-indicator / gesture bar so the resize handle
-       in the bottom-right corner is reachable. `env(safe-area-inset-
-       bottom)` is 0 on devices without one, so this is safe everywhere. */
+    /* env(safe-area-inset-bottom) clears the iOS home-indicator so the
+       resize handle is reachable. 0 on devices without one. */
     bottom: max(12px, env(safe-area-inset-bottom));
     left: max(12px, env(safe-area-inset-left));
   }
 
   .cam-overlay.resizable {
     min-width: 120px;
-    /* Match the JS resize handle's 90vw upper bound — capping at 60vw
-       here would silently swallow drags past that point. */
     max-width: 90vw;
   }
 
@@ -685,16 +914,15 @@ div.field {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  /* Slightly larger tap targets on phones without making inputs visually
-     out of proportion with their labels. iOS will still focus-zoom on
-     <16px inputs; that's an acceptable trade vs. the oversized look the
-     16px override produced. */
+  /* Slightly larger tap targets on phones. iOS still focus-zooms <16px
+     inputs, but that's an acceptable trade vs. an oversized look on
+     desktop. */
   button {
-    padding: 10px 12px;
-    font-size: 14px;
+    padding: 9px 12px;
+    font-size: var(--t-lg);
   }
   input, select {
-    padding: 9px 10px;
-    font-size: 14px;
+    padding: 8px 10px;
+    font-size: var(--t-md);
   }
 }
