@@ -21,8 +21,8 @@
      banding; visually it's gray. */
   --bg:           oklch(0.14 0.003 230);
   --surface-1:    oklch(0.18 0.003 230);
-  --surface-2:    oklch(0.24 0.003 230);
-  --surface-sunk: oklch(0.21 0.003 230);
+  --surface-2:    oklch(0.30 0.003 230);
+  --surface-sunk: oklch(0.25 0.003 230);
 
   /* Borders. With surfaces close in tone, lines do more of the grouping
      work, so they're a touch stronger than before. */
@@ -34,12 +34,13 @@
   --text-muted: oklch(0.72 0.004 230);
   --text-dim:   oklch(0.54 0.004 230);
 
-  /* The single accent: live, on, connected, go. Mint teal, the original
-     #5eead4 expressed in OKLCH so soft/line variants stay tunable. */
-  --accent:        oklch(0.866 0.116 173);
-  --accent-soft:   oklch(0.866 0.116 173 / 0.16);
-  --accent-line:   oklch(0.866 0.116 173 / 0.45);
-  --accent-on:     oklch(0.20 0.04 173);
+  /* The single accent: live, on, connected, go. Edge Impulse indigo-purple
+     (~#3b47c2 from edgeimpulse.com blog / studio), brightened for use as
+     a primary action fill on dark surface. */
+  --accent:        oklch(0.66 0.19 277);
+  --accent-soft:   oklch(0.66 0.19 277 / 0.20);
+  --accent-line:   oklch(0.66 0.19 277 / 0.55);
+  --accent-on:     oklch(0.98 0.01 277);
 
   /* Recording / armed. Distinct from danger in semantic, not hue. */
   --record:        oklch(0.66 0.21 25);
@@ -153,8 +154,8 @@ button.primary {
   font-weight: 600;
 }
 button.primary:hover {
-  background: oklch(0.90 0.116 173);
-  border-color: oklch(0.90 0.116 173);
+  background: oklch(0.72 0.19 277);
+  border-color: oklch(0.72 0.19 277);
 }
 button.primary:disabled {
   background: var(--accent-soft);
@@ -460,7 +461,7 @@ label.field, div.field {
   border-color: var(--accent);
   background: var(--accent-soft);
 }
-.webcam-switch.on:hover { background: oklch(0.866 0.116 173 / 0.24); }
+.webcam-switch.on:hover { background: oklch(0.66 0.19 277 / 0.30); }
 .webcam-switch-thumb {
   display: block;
   width: 16px;
