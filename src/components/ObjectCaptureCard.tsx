@@ -14,7 +14,7 @@ import { detectPlatform, type PlatformInfo } from '../lib/platform';
 // API on iOS 17+. We point users there rather than to a developer sample
 // that has to be built from Xcode.
 const REALITY_SCAN_APPSTORE_URL =
-  'https://apps.apple.com/us/app/realityscan-3d-scan-by-capture/id1620511527';
+  'https://apps.apple.com/us/app/realityscan-mobile/id1584832280';
 const APPLE_DOC_URL =
   'https://developer.apple.com/documentation/realitykit/realitykit-object-capture';
 const HELLO_PHOTOGRAMMETRY_URL =
