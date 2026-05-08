@@ -142,6 +142,45 @@ div.field {
 .row { display: flex; gap: 8px; }
 .row > * { flex: 1; }
 
+/* Header-style toggle for collapsible sub-sections inside a card. Looks
+ * like a quiet section label until you hover. The chevron rotates
+ * smoothly when the section opens. */
+.section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 120ms, color 120ms, border-color 120ms;
+}
+.section-toggle:hover {
+  background: rgba(94, 234, 212, 0.06);
+  border-color: var(--border);
+  color: var(--text);
+}
+.section-toggle[aria-expanded="true"] {
+  color: var(--text);
+}
+.section-toggle-chevron {
+  display: inline-block;
+  font-size: 10px;
+  color: var(--muted);
+  transition: transform 160ms ease;
+}
+.section-toggle:hover .section-toggle-chevron,
+.section-toggle[aria-expanded="true"] .section-toggle-chevron {
+  color: var(--accent);
+}
+
 .webcam-control {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

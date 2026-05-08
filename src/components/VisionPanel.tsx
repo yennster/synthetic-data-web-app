@@ -19,6 +19,11 @@ import {
 import { loadEiModel, loadEiModelFromZip } from '../lib/eiModel';
 import { disposeUsdz, loadUsdz, prewarmUsdz } from '../lib/usdz';
 import { putAssetBlob } from '../lib/assetStore';
+import {
+  deleteCustomTexture,
+  putCustomTexture,
+  type TextureKind,
+} from '../lib/textureStore';
 import { EiAuthCard } from './EiAuthCard';
 import { ObjectCaptureCard } from './ObjectCaptureCard';
 
@@ -47,6 +52,10 @@ export function VisionPanel() {
     setConveyorSpeed,
     envPreset,
     setEnvPreset,
+    customFloorTexture,
+    setCustomFloorTexture,
+    customWallTexture,
+    setCustomWallTexture,
     assets,
     addAsset,
     removeAsset,
@@ -81,6 +90,12 @@ export function VisionPanel() {
   const triggerInference = useStore((s) => s.triggerInference);
   const modelFilesRef = useRef<HTMLInputElement>(null);
   const [modelLoading, setModelLoading] = useState(false);
+  // Auto-expand the custom-texture section if the user already has one
+  // uploaded — they probably want to see / clear it. Otherwise hide the
+  // controls behind a single toggle so the Scene card stays compact.
+  const [texturesOpen, setTexturesOpen] = useState(
+    customFloorTexture !== null || customWallTexture !== null,
+  );
   const [eiProjects, setEiProjects] = useState<EiProject[] | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   /** Inline status shown directly inside the Inference card. The global
@@ -601,6 +616,65 @@ export function VisionPanel() {
             <option value="outdoor">Outdoor (grass + sky)</option>
           </select>
         </label>
+        <button
+          type="button"
+          onClick={() => setTexturesOpen((b) => !b)}
+          aria-expanded={texturesOpen}
+          className="section-toggle"
+        >
+          <span>Custom textures</span>
+          <span
+            className="section-toggle-chevron"
+            style={{ transform: texturesOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}
+            aria-hidden
+          >
+            ▸
+          </span>
+          {(customFloorTexture || customWallTexture) && !texturesOpen && (
+            <span
+              style={{
+                marginLeft: 'auto',
+                fontSize: 10,
+                color: 'var(--accent)',
+                fontWeight: 500,
+              }}
+            >
+              {[customFloorTexture && 'floor', customWallTexture && 'wall']
+                .filter(Boolean)
+                .join(' + ')}
+            </span>
+          )}
+        </button>
+        {texturesOpen && (
+          <>
+            <p
+              style={{
+                margin: 0,
+                fontSize: 11,
+                lineHeight: 1.45,
+                color: 'var(--muted)',
+              }}
+            >
+              Drop in a tileable image (PNG, JPG, WebP, AVIF, or GIF). For
+              best results use a seamless 512×512 to 2048×2048 texture —
+              the floor tiles 4× and walls tile 2× across the scene.
+            </p>
+            <CustomTextureField
+              kind="floor"
+              label="Floor texture"
+              meta={customFloorTexture}
+              setMeta={setCustomFloorTexture}
+              setStatus={setStatus}
+            />
+            <CustomTextureField
+              kind="wall"
+              label="Wall texture"
+              meta={customWallTexture}
+              setMeta={setCustomWallTexture}
+              setStatus={setStatus}
+            />
+          </>
+        )}
         <label className="field">
           <span className="row" style={{ alignItems: 'center' }}>
             <input
@@ -641,6 +715,12 @@ export function VisionPanel() {
             // without this it would re-add the asset we just cleared.
             setPendingAssets([]);
             setEnvPreset('studio');
+            // Also drop any user-uploaded floor/wall textures — the reset
+            // takes the scene all the way back to studio defaults.
+            setCustomFloorTexture(null);
+            setCustomWallTexture(null);
+            void deleteCustomTexture('floor').catch(() => {});
+            void deleteCustomTexture('wall').catch(() => {});
             setStatus('ok', 'Scene reset');
           }}
           disabled={sceneObjects.length === 0 && assets.length === 0}
@@ -1495,5 +1575,75 @@ export function VisionPanel() {
         </button>
       </div>
     </>
+  );
+}
+
+/**
+ * File picker + clear control for a single custom surface texture
+ * (floor or wall). Writes the original image bytes to IndexedDB and
+ * stores just the file name in the persisted store, so the texture
+ * survives reloads without bloating localStorage.
+ */
+function CustomTextureField({
+  kind,
+  label,
+  meta,
+  setMeta,
+  setStatus,
+}: {
+  kind: TextureKind;
+  label: string;
+  meta: { name: string } | null;
+  setMeta: (m: { name: string } | null) => void;
+  setStatus: (
+    kind: 'idle' | 'ok' | 'err' | 'busy',
+    msg: string,
+  ) => void;
+}) {
+  return (
+    <label className="field">
+      {label}
+      <div className="row">
+        <input
+          type="file"
+          accept="image/*"
+          onChange={async (e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            try {
+              await putCustomTexture(kind, file);
+              setMeta({ name: file.name });
+              setStatus('ok', `${label}: ${file.name}`);
+            } catch (err) {
+              setStatus(
+                'err',
+                `${label} upload failed: ${(err as Error).message}`,
+              );
+            }
+            // Reset the input so picking the same file again still fires
+            // onChange (browsers skip the event if value didn't change).
+            e.target.value = '';
+          }}
+          style={{ fontSize: 11, flex: 1 }}
+        />
+        {meta && (
+          <button
+            onClick={() => {
+              setMeta(null);
+              void deleteCustomTexture(kind).catch(() => {});
+              setStatus('ok', `${label} cleared`);
+            }}
+            title={`Remove custom ${kind} texture`}
+          >
+            Clear
+          </button>
+        )}
+      </div>
+      {meta && (
+        <span style={{ fontSize: 10, color: 'var(--muted)' }}>
+          Using: {meta.name}
+        </span>
+      )}
+    </label>
   );
 }
