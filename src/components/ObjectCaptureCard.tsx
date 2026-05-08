@@ -40,15 +40,21 @@ export function ObjectCaptureCard() {
         }}
       >
         <h3 style={{ margin: 0 }}>Capture from real life</h3>
-        <span style={{ color: 'var(--muted)', fontSize: 11 }} aria-hidden>
-          {open ? '▾' : '▸'}
+        <span
+          style={{
+            color: 'var(--muted)',
+            fontSize: 14,
+            lineHeight: 1,
+            padding: '2px 6px',
+            border: '1px solid var(--border)',
+            borderRadius: 4,
+          }}
+          aria-hidden
+        >
+          {open ? 'Hide steps ▾' : 'Show steps ▸'}
         </span>
       </button>
 
-      {!open && <PlatformBadge platform={platform} />}
-
-      {open && (
-        <>
       <p style={{ margin: 0, color: 'var(--muted)', fontSize: 12, lineHeight: 1.4 }}>
         Use Apple's{' '}
         <a href={APPLE_DOC_URL} target="_blank" rel="noreferrer">
@@ -60,6 +66,8 @@ export function ObjectCaptureCard() {
 
       <PlatformBadge platform={platform} />
 
+      {open && (
+        <>
       <ol
         style={{
           margin: 0,
