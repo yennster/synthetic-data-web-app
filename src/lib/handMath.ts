@@ -54,3 +54,27 @@ export function handSize(lm: readonly Landmark[]): number {
   const mcp = lm[9];
   return Math.hypot(w.x - mcp.x, w.y - mcp.y);
 }
+
+export type Vec3 = readonly [number, number, number];
+
+/**
+ * Map a hand-space target (right / up / toward-camera offsets) into world
+ * space, anchored at `anchor`. `right`, `up`, `back` are the world-space
+ * basis vectors for those axes — typically extracted from the camera's
+ * `matrixWorld`. Pure math so we can unit-test the orbit-aware mapping
+ * that drives the manipulated body in motion mode.
+ */
+export function cameraRelativeToWorld(
+  target: Vec3,
+  anchor: Vec3,
+  right: Vec3,
+  up: Vec3,
+  back: Vec3,
+): [number, number, number] {
+  const [tx, ty, tz] = target;
+  return [
+    anchor[0] + right[0] * tx + up[0] * ty + back[0] * tz,
+    anchor[1] + right[1] * tx + up[1] * ty + back[1] * tz,
+    anchor[2] + right[2] * tx + up[2] * ty + back[2] * tz,
+  ];
+}

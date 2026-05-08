@@ -13,6 +13,7 @@ import {
 } from '@react-three/rapier';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { cameraRelativeToWorld } from '../lib/handMath';
 import { useStore, type ObjectKind } from '../store/useStore';
 import { Conveyor } from './Conveyor';
 import { ImportedAssets } from './ImportedAssets';
@@ -74,8 +75,7 @@ function ManipulatedObject() {
   const camRight = useRef(new THREE.Vector3());
   const camUp = useRef(new THREE.Vector3());
   const camBack = useRef(new THREE.Vector3());
-  const targetVec = useRef(new THREE.Vector3());
-  const HAND_ANCHOR = useMemo(() => new THREE.Vector3(0, 0.5, 0), []);
+  const HAND_ANCHOR: [number, number, number] = useMemo(() => [0, 0.5, 0], []);
 
   useFrame((state, dt) => {
     const body = bodyRef.current;
@@ -105,13 +105,15 @@ function ManipulatedObject() {
         camUp.current,
         camBack.current,
       );
-      targetVec.current
-        .copy(HAND_ANCHOR)
-        .addScaledVector(camRight.current, pinchTarget[0])
-        .addScaledVector(camUp.current, pinchTarget[1])
-        .addScaledVector(camBack.current, pinchTarget[2]);
+      const world = cameraRelativeToWorld(
+        pinchTarget,
+        HAND_ANCHOR,
+        camRight.current.toArray() as [number, number, number],
+        camUp.current.toArray() as [number, number, number],
+        camBack.current.toArray() as [number, number, number],
+      );
       const next = new THREE.Vector3(cur.x, cur.y, cur.z).lerp(
-        targetVec.current,
+        new THREE.Vector3(world[0], world[1], world[2]),
         FOLLOW_LERP,
       );
       body.setNextKinematicTranslation({ x: next.x, y: next.y, z: next.z });
