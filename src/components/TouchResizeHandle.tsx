@@ -1,57 +1,54 @@
 /**
- * Touch-only resize handle for the bottom-right corner of a `.cam-overlay`
- * (or any horizontally-resizable container). Mobile browsers don't honour
- * the CSS `resize: horizontal` property for touch input, so on phones the
- * native handle is dead — we layer this real interactive element on top
- * of the existing ::after corner indicator and drive width changes from
- * touch events directly. Desktop mouse users keep the native handle; this
- * one is hidden via CSS at >768px.
+ * Pointer-driven resize handle for the top-right corner of a
+ * `.cam-overlay`. Replaces the native CSS `resize: horizontal` (which
+ * is bottom-right only and ignores touch input) with a unified
+ * Pointer Events implementation that works for both mouse and touch.
  *
  * Implementation notes:
- *  - We use window-level touchmove/touchend listeners (added on touchstart)
- *    so the gesture continues even when the finger leaves the small handle
- *    region.
- *  - touchmove gets `preventDefault()` so the browser doesn't treat the
- *    drag as a page scroll. That requires `{passive: false}`.
- *  - We mutate `parent.style.width` directly. Callers that mirror the
- *    width into React state (e.g. App.tsx's ResizeObserver-driven
- *    `previewW`) pick the change up automatically.
+ *  - On pointerdown we capture the pointer to this element so move
+ *    events keep arriving even if the cursor/finger leaves the handle.
+ *  - We listen on window for move/up so the gesture survives leaving
+ *    the handle bounds without losing tracking.
+ *  - The handle mutates `parent.style.width` directly. Callers that
+ *    mirror that into React state (e.g. App.tsx's ResizeObserver →
+ *    `previewW`) pick up the change automatically.
+ *  - Drag right ⇒ grow, drag left ⇒ shrink. Same delta-x semantics
+ *    work whether the handle is bottom-right or top-right.
  */
 const MIN_W = 120;
 const MAX_VW_RATIO = 0.9;
 
 export function TouchResizeHandle() {
-  const onTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     const parent = e.currentTarget.parentElement as HTMLElement | null;
     if (!parent) return;
     e.stopPropagation();
-    const startX = e.touches[0].clientX;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const startX = e.clientX;
     const startW = parent.offsetWidth;
 
-    const onMove = (ev: TouchEvent) => {
-      if (ev.touches.length === 0) return;
-      ev.preventDefault();
-      const dx = ev.touches[0].clientX - startX;
+    const onMove = (ev: PointerEvent) => {
+      const dx = ev.clientX - startX;
       const maxW = window.innerWidth * MAX_VW_RATIO;
       const newW = Math.max(MIN_W, Math.min(maxW, startW + dx));
       parent.style.width = `${newW}px`;
     };
-    const onEnd = () => {
-      window.removeEventListener('touchmove', onMove);
-      window.removeEventListener('touchend', onEnd);
-      window.removeEventListener('touchcancel', onEnd);
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
     };
-    window.addEventListener('touchmove', onMove, { passive: false });
-    window.addEventListener('touchend', onEnd);
-    window.addEventListener('touchcancel', onEnd);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
   };
 
   return (
     <div
-      className="touch-resize-handle"
+      className="cam-resize-handle"
       role="separator"
       aria-label="Resize preview"
-      onTouchStart={onTouchStart}
+      onPointerDown={onPointerDown}
     />
   );
 }

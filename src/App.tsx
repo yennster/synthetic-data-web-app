@@ -83,7 +83,7 @@ export default function App() {
               transform: 'none',
             }}
           >
-            <span className="label">Virtual camera · preview · drag ↘</span>
+            <span className="label">Virtual camera · preview · drag ↗</span>
             <canvas
               ref={(el) => {
                 previewRef.current = el;

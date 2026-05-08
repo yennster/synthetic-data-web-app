@@ -427,11 +427,12 @@ div.field {
   z-index: 5;
 }
 
-/* Native horizontal resize via the bottom-right corner. Height is reactively
-   derived from capture aspect (see App.tsx ResizeObserver) so the canvas
-   content stays undistorted. */
+/* Width is set via the custom resize handle (TouchResizeHandle) using
+   pointer events; native CSS `resize` was bottom-right only and didn't
+   work with touch. Height is reactively derived from the capture aspect
+   (App.tsx ResizeObserver) or from the live video aspect (CameraFeed),
+   so the canvas content stays undistorted. */
 .cam-overlay.resizable {
-  resize: horizontal;
   min-width: 160px;
   max-width: 720px;
 }
@@ -447,37 +448,37 @@ div.field {
   height: auto;
 }
 
-/* Visible drag-corner affordance on top of the native resize handle. */
-.cam-overlay.resizable::after {
+/* Pointer-driven resize handle (mouse + touch) anchored to the top-right
+   corner of the cam-overlay. The 28×28 tap/hit target carries a small
+   ↗ visual indicator via ::after. Same affordance on desktop and mobile,
+   replacing the old browser-native bottom-right resize grip. */
+.cam-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 28px;
+  height: 28px;
+  z-index: 4;
+  cursor: nesw-resize;
+  /* Prevent the browser from interpreting drags as scrolls/zooms on
+     touchscreens. */
+  touch-action: none;
+}
+
+.cam-resize-handle::after {
   content: '';
   position: absolute;
-  right: 2px;
-  bottom: 2px;
+  top: 6px;
+  right: 6px;
   width: 12px;
   height: 12px;
+  border-top: 2px solid var(--accent-2);
   border-right: 2px solid var(--accent-2);
-  border-bottom: 2px solid var(--accent-2);
   pointer-events: none;
   opacity: 0.7;
 }
 
-/* Touch-driven resize handle. Hidden on desktop where CSS resize:
-   horizontal does the job; shown on mobile where touch input doesn't
-   trigger the native handle. The 28×28 tap target overlaps the
-   existing ::after corner indicator so the visual affordance is
-   shared. */
-.touch-resize-handle {
-  display: none;
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  width: 28px;
-  height: 28px;
-  z-index: 4;
-  /* Stop the browser from interpreting drags as scrolls. */
-  touch-action: none;
-  cursor: nwse-resize;
-}
+.cam-resize-handle:hover::after { opacity: 1; }
 .cam-overlay video, .cam-overlay canvas {
   position: absolute;
   inset: 0;
@@ -632,8 +633,6 @@ div.field {
     left: max(12px, env(safe-area-inset-left));
   }
 
-  /* Surface the touch resize handle on phones. */
-  .touch-resize-handle { display: block; }
   .cam-overlay.resizable {
     min-width: 120px;
     /* Match the JS resize handle's 90vw upper bound — capping at 60vw
