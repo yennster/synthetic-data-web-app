@@ -14,6 +14,7 @@ import {
   uploadSample,
   waitForEiJob,
 } from '../lib/edgeImpulse';
+import { randomPreReleaseMs } from '../lib/proceduralMotion';
 import { useNumberInput } from '../lib/useNumberInput';
 import { buildZip, type ZipEntry } from '../lib/zip';
 import { EiAuthCard } from './EiAuthCard';
@@ -295,27 +296,36 @@ export function MotionPanel() {
     return snap;
   };
 
+  /** Sleep until `t0 + durationMs` (no-op if we've already passed it). */
+  const sleepUntil = async (t0: number, durationMs: number): Promise<void> => {
+    const remaining = Math.max(0, durationMs - (performance.now() - t0));
+    if (remaining > 0) await sleepCancellable(remaining);
+  };
+
   const runDrop = async (ctx: RunCtx): Promise<AccelSample[]> => {
     setStatus('busy', `${ctx.index}/${ctx.total} drop: lifting…`);
     await liftTo(1.2, drops.heightMin, drops.heightMax, true);
+    // Total recording window is exactly `durationMs`; the release moment
+    // floats randomly within it so each sample's baseline-vs-flight
+    // proportion varies. Bounded pre-release so the trace always has a
+    // few baseline frames AND meaningful flight time.
+    const t0 = performance.now();
     startRecording();
-    // Brief beat so the first sample is captured before release —
-    // otherwise the very first reading would be the kinematic body's
-    // pre-release linvel, which is artificial.
-    await sleepCancellable(40);
+    await sleepCancellable(randomPreReleaseMs(drops.durationMs));
     setStatus('busy', `${ctx.index}/${ctx.total} drop: falling…`);
     // Gentle tumble — a real-world drop almost always carries some
     // initial spin from the hand letting go.
     releaseBody({ angVelMag: 3 });
-    await sleepCancellable(drops.durationMs);
+    await sleepUntil(t0, drops.durationMs);
     return recordSnapshot();
   };
 
   const runThrow = async (ctx: RunCtx): Promise<AccelSample[]> => {
     setStatus('busy', `${ctx.index}/${ctx.total} throw: winding up…`);
     const start = await liftTo(0.8, drops.heightMin, drops.heightMax, true);
+    const t0 = performance.now();
     startRecording();
-    await sleepCancellable(40);
+    await sleepCancellable(randomPreReleaseMs(drops.durationMs));
     setStatus('busy', `${ctx.index}/${ctx.total} throw: releasing…`);
     const angle = Math.random() * 2 * Math.PI;
     const speed = drops.throwSpeed * (0.85 + Math.random() * 0.3);
@@ -327,7 +337,7 @@ export function MotionPanel() {
       8,
       { angVelMag: 5 },
     );
-    await sleepCancellable(drops.durationMs);
+    await sleepUntil(t0, drops.durationMs);
     return recordSnapshot();
   };
 
@@ -338,8 +348,9 @@ export function MotionPanel() {
     // Hold high enough that a tilted body's corner doesn't intersect the
     // ground while we accelerate the kinematic target.
     const start = await liftTo(1.2, 0.25, 0.4, true);
+    const t0 = performance.now();
     startRecording();
-    await sleepCancellable(40);
+    await sleepCancellable(randomPreReleaseMs(drops.durationMs));
     setStatus('busy', `${ctx.index}/${ctx.total} push: shoving…`);
     const angle = Math.random() * 2 * Math.PI;
     const speed = drops.pushSpeed * (0.85 + Math.random() * 0.3);
@@ -351,7 +362,7 @@ export function MotionPanel() {
       8,
       { angVelMag: 2 },
     );
-    await sleepCancellable(drops.durationMs);
+    await sleepUntil(t0, drops.durationMs);
     return recordSnapshot();
   };
 
