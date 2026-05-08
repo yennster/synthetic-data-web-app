@@ -1,15 +1,16 @@
 <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
-  <!-- Dark rounded background, matches the sidebar surface. -->
-  <rect width="64" height="64" rx="12" fill="#1d2025"/>
-  <!-- Isometric cube — Edge Impulse indigo triad. Top face is the bright
-       button accent; side faces step down for depth at 16x16. -->
+  <!-- Dark rounded background, matches the sidebar surface (oklch 0.18). -->
+  <rect width="64" height="64" rx="12" fill="#101213"/>
+  <!-- Isometric cube — Edge Impulse indigo triad. Top face matches the
+       in-app primary button (#7881ff = oklch 0.66/0.19/277); side faces
+       step down for depth at 16x16. -->
   <g transform="translate(32 36)">
     <!-- top -->
-    <path d="M 0 -18 L 18 -9 L 0 0 L -18 -9 Z" fill="#6c63f0"/>
-    <!-- left (deeper) -->
-    <path d="M -18 -9 L 0 0 L 0 18 L -18 9 Z" fill="#3b47c2"/>
+    <path d="M 0 -18 L 18 -9 L 0 0 L -18 -9 Z" fill="#7881ff"/>
+    <!-- left (deepest) -->
+    <path d="M -18 -9 L 0 0 L 0 18 L -18 9 Z" fill="#4240b6"/>
     <!-- right (mid) -->
-    <path d="M 18 -9 L 0 0 L 0 18 L 18 9 Z" fill="#5251d8"/>
+    <path d="M 18 -9 L 0 0 L 0 18 L 18 9 Z" fill="#5a5ce2"/>
   </g>
   <!-- Amber dot — second focal point so the icon doesn't read as just a
        monochrome cube; references the spawned-object palette. -->
