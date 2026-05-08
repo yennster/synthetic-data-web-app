@@ -90,6 +90,12 @@ export function VisionPanel() {
   const triggerInference = useStore((s) => s.triggerInference);
   const modelFilesRef = useRef<HTMLInputElement>(null);
   const [modelLoading, setModelLoading] = useState(false);
+  // Auto-expand the custom-texture section if the user already has one
+  // uploaded — they probably want to see / clear it. Otherwise hide the
+  // controls behind a single toggle so the Scene card stays compact.
+  const [texturesOpen, setTexturesOpen] = useState(
+    customFloorTexture !== null || customWallTexture !== null,
+  );
   const [eiProjects, setEiProjects] = useState<EiProject[] | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   /** Inline status shown directly inside the Inference card. The global
@@ -610,20 +616,32 @@ export function VisionPanel() {
             <option value="outdoor">Outdoor (grass + sky)</option>
           </select>
         </label>
-        <CustomTextureField
-          kind="floor"
-          label="Floor texture"
-          meta={customFloorTexture}
-          setMeta={setCustomFloorTexture}
-          setStatus={setStatus}
-        />
-        <CustomTextureField
-          kind="wall"
-          label="Wall texture"
-          meta={customWallTexture}
-          setMeta={setCustomWallTexture}
-          setStatus={setStatus}
-        />
+        <button
+          type="button"
+          onClick={() => setTexturesOpen((b) => !b)}
+          aria-expanded={texturesOpen}
+          style={{ alignSelf: 'flex-start', fontSize: 11 }}
+        >
+          {texturesOpen ? 'Hide custom textures ↑' : 'Custom textures ↓'}
+        </button>
+        {texturesOpen && (
+          <>
+            <CustomTextureField
+              kind="floor"
+              label="Floor texture"
+              meta={customFloorTexture}
+              setMeta={setCustomFloorTexture}
+              setStatus={setStatus}
+            />
+            <CustomTextureField
+              kind="wall"
+              label="Wall texture"
+              meta={customWallTexture}
+              setMeta={setCustomWallTexture}
+              setStatus={setStatus}
+            />
+          </>
+        )}
         <label className="field">
           <span className="row" style={{ alignItems: 'center' }}>
             <input
