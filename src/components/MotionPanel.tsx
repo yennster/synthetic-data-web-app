@@ -549,7 +549,17 @@ export function MotionPanel() {
     }
   };
 
-  const durationSec = samples.length / sampleRateHz;
+  // Display the actual recording span — same reason the EI payload now
+  // reports an inferred interval rather than the requested rate. The
+  // sampler caps emission at the render frame rate (one sample per
+  // useFrame call), so dividing the sample count by the *requested*
+  // sample rate underreports the duration on machines where frame rate
+  // < requested Hz (e.g. 60 fps render with 100 Hz requested → trace
+  // shown as 1.2 s instead of the actual 2.0 s).
+  const durationSec =
+    samples.length > 1
+      ? (samples[samples.length - 1].t - samples[0].t) / 1000
+      : samples.length / sampleRateHz;
   const hasApiKey = ei.apiKey.trim().length > 0;
 
   return (
