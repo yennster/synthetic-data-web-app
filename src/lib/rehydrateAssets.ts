@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { useStore } from '../store/useStore';
 import { getAssetBlob, deleteAssetBlob } from './assetStore';
 import { loadUsdz } from './usdz';
@@ -13,36 +13,33 @@ import { loadUsdz } from './usdz';
  * resulting `ImportedAsset` back to the store with the user's positions /
  * scales / labels intact.
  *
- * Runs exactly once per app session — once we've consumed the pending list
- * we clear it. New imports during the session go through the normal
- * import path and don't touch this hook.
+ * The guard is module-level (not a `useRef`) on purpose: under React
+ * StrictMode the dev-only synthetic remount creates a fresh component
+ * instance with a fresh ref every time, so a per-component guard would
+ * fire the rehydration twice — racing two `loadUsdz` calls into the same
+ * OpenUSD WASM singleton. A module-level boolean is shared across
+ * mounts and survives StrictMode's mount → unmount → remount cycle.
  */
+let rehydrateStarted = false;
+
 export function useRehydrateAssets(): void {
-  const ranRef = useRef(false);
-
   useEffect(() => {
-    if (ranRef.current) return;
-    ranRef.current = true;
+    if (rehydrateStarted) return;
+    rehydrateStarted = true;
 
-    const { pendingAssets } = useStore.getState();
+    const { pendingAssets, addAsset, setPendingAssets, setStatus } =
+      useStore.getState();
     if (pendingAssets.length === 0) return;
 
-    const { addAsset, setPendingAssets, setStatus } = useStore.getState();
-
-    let cancelled = false;
     let restored = 0;
     const total = pendingAssets.length;
     setStatus('busy', `Restoring ${total} asset(s)…`);
 
     (async () => {
       for (const meta of pendingAssets) {
-        if (cancelled) return;
         try {
           const blob = await getAssetBlob(meta.id);
           if (!blob) {
-            // The metadata exists but the blob is gone (e.g. user cleared
-            // site data, or storage was evicted). Drop the orphan so we
-            // don't try to restore it again on the next load.
             console.warn(
               `[persist] missing usdz blob for ${meta.name}, skipping`,
             );
@@ -53,7 +50,6 @@ export function useRehydrateAssets(): void {
             type: 'model/vnd.usdz+zip',
           });
           const { object, handle, isAnimated } = await loadUsdz(file);
-          if (cancelled) return;
           addAsset({
             id: meta.id,
             name: meta.name,
@@ -78,7 +74,6 @@ export function useRehydrateAssets(): void {
           console.warn(`[persist] failed to restore ${meta.name}:`, err);
         }
       }
-      if (cancelled) return;
       setPendingAssets([]);
       setStatus(
         'ok',
@@ -87,9 +82,5 @@ export function useRehydrateAssets(): void {
           : `Restored ${restored} of ${total} asset(s)`,
       );
     })();
-
-    return () => {
-      cancelled = true;
-    };
   }, []);
 }

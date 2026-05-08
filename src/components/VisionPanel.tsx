@@ -52,6 +52,7 @@ export function VisionPanel() {
     removeAsset,
     updateAsset,
     clearAssets,
+    setPendingAssets,
     capture: cs,
     setCapture,
     captures,
@@ -624,6 +625,28 @@ export function VisionPanel() {
             />
           </label>
         )}
+        <button
+          onClick={() => {
+            const total = sceneObjects.length + assets.length;
+            if (total === 0) return;
+            const ok = window.confirm(
+              `Reset scene? This removes ${sceneObjects.length} object(s) and ${assets.length} imported asset(s) from this session and from saved storage.`,
+            );
+            if (!ok) return;
+            for (const a of assets) disposeUsdz(a.object, a.handle ?? undefined);
+            clearAssets();
+            clearSceneObjects();
+            // Drop any pending-rehydrate metadata too. Edge case: user hits
+            // Reset while the rehydrate hook is still walking pendingAssets;
+            // without this it would re-add the asset we just cleared.
+            setPendingAssets([]);
+            setStatus('ok', 'Scene reset');
+          }}
+          disabled={sceneObjects.length === 0 && assets.length === 0}
+          style={{ marginTop: 4 }}
+        >
+          Reset scene
+        </button>
       </div>
 
       <div className="card">
