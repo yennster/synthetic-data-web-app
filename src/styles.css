@@ -13,21 +13,26 @@
   font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   font-feature-settings: 'cv11', 'ss01', 'ss03';
 
-  /* Surfaces. Visually neutral gray; a 0.003 chroma stops pure-#000/#fff
-     banding without tinting the surface. Each step ~+0.04 lightness. */
-  --bg:           oklch(0.18 0.003 175);
-  --surface-1:    oklch(0.22 0.003 175);
-  --surface-2:    oklch(0.27 0.003 175);
-  --surface-sunk: oklch(0.16 0.003 175);
+  /* Surfaces. The sidebar sits at the same gray as the bottom of the 3D
+     scene's gradient (#14181d ≈ oklch(0.18 240)), so the chrome reads as
+     continuous with the scene. Input wells sit a hair *above* the sidebar
+     so controls look like raised instrument chips, not recessed black
+     holes. The 0.003 chroma toward 230 (cool) just stops pure-#000/#fff
+     banding; visually it's gray. */
+  --bg:           oklch(0.14 0.003 230);
+  --surface-1:    oklch(0.18 0.003 230);
+  --surface-2:    oklch(0.24 0.003 230);
+  --surface-sunk: oklch(0.21 0.003 230);
 
-  /* Borders. Hairlines stay quiet, line-strong is for input chrome. */
-  --line:        oklch(0.32 0.004 175 / 0.7);
-  --line-strong: oklch(0.40 0.004 175);
+  /* Borders. With surfaces close in tone, lines do more of the grouping
+     work, so they're a touch stronger than before. */
+  --line:        oklch(0.30 0.004 230 / 0.8);
+  --line-strong: oklch(0.40 0.004 230);
 
   /* Text ladder. */
-  --text:       oklch(0.96 0.003 175);
-  --text-muted: oklch(0.72 0.004 175);
-  --text-dim:   oklch(0.54 0.004 175);
+  --text:       oklch(0.96 0.003 230);
+  --text-muted: oklch(0.72 0.004 230);
+  --text-dim:   oklch(0.54 0.004 230);
 
   /* The single accent: live, on, connected, go. Mint teal, the original
      #5eead4 expressed in OKLCH so soft/line variants stay tunable. */
@@ -48,7 +53,7 @@
 
   /* Shadows are near-black, untinted. */
   --shadow-1: 0 1px 2px oklch(0 0 0 / 0.35);
-  --shadow-2: 0 8px 24px oklch(0.08 0.003 175 / 0.55);
+  --shadow-2: 0 8px 24px oklch(0.08 0.003 230 / 0.55);
 
   --r-sm: 4px;
   --r-md: 6px;
@@ -125,7 +130,7 @@ button {
 }
 
 button:hover {
-  background: oklch(0.30 0.003 175);
+  background: oklch(0.30 0.003 230);
 }
 
 button:disabled {
@@ -450,7 +455,7 @@ label.field, div.field {
     background 160ms cubic-bezier(0.2, 0.8, 0.2, 1),
     border-color 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-.webcam-switch:hover { background: oklch(0.20 0.003 175); }
+.webcam-switch:hover { background: oklch(0.20 0.003 230); }
 .webcam-switch.on {
   border-color: var(--accent);
   background: var(--accent-soft);
@@ -512,7 +517,7 @@ label.field, div.field {
   pointer-events: none;
 }
 .motion-pill:hover {
-  background: oklch(0.27 0.003 175);
+  background: oklch(0.27 0.003 230);
   color: var(--text);
 }
 .motion-pill.on {
@@ -743,7 +748,7 @@ label.field, div.field {
   font-family: var(--t-mono);
   font-size: var(--t-overline);
   color: var(--text-muted);
-  background: oklch(0.16 0.003 175 / 0.7);
+  background: oklch(0.16 0.003 230 / 0.7);
   border: 1px solid var(--line);
   border-radius: var(--r-pill);
   letter-spacing: 0.06em;
@@ -775,7 +780,7 @@ label.field, div.field {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: oklch(0.16 0.003 175 / 0.78);
+  background: oklch(0.16 0.003 230 / 0.78);
   border: 1px solid var(--line);
   border-radius: var(--r-pill);
   padding: 3px 10px;
@@ -839,7 +844,7 @@ label.field, div.field {
   display: none;
   position: fixed;
   inset: 0;
-  background: oklch(0.10 0.003 175 / 0.55);
+  background: oklch(0.10 0.003 230 / 0.55);
   z-index: 40;
   animation: drawer-fade-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
@@ -887,7 +892,7 @@ label.field, div.field {
     border-left: 1px solid var(--line);
     transform: translateX(100%);
     transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
-    box-shadow: -8px 0 24px oklch(0.10 0.003 175 / 0.55);
+    box-shadow: -8px 0 24px oklch(0.10 0.003 230 / 0.55);
   }
   .sidebar.open { transform: translateX(0); }
 
