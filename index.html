@@ -11,14 +11,19 @@
       content="Browser-based 3D tool for generating synthetic training data via hand-tracked gestures or a virtual camera, with direct Edge Impulse upload."
     />
 
-    <!-- Open Graph / Facebook / LinkedIn / Slack / Discord / iMessage -->
+    <!-- Open Graph / Facebook / LinkedIn / Slack / Discord / iMessage.
+         LinkedIn's scraper requires absolute URLs for og:image — relative
+         paths render as a title-only card. -->
     <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://synthetic.jennyspeelman.dev/" />
     <meta property="og:title" content="Synthetic Data Studio" />
     <meta
       property="og:description"
       content="Browser-based 3D tool for generating synthetic training data via hand-tracked gestures or a virtual camera, with direct Edge Impulse upload."
     />
-    <meta property="og:image" content="/og-card.png" />
+    <meta property="og:image" content="https://synthetic.jennyspeelman.dev/og-card.png" />
+    <meta property="og:image:secure_url" content="https://synthetic.jennyspeelman.dev/og-card.png" />
+    <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="Synthetic Data Studio — isometric teal cube on a dark background" />
@@ -30,7 +35,7 @@
       name="twitter:description"
       content="Browser-based 3D tool for generating synthetic training data via hand-tracked gestures or a virtual camera, with direct Edge Impulse upload."
     />
-    <meta name="twitter:image" content="/og-card.png" />
+    <meta name="twitter:image" content="https://synthetic.jennyspeelman.dev/og-card.png" />
   </head>
   <body>
     <div id="root"></div>
