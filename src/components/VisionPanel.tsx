@@ -18,6 +18,7 @@ import {
 } from '../lib/edgeImpulse';
 import { loadEiModel, loadEiModelFromZip } from '../lib/eiModel';
 import { disposeUsdz, loadUsdz, prewarmUsdz } from '../lib/usdz';
+import { putAssetBlob } from '../lib/assetStore';
 import { EiAuthCard } from './EiAuthCard';
 import { ObjectCaptureCard } from './ObjectCaptureCard';
 
@@ -416,6 +417,14 @@ export function VisionPanel() {
 
         const id = crypto.randomUUID();
         const baseName = file.name.replace(/\.usdz$/i, '');
+        // Stash the original `.usdz` bytes in IDB so a refresh can rebuild
+        // this asset by re-running `loadUsdz()` against the same blob. We
+        // intentionally don't await: the user shouldn't wait on storage to
+        // see their import. A failure here only loses persistence for this
+        // asset, not the in-memory render.
+        void putAssetBlob(id, file).catch((err) => {
+          console.warn(`[persist] failed to store ${baseName}.usdz:`, err);
+        });
         addAsset({
           id,
           name: baseName,

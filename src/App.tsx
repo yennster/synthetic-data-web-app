@@ -7,6 +7,7 @@ import { Scene } from './components/Scene';
 import { Sidebar } from './components/Sidebar';
 import { TouchResizeHandle } from './components/TouchResizeHandle';
 import { useStore } from './store/useStore';
+import { useRehydrateAssets } from './lib/rehydrateAssets';
 
 const MAX_PREVIEW_DPR = 2;
 
@@ -17,6 +18,8 @@ function getPreviewPixelRatio(): number {
 }
 
 export default function App() {
+  useRehydrateAssets();
+
   const mode = useStore((s) => s.mode);
   const captureSettings = useStore((s) => s.capture);
   const handTrackingEnabled = useStore((s) => s.handTrackingEnabled);
