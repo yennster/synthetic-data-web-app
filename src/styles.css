@@ -390,8 +390,9 @@ label.field, div.field {
 /* ---------------------------------------------------------------------- *
  * Section-toggle: collapsible sub-section header inside a card           *
  *                                                                         *
- * Reads as a quiet field label until you hover; the chevron tilts on      *
- * open. No accent fill — accents are reserved for state.                  *
+ * Quiet at rest — same tracked-uppercase label as a field, but with a     *
+ * brighter chevron and a hover tint that reveals it's a clickable row.    *
+ * No filled chrome; the hover state is the affordance.                    *
  * ---------------------------------------------------------------------- */
 .section-toggle {
   display: flex;
@@ -400,29 +401,38 @@ label.field, div.field {
   width: 100%;
   text-align: left;
   background: transparent;
-  border: 1px solid transparent;
+  border: 0;
   border-radius: var(--r-sm);
-  padding: 5px 0;
+  padding: 4px 0;
+  margin: 0;
   font-size: var(--t-overline);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   font-weight: 600;
   color: var(--text-muted);
   cursor: pointer;
+  transition: color 120ms ease;
 }
-.section-toggle:hover {
-  background: transparent;
-  color: var(--text);
+.section-toggle:hover { color: var(--text); }
+.section-toggle:focus-visible {
+  outline: 2px solid var(--accent-line);
+  outline-offset: 2px;
 }
 .section-toggle[aria-expanded="true"] { color: var(--text); }
 .section-toggle-chevron {
   display: inline-block;
-  font-size: 9px;
-  color: var(--text-dim);
-  transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-.section-toggle[aria-expanded="true"] .section-toggle-chevron {
+  /* Order: park the chevron on the trailing edge of the row. The optional
+     summary span uses its own margin-left: auto to sit between the label
+     and the chevron rather than fighting it for trailing space. */
+  order: 1;
+  margin-left: auto;
+  font-size: 11px;
   color: var(--text-muted);
+  transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1), color 120ms ease;
+}
+.section-toggle:hover .section-toggle-chevron { color: var(--text); }
+.section-toggle[aria-expanded="true"] .section-toggle-chevron {
+  color: var(--accent);
 }
 
 /* ---------------------------------------------------------------------- *

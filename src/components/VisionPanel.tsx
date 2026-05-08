@@ -56,8 +56,6 @@ export function VisionPanel() {
     setCustomFloorTexture,
     customWallTexture,
     setCustomWallTexture,
-    customObjectTexture,
-    setCustomObjectTexture,
     assets,
     addAsset,
     removeAsset,
@@ -96,9 +94,7 @@ export function VisionPanel() {
   // uploaded — they probably want to see / clear it. Otherwise hide the
   // controls behind a single toggle so the Scene card stays compact.
   const [texturesOpen, setTexturesOpen] = useState(
-    customFloorTexture !== null ||
-      customWallTexture !== null ||
-      customObjectTexture !== null,
+    customFloorTexture !== null || customWallTexture !== null,
   );
   const [eiProjects, setEiProjects] = useState<EiProject[] | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
@@ -634,25 +630,20 @@ export function VisionPanel() {
           >
             ▸
           </span>
-          {(customFloorTexture || customWallTexture || customObjectTexture) &&
-            !texturesOpen && (
-              <span
-                style={{
-                  marginLeft: 'auto',
-                  fontSize: 10,
-                  color: 'var(--accent)',
-                  fontWeight: 500,
-                }}
-              >
-                {[
-                  customFloorTexture && 'floor',
-                  customWallTexture && 'wall',
-                  customObjectTexture && 'objects',
-                ]
-                  .filter(Boolean)
-                  .join(' + ')}
-              </span>
-            )}
+          {(customFloorTexture || customWallTexture) && !texturesOpen && (
+            <span
+              style={{
+                marginLeft: 'auto',
+                fontSize: 10,
+                color: 'var(--accent)',
+                fontWeight: 500,
+              }}
+            >
+              {[customFloorTexture && 'floor', customWallTexture && 'wall']
+                .filter(Boolean)
+                .join(' + ')}
+            </span>
+          )}
         </button>
         {texturesOpen && (
           <>
@@ -680,13 +671,6 @@ export function VisionPanel() {
               label="Wall texture"
               meta={customWallTexture}
               setMeta={setCustomWallTexture}
-              setStatus={setStatus}
-            />
-            <CustomTextureField
-              kind="object"
-              label="Object texture"
-              meta={customObjectTexture}
-              setMeta={setCustomObjectTexture}
               setStatus={setStatus}
             />
           </>
@@ -718,9 +702,7 @@ export function VisionPanel() {
         <button
           onClick={() => {
             const textureCount =
-              (customFloorTexture ? 1 : 0) +
-              (customWallTexture ? 1 : 0) +
-              (customObjectTexture ? 1 : 0);
+              (customFloorTexture ? 1 : 0) + (customWallTexture ? 1 : 0);
             const total =
               sceneObjects.length + assets.length + textureCount;
             if (total === 0) return;
@@ -745,18 +727,15 @@ export function VisionPanel() {
             // takes the scene all the way back to studio defaults.
             setCustomFloorTexture(null);
             setCustomWallTexture(null);
-            setCustomObjectTexture(null);
             void deleteCustomTexture('floor').catch(() => {});
             void deleteCustomTexture('wall').catch(() => {});
-            void deleteCustomTexture('object').catch(() => {});
             setStatus('ok', 'Scene reset');
           }}
           disabled={
             sceneObjects.length === 0 &&
             assets.length === 0 &&
             !customFloorTexture &&
-            !customWallTexture &&
-            !customObjectTexture
+            !customWallTexture
           }
           style={{ marginTop: 4 }}
         >

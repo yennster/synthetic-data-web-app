@@ -11,7 +11,7 @@ const DB_NAME = 'sds-textures';
 const DB_VERSION = 1;
 const STORE = 'textures';
 
-export type TextureKind = 'floor' | 'wall' | 'object';
+export type TextureKind = 'floor' | 'wall';
 
 let _dbPromise: Promise<IDBDatabase> | null = null;
 

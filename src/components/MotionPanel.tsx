@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import {
   ALL_MOTION_KINDS,
   useStore,
@@ -15,10 +14,6 @@ import {
   uploadSample,
   waitForEiJob,
 } from '../lib/edgeImpulse';
-import {
-  deleteCustomTexture,
-  putCustomTexture,
-} from '../lib/textureStore';
 import { buildZip, type ZipEntry } from '../lib/zip';
 import { EiAuthCard } from './EiAuthCard';
 
@@ -88,16 +83,7 @@ export function MotionPanel() {
     setPinchTarget,
     setPinchRotation,
     setDropsCancelRequested,
-    customObjectTexture,
-    setCustomObjectTexture,
   } = useStore();
-
-  // Mirror VisionPanel's "Custom textures" section: auto-expand when the
-  // user already has a texture so they can see / clear it; otherwise hide
-  // the controls behind a chevron toggle to keep the Object card compact.
-  const [textureOpen, setTextureOpen] = useState(
-    customObjectTexture !== null,
-  );
 
   const onUpload = async () => {
     setStatus('busy', 'Uploading…');
@@ -525,80 +511,6 @@ export function MotionPanel() {
             </option>
           ))}
         </select>
-        <button
-          type="button"
-          onClick={() => setTextureOpen((b) => !b)}
-          aria-expanded={textureOpen}
-          className="section-toggle"
-        >
-          <span>Custom texture</span>
-          <span
-            className="section-toggle-chevron"
-            style={{ transform: textureOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}
-            aria-hidden
-          >
-            ▸
-          </span>
-          {customObjectTexture && !textureOpen && (
-            <span
-              style={{
-                marginLeft: 'auto',
-                fontSize: 10,
-                color: 'var(--accent)',
-                fontWeight: 500,
-              }}
-            >
-              {customObjectTexture.name}
-            </span>
-          )}
-        </button>
-        {textureOpen && (
-          <label className="field">
-            <div className="row">
-              <input
-                type="file"
-                accept="image/*"
-                onChange={async (e) => {
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  try {
-                    await putCustomTexture('object', file);
-                    setCustomObjectTexture({ name: file.name });
-                    setStatus('ok', `Object texture: ${file.name}`);
-                  } catch (err) {
-                    setStatus(
-                      'err',
-                      `Object texture upload failed: ${(err as Error).message}`,
-                    );
-                  }
-                  e.target.value = '';
-                }}
-                style={{ fontSize: 11, flex: 1 }}
-              />
-              {customObjectTexture && (
-                <button
-                  onClick={() => {
-                    setCustomObjectTexture(null);
-                    void deleteCustomTexture('object').catch(() => {});
-                    setStatus('ok', 'Object texture cleared');
-                  }}
-                  title="Remove custom object texture"
-                >
-                  Clear
-                </button>
-              )}
-            </div>
-            {customObjectTexture ? (
-              <span style={{ fontSize: 10, color: 'var(--muted)' }}>
-                Using: {customObjectTexture.name}
-              </span>
-            ) : (
-              <span style={{ fontSize: 10, color: 'var(--muted)' }}>
-                Optional. Applies to every default shape in the scene.
-              </span>
-            )}
-          </label>
-        )}
         <div className="webcam-control">
           <div className="webcam-control-copy">
             <div className="webcam-control-heading">
