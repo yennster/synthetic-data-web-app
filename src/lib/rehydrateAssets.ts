@@ -27,13 +27,19 @@ export function useRehydrateAssets(): void {
     if (rehydrateStarted) return;
     rehydrateStarted = true;
 
-    const { pendingAssets, addAsset, setPendingAssets, setStatus } =
-      useStore.getState();
+    const {
+      pendingAssets,
+      addAsset,
+      setPendingAssets,
+      setStatus,
+      setRestoringAssets,
+    } = useStore.getState();
     if (pendingAssets.length === 0) return;
 
     let restored = 0;
     const total = pendingAssets.length;
     setStatus('busy', `Restoring ${total} asset(s)…`);
+    setRestoringAssets({ done: 0, total });
 
     (async () => {
       for (const meta of pendingAssets) {
@@ -73,8 +79,10 @@ export function useRehydrateAssets(): void {
         } catch (err) {
           console.warn(`[persist] failed to restore ${meta.name}:`, err);
         }
+        setRestoringAssets({ done: restored, total });
       }
       setPendingAssets([]);
+      setRestoringAssets({ done: 0, total: 0 });
       setStatus(
         'ok',
         restored === total

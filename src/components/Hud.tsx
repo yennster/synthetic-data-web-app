@@ -10,6 +10,7 @@ export function Hud() {
   const captures = useStore((s) => s.captures);
   const sceneObjects = useStore((s) => s.sceneObjects);
   const assets = useStore((s) => s.assets);
+  const restoring = useStore((s) => s.restoringAssets);
 
   if (mode === 'motion') {
     return (
@@ -22,6 +23,11 @@ export function Hud() {
           {isGrabbed ? 'Grabbed' : 'Released'}
         </div>
         {isRecording && <div className="pill rec">● REC · {samples.length}</div>}
+        {restoring.total > 0 && (
+          <div className="pill" title="Re-importing USDZ assets saved from a previous session">
+            ⟳ Restoring {restoring.done}/{restoring.total}…
+          </div>
+        )}
       </div>
     );
   }
@@ -47,6 +53,11 @@ export function Hud() {
       >
         Tip: Shift+drag · Hold Alt/Option/Ctrl for depth
       </div>
+      {restoring.total > 0 && (
+        <div className="pill" title="Re-importing USDZ assets saved from a previous session">
+          ⟳ Restoring {restoring.done}/{restoring.total}…
+        </div>
+      )}
     </div>
   );
 }
