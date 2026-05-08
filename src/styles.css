@@ -344,27 +344,28 @@ label.field, div.field {
 }
 .card h3 {
   margin: 0;
-  font-size: var(--t-lg);
+  font-size: 15px;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: -0.012em;
   color: var(--text);
-  text-transform: uppercase;
+  text-transform: none;
   position: relative;
-  padding-left: 12px;
+  padding-left: 14px;
+  line-height: 1.2;
 }
 /* Slim accent bar that sits flush with the heading — gives each section
-   a visual anchor without adding chrome. Color follows the global accent
-   so it picks up theming changes automatically. */
+   a visual anchor without adding chrome. Soft accent line color (instead
+   of the full accent) keeps it readable against neighbouring buttons
+   that already use the same accent more loudly. */
 .card h3::before {
   content: "";
   position: absolute;
   left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 3px;
-  height: 14px;
-  background: var(--accent);
-  border-radius: 2px;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  background: var(--accent-line);
+  border-radius: 999px;
 }
 
 .row { display: flex; gap: 8px; }
