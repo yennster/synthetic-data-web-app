@@ -7,6 +7,7 @@ import {
 } from '../lib/handTracking';
 import type { HandLandmarker } from '@mediapipe/tasks-vision';
 import { useStore } from '../store/useStore';
+import { TouchResizeHandle } from './TouchResizeHandle';
 
 const PINCH_ON = 0.65;
 const PINCH_OFF = 0.45;
@@ -230,6 +231,7 @@ export function CameraFeed() {
         }}
       />
       <canvas ref={canvasRef} />
+      <TouchResizeHandle />
     </div>
   );
 }
