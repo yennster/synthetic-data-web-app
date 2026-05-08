@@ -218,7 +218,7 @@ export function CameraFeed() {
       className="cam-overlay resizable cam-feed"
       style={videoAspect ? { aspectRatio: `${videoAspect}` } : undefined}
     >
-      <span className="label">Webcam · hand tracking · drag ↘</span>
+      <span className="label">Webcam · hand tracking · drag ↗</span>
       <video
         ref={videoRef}
         muted
