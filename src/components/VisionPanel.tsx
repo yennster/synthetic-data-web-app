@@ -620,9 +620,29 @@ export function VisionPanel() {
           type="button"
           onClick={() => setTexturesOpen((b) => !b)}
           aria-expanded={texturesOpen}
-          style={{ alignSelf: 'flex-start', fontSize: 11 }}
+          className="section-toggle"
         >
-          {texturesOpen ? 'Hide custom textures ↑' : 'Custom textures ↓'}
+          <span
+            className="section-toggle-chevron"
+            style={{ transform: texturesOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}
+            aria-hidden
+          >
+            ▸
+          </span>
+          <span style={{ flex: 1 }}>Custom textures</span>
+          {(customFloorTexture || customWallTexture) && !texturesOpen && (
+            <span
+              style={{
+                fontSize: 10,
+                color: 'var(--accent)',
+                fontWeight: 500,
+              }}
+            >
+              {[customFloorTexture && 'floor', customWallTexture && 'wall']
+                .filter(Boolean)
+                .join(' + ')}
+            </span>
+          )}
         </button>
         {texturesOpen && (
           <>
