@@ -42,27 +42,29 @@ function getStudioUrl(): string {
 export function ObjectCaptureCard() {
   const platform: PlatformInfo = useMemo(() => detectPlatform(), []);
   const [open, setOpen] = useState(false);
-  const [qrSvg, setQrSvg] = useState<string | null>(null);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const studioUrl = useMemo(() => getStudioUrl(), []);
 
   // Render the QR lazily — only when the user opens the panel — so we
-  // don't pay the encoder cost on the cold path.
+  // don't pay the encoder cost on the cold path. Using toDataURL (PNG)
+  // rather than inline SVG so we can size it predictably with an <img>;
+  // the SVG output bakes in its own width/height attrs and overflows
+  // narrow sidebars.
   useEffect(() => {
-    if (!open || qrSvg || !studioUrl) return;
+    if (!open || qrDataUrl || !studioUrl) return;
     let cancelled = false;
-    QRCode.toString(studioUrl, {
-      type: 'svg',
+    QRCode.toDataURL(studioUrl, {
       errorCorrectionLevel: 'M',
       margin: 1,
-      color: { dark: '#e7e7ea', light: '#0000' },
-      width: 220,
-    }).then((svg) => {
-      if (!cancelled) setQrSvg(svg);
+      color: { dark: '#e7e7ea', light: '#00000000' },
+      width: 320,
+    }).then((url) => {
+      if (!cancelled) setQrDataUrl(url);
     });
     return () => {
       cancelled = true;
     };
-  }, [open, qrSvg, studioUrl]);
+  }, [open, qrDataUrl, studioUrl]);
 
   const showQr = !platform.isMobile;
 
@@ -100,26 +102,39 @@ export function ObjectCaptureCard() {
             <div
               style={{
                 display: 'flex',
-                gap: 12,
+                flexDirection: 'column',
                 alignItems: 'center',
+                gap: 8,
                 background: 'rgba(255,255,255,0.04)',
                 border: '1px solid rgba(255,255,255,0.08)',
                 borderRadius: 6,
                 padding: 10,
               }}
             >
+              {qrDataUrl ? (
+                <img
+                  src={qrDataUrl}
+                  alt="QR code linking to this studio"
+                  title={studioUrl}
+                  width={160}
+                  height={160}
+                  style={{ display: 'block', imageRendering: 'pixelated' }}
+                />
+              ) : (
+                <div style={{ width: 160, height: 160, fontSize: 11 }}>
+                  Generating…
+                </div>
+              )}
               <div
-                aria-label="QR code linking to this studio"
-                title={studioUrl}
-                style={{ width: 110, height: 110, flex: 'none' }}
-                dangerouslySetInnerHTML={{
-                  __html:
-                    qrSvg ?? '<div style="font-size:11px">Generating…</div>',
+                style={{
+                  fontSize: 12,
+                  color: 'var(--muted)',
+                  lineHeight: 1.4,
+                  textAlign: 'center',
                 }}
-              />
-              <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.4 }}>
-                Scan with your iPhone Camera to open this studio there, then
-                follow the steps below.
+              >
+                Scan with your iPhone Camera to open this studio there,
+                then follow the steps below.
               </div>
             </div>
           )}
