@@ -42,6 +42,11 @@ export function Conveyor() {
   const speed = useStore((s) => s.conveyorSpeed);
   const matRef = useRef<THREE.MeshStandardMaterial>(null);
 
+  // How many times the stripe pattern tiles along the belt's length. Stays
+  // tied to the texture animation below — UV offset has to be scaled by
+  // this to keep the visual stripe speed locked to physical body speed.
+  const TEXTURE_REPEAT_Y = 6;
+
   const texture = useMemo(() => {
     const c = document.createElement('canvas');
     c.width = 64;
@@ -59,15 +64,19 @@ export function Conveyor() {
     }
     const tex = new THREE.CanvasTexture(c);
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(1, 6);
+    tex.repeat.set(1, TEXTURE_REPEAT_Y);
     tex.colorSpace = THREE.SRGBColorSpace;
     return tex;
   }, []);
 
   useFrame((_, dt) => {
     // Visual scroll. Three.js box top-face V-axis is along -Z, so to make
-    // stripes visually flow in +Z we *increase* offset.y as speed > 0.
-    texture.offset.y += speed * dt;
+    // stripes visually flow in +Z we *increase* offset.y as speed > 0. The
+    // factor of `repeat / length` converts world-space speed (m/s) into
+    // UV-space offset units — without it the texture appears to slide
+    // ~1.3× faster than the bodies on top, breaking the illusion that
+    // the belt is what's transporting them.
+    texture.offset.y += (speed * dt * TEXTURE_REPEAT_Y) / BELT_LENGTH;
 
     // Transport bodies that are on top of the belt.
     if (Math.abs(speed) < 1e-4) return;
