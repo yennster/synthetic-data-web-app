@@ -1,7 +1,7 @@
 import { useFrame, useThree } from '@react-three/fiber';
 import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
-import { useStore } from '../store/useStore';
+import { useStore, type Capture } from '../store/useStore';
 import {
   buildBoundingBoxLabelsFile,
   captureFrame,
@@ -52,7 +52,6 @@ export function VirtualCamera({
   const batchSignal = useStore((s) => s.batchSignal);
   const addCapture = useStore((s) => s.addCapture);
   const setStatus = useStore((s) => s.setStatus);
-  const saveDirHandle = useStore((s) => s.saveDirHandle);
   const anomalyLabel = useStore((s) => s.anomalyLabel);
   const mode = useStore((s) => s.mode);
 
@@ -238,20 +237,6 @@ export function VirtualCamera({
         mode === 'anomaly' ? anomalyLabel || 'sample' : 'frame';
       const filename = makeFilename(labelPrefix, idx);
 
-      // Single-shot path saves immediately. The batch path collects all
-      // blobs and packages them into a single .zip at the end.
-      if (!opts.skipSave) {
-        try {
-          await saveBlob(
-            saveDirHandle ? { kind: 'fs', dir: saveDirHandle } : { kind: 'download' },
-            filename,
-            blob,
-          );
-        } catch (e) {
-          setStatus('err', `Save failed: ${(e as Error).message}`);
-        }
-      }
-
       const snapshot = useStore.getState();
       const sceneKinds = Array.from(
         new Set(snapshot.sceneObjects.map((o) => o.kind)),
@@ -260,7 +245,7 @@ export function VirtualCamera({
         name: a.name,
         label: a.label,
       }));
-      addCapture({
+      const captureRecord: Capture = {
         id: crypto.randomUUID(),
         filename,
         blob,
@@ -271,9 +256,36 @@ export function VirtualCamera({
         ts: Date.now(),
         shapes: sceneKinds,
         assetSnapshot,
-      });
+      };
+      addCapture(captureRecord);
+
+      // Single-shot save: detection mode bundles the PNG with its
+      // `bounding_boxes.labels` sidecar in a zip so the labels travel with
+      // the image (Edge Impulse's uploader expects the sidecar adjacent to
+      // the image). Anomaly mode has no boxes, so the bare PNG is enough —
+      // the per-frame label is sent as metadata via the upload path.
+      // Batch saves are zipped separately by `doBatch`.
       if (!opts.skipSave) {
-        setStatus('ok', `Captured ${filename} (${boxes.length} boxes)`);
+        try {
+          if (mode === 'detection') {
+            const labelsBlob = new Blob(
+              [buildBoundingBoxLabelsFile([captureRecord])],
+              { type: 'application/json' },
+            );
+            const zipBlob = await buildZip([
+              { name: filename, data: blob },
+              { name: 'bounding_boxes.labels', data: labelsBlob },
+            ]);
+            const zipName = filename.replace(/\.png$/, '.zip');
+            await saveBlob(zipName, zipBlob);
+            setStatus('ok', `Captured ${zipName} (${boxes.length} boxes)`);
+          } else {
+            await saveBlob(filename, blob);
+            setStatus('ok', `Captured ${filename}`);
+          }
+        } catch (e) {
+          setStatus('err', `Save failed: ${(e as Error).message}`);
+        }
       }
     } catch (e) {
       setStatus('err', `Capture error: ${(e as Error).message}`);
@@ -417,11 +429,7 @@ export function VirtualCamera({
         }
         const zipBlob = await buildZip(entries);
         try {
-          await saveBlob(
-            saveDirHandle ? { kind: 'fs', dir: saveDirHandle } : { kind: 'download' },
-            zipName,
-            zipBlob,
-          );
+          await saveBlob(zipName, zipBlob);
         } catch (e) {
           setStatus('err', `Save zip failed: ${(e as Error).message}`);
           return;

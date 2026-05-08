@@ -1,12 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore, type ObjectKind } from '../store/useStore';
 import {
-  buildBoundingBoxLabelsFile,
-  fsAccessSupported,
-  pickDirectory,
-  saveBlob,
-} from '../lib/capture';
-import {
   buildEiDeployment,
   downloadEiHistoricDeployment,
   listEiDeploymentHistory,
@@ -68,8 +62,6 @@ export function VisionPanel() {
     clearCaptures,
     triggerCapture,
     triggerBatch,
-    saveDirHandle,
-    setSaveDirHandle,
     anomalyLabel,
     setAnomalyLabel,
     ei,
@@ -493,32 +485,6 @@ export function VisionPanel() {
     clearAssets();
   };
 
-  const onPickDir = async () => {
-    try {
-      const h = await pickDirectory();
-      if (h) {
-        setSaveDirHandle(h);
-        setStatus('ok', `Saving to: ${h.name}/`);
-      }
-    } catch (e) {
-      setStatus('err', `Picker: ${(e as Error).message}`);
-    }
-  };
-
-  const onSaveLabelsFile = async () => {
-    if (!saveDirHandle) {
-      setStatus('err', 'Pick a directory first');
-      return;
-    }
-    const json = buildBoundingBoxLabelsFile(captures);
-    await saveBlob(
-      { kind: 'fs', dir: saveDirHandle },
-      'bounding_boxes.labels',
-      new Blob([json], { type: 'application/json' }),
-    );
-    setStatus('ok', 'Wrote bounding_boxes.labels');
-  };
-
   const onUpload = async () => {
     setStatus('busy', `Uploading 0/${captures.length}…`);
     const includeBoxes = mode === 'detection';
@@ -828,7 +794,7 @@ export function VisionPanel() {
                       updateSceneObject(o.id, { color: e.target.value })
                     }
                     title={`Color: ${o.color}`}
-                    style={{ flex: 'none', width: 16, height: 16 }}
+                    style={{ flex: 'none', width: 28, height: 28, padding: 0 }}
                   />
                   <input
                     value={o.label}
@@ -1542,30 +1508,6 @@ export function VisionPanel() {
               </div>
             )}
           </>
-        )}
-      </div>
-
-      <div className="card">
-        <h3>Save directory</h3>
-        {fsAccessSupported() ? (
-          <>
-            <button onClick={onPickDir}>
-              {saveDirHandle ? `📂 ${saveDirHandle.name}/` : 'Choose directory…'}
-            </button>
-            {mode === 'detection' && (
-              <button
-                onClick={onSaveLabelsFile}
-                disabled={!saveDirHandle || captures.length === 0}
-              >
-                💾 Write bounding_boxes.labels
-              </button>
-            )}
-          </>
-        ) : (
-          <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-            File System Access API not supported in this browser. Captures will
-            download individually to your Downloads folder.
-          </div>
         )}
       </div>
 

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildBoundingBoxLabelsFile,
-  fsAccessSupported,
   makeFilename,
 } from './capture';
 import type { Capture } from '../store/useStore';
@@ -68,16 +67,3 @@ describe('buildBoundingBoxLabelsFile', () => {
   });
 });
 
-describe('fsAccessSupported', () => {
-  it('reflects whether window.showDirectoryPicker exists', () => {
-    const initial = fsAccessSupported();
-    expect(typeof initial).toBe('boolean');
-
-    // happy-dom doesn't ship showDirectoryPicker; install one and re-check.
-    const w = window as unknown as { showDirectoryPicker?: () => unknown };
-    w.showDirectoryPicker = () => Promise.resolve(null);
-    expect(fsAccessSupported()).toBe(true);
-    delete w.showDirectoryPicker;
-    expect(fsAccessSupported()).toBe(false);
-  });
-});

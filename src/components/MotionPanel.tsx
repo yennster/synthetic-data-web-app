@@ -442,7 +442,7 @@ export function MotionPanel() {
           `motions_${zipEntries.length}`,
         ).replace(/\.json$/, '.zip');
         const zip = await buildZip(zipEntries);
-        await saveBlob({ kind: 'download' }, zipName, zip);
+        await saveBlob(zipName, zip);
         setStatus(
           cancelled || failed > 0 ? 'err' : 'ok',
           `${headline}: downloaded ${zipEntries.length} samples${
@@ -467,7 +467,7 @@ export function MotionPanel() {
               `motions_${zipEntries.length}`,
             ).replace(/\.json$/, '.zip');
             const zip = await buildZip(zipEntries);
-            await saveBlob({ kind: 'download' }, zipName, zip);
+            await saveBlob(zipName, zip);
           } catch {
             /* ignore zip failure on cancel */
           }

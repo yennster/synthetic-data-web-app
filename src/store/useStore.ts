@@ -318,10 +318,6 @@ type State = {
   batchSignal: number;
   triggerBatch: () => void;
 
-  // FS Access directory handle (Chromium only)
-  saveDirHandle: any | null;
-  setSaveDirHandle: (h: any | null) => void;
-
   // anomaly batch label
   anomalyLabel: string;
   setAnomalyLabel: (s: string) => void;
@@ -506,9 +502,6 @@ export const useStore = create<State>()(
   triggerCapture: () => set((s) => ({ captureSignal: s.captureSignal + 1 })),
   batchSignal: 0,
   triggerBatch: () => set((s) => ({ batchSignal: s.batchSignal + 1 })),
-
-  saveDirHandle: null,
-  setSaveDirHandle: (h) => set({ saveDirHandle: h }),
 
   anomalyLabel: 'normal',
   setAnomalyLabel: (s) => set({ anomalyLabel: s }),

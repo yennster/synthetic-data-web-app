@@ -173,47 +173,23 @@ function computeBoundingBoxes(
   return boxes;
 }
 
-// ---------- File system saving ----------
+// ---------- File saving ----------
+//
+// We always go through the browser's Downloads folder. The File System
+// Access API was previously plumbed through here so the user could pick a
+// directory once and have every capture write into it, but Chrome's picker
+// blocks "system folders" (Desktop/Downloads/home/iCloud root) with a
+// confusing dialog and the extra UI added more friction than it removed.
+// A simple anchor click hits the same Downloads folder a normal browser
+// download would, with no permission prompt.
 
-export type SaveTarget =
-  | { kind: 'fs'; dir: any /* FileSystemDirectoryHandle */ }
-  | { kind: 'download' };
-
-export function fsAccessSupported(): boolean {
-  return typeof (window as any).showDirectoryPicker === 'function';
-}
-
-export async function pickDirectory(): Promise<any | null> {
-  if (!fsAccessSupported()) return null;
-  try {
-    const handle = await (window as any).showDirectoryPicker({
-      mode: 'readwrite',
-    });
-    return handle;
-  } catch (e) {
-    if ((e as DOMException).name === 'AbortError') return null;
-    throw e;
-  }
-}
-
-export async function saveBlob(
-  target: SaveTarget,
-  filename: string,
-  blob: Blob,
-): Promise<void> {
-  if (target.kind === 'fs') {
-    const fileHandle = await target.dir.getFileHandle(filename, { create: true });
-    const writable = await fileHandle.createWritable();
-    await writable.write(blob);
-    await writable.close();
-  } else {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
+export async function saveBlob(filename: string, blob: Blob): Promise<void> {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 /**
