@@ -5,6 +5,7 @@ import { Hud } from './components/Hud';
 import { InferenceOverlay } from './components/InferenceOverlay';
 import { Scene } from './components/Scene';
 import { Sidebar } from './components/Sidebar';
+import { TouchResizeHandle } from './components/TouchResizeHandle';
 import { useStore } from './store/useStore';
 
 const MAX_PREVIEW_DPR = 2;
@@ -97,6 +98,7 @@ export default function App() {
               height={previewH}
               pixelRatio={previewDpr}
             />
+            <TouchResizeHandle />
           </div>
         )}
       </div>

@@ -460,6 +460,24 @@ div.field {
   pointer-events: none;
   opacity: 0.7;
 }
+
+/* Touch-driven resize handle. Hidden on desktop where CSS resize:
+   horizontal does the job; shown on mobile where touch input doesn't
+   trigger the native handle. The 28×28 tap target overlaps the
+   existing ::after corner indicator so the visual affordance is
+   shared. */
+.touch-resize-handle {
+  display: none;
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 28px;
+  height: 28px;
+  z-index: 4;
+  /* Stop the browser from interpreting drags as scrolls. */
+  touch-action: none;
+  cursor: nwse-resize;
+}
 .cam-overlay video, .cam-overlay canvas {
   position: absolute;
   inset: 0;
@@ -613,9 +631,14 @@ div.field {
     bottom: max(12px, env(safe-area-inset-bottom));
     left: max(12px, env(safe-area-inset-left));
   }
+
+  /* Surface the touch resize handle on phones. */
+  .touch-resize-handle { display: block; }
   .cam-overlay.resizable {
     min-width: 120px;
-    max-width: 60vw;
+    /* Match the JS resize handle's 90vw upper bound — capping at 60vw
+       here would silently swallow drags past that point. */
+    max-width: 90vw;
   }
 
   .capture-toggle-list {
