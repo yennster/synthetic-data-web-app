@@ -275,14 +275,22 @@ type State = {
   pendingAssets: PersistedAsset[];
   setPendingAssets: (a: PersistedAsset[]) => void;
 
-  /** Live progress for the post-reload USDZ rehydrate. `total` is non-zero
-   * while the rehydrate hook is walking pendingAssets and re-running
+  /** Live progress for the post-reload USDZ rehydrate. `phase: 'busy'`
+   * means the rehydrate hook is walking pendingAssets and re-running
    * loadUsdz against each stored blob; `done` increments per restored
-   * asset. Drives a small "Restoring N/M" HUD pill so users see why some
-   * imports take a moment to reappear after refresh. Both stay 0 when no
-   * rehydrate is in flight. */
-  restoringAssets: { done: number; total: number };
-  setRestoringAssets: (p: { done: number; total: number }) => void;
+   * asset. `phase: 'success'` is held briefly after the loop finishes
+   * so the HUD pill flashes confirmation before disappearing.
+   * `phase: 'idle'` hides the pill. */
+  restoringAssets: {
+    done: number;
+    total: number;
+    phase: 'idle' | 'busy' | 'success';
+  };
+  setRestoringAssets: (p: {
+    done: number;
+    total: number;
+    phase: 'idle' | 'busy' | 'success';
+  }) => void;
 
   // ---------- Virtual camera & capture ----------
   capture: CaptureSettings;
@@ -448,7 +456,7 @@ export const useStore = create<State>()(
   pendingAssets: [],
   setPendingAssets: (a) => set({ pendingAssets: a }),
 
-  restoringAssets: { done: 0, total: 0 },
+  restoringAssets: { done: 0, total: 0, phase: 'idle' },
   setRestoringAssets: (p) => set({ restoringAssets: p }),
 
   // capture

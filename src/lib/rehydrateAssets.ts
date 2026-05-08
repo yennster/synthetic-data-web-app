@@ -39,7 +39,7 @@ export function useRehydrateAssets(): void {
     let restored = 0;
     const total = pendingAssets.length;
     setStatus('busy', `Restoring ${total} asset(s)…`);
-    setRestoringAssets({ done: 0, total });
+    setRestoringAssets({ done: 0, total, phase: 'busy' });
 
     (async () => {
       for (const meta of pendingAssets) {
@@ -79,16 +79,22 @@ export function useRehydrateAssets(): void {
         } catch (err) {
           console.warn(`[persist] failed to restore ${meta.name}:`, err);
         }
-        setRestoringAssets({ done: restored, total });
+        setRestoringAssets({ done: restored, total, phase: 'busy' });
       }
       setPendingAssets([]);
-      setRestoringAssets({ done: 0, total: 0 });
       setStatus(
         'ok',
         restored === total
           ? `Restored ${restored} asset(s)`
           : `Restored ${restored} of ${total} asset(s)`,
       );
+      // Flash a "Success" confirmation in the HUD pill, then hide it.
+      // The 1-second hold is short enough not to nag, long enough that
+      // users actually catch the green pulse and know rehydrate is done.
+      setRestoringAssets({ done: restored, total, phase: 'success' });
+      setTimeout(() => {
+        setRestoringAssets({ done: 0, total: 0, phase: 'idle' });
+      }, 1000);
     })();
   }, []);
 }
