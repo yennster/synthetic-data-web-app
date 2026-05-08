@@ -72,6 +72,26 @@ async function hmacSha256Hex(key: string, msg: string): Promise<string> {
 
 export type UploadResult = { ok: boolean; status: number; body: string };
 
+/**
+ * Pick the `interval_ms` to declare in the EI payload. The sampler tags
+ * each sample with `t = performance.now()`, so the average span between
+ * the first and last samples is a much better estimate of the actual
+ * emit rate than the user's requested sample rate (which is an upper
+ * bound, capped by the render frame rate). Falls back to the requested
+ * rate when there's only one sample, or when the timestamps are
+ * monotonically broken / coincident.
+ */
+export function inferIntervalMs(
+  samples: AccelSample[],
+  sampleRateHz: number,
+): number {
+  const fallback = 1000 / sampleRateHz;
+  if (samples.length < 2) return fallback;
+  const span = samples[samples.length - 1].t - samples[0].t;
+  if (!Number.isFinite(span) || span <= 0) return fallback;
+  return span / (samples.length - 1);
+}
+
 export async function buildDataAcquisitionPayload(
   cfg: Pick<EdgeImpulseConfig, 'device' | 'hmacKey'>,
   samples: AccelSample[],
@@ -87,7 +107,16 @@ export async function buildDataAcquisitionPayload(
     values: number[][];
   };
 }> {
-  const intervalMs = 1000 / sampleRateHz;
+  // EI plots a trace's duration as `samples.length * interval_ms`, so a
+  // mismatch between the requested sample rate and the rate we actually
+  // emit at shows up as a wrong-length recording in the Studio. The
+  // sampler caps emission at the render frame rate (one sample per
+  // useFrame call), so 100 Hz requested + 60 fps render = ~60 Hz actual,
+  // and a 2 s recording would render as 1.2 s if we naively reported
+  // 1000/100 = 10 ms here. Prefer the actual per-sample spacing measured
+  // from the recorded timestamps; fall back to the requested rate only
+  // when there aren't enough samples to derive it.
+  const intervalMs = inferIntervalMs(samples, sampleRateHz);
   const useHmac = !!cfg.hmacKey;
 
   const payload = {

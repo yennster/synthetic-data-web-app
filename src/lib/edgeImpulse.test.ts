@@ -3,6 +3,7 @@ import {
   buildDataAcquisitionPayload,
   buildFileName,
   buildIngestionMetadata,
+  inferIntervalMs,
   resolveBucket,
   uploadCaptures,
   uploadImage,
@@ -105,6 +106,50 @@ describe('buildIngestionMetadata', () => {
   });
 });
 
+describe('inferIntervalMs', () => {
+  const sample = (t: number) => ({
+    t,
+    ax: 0,
+    ay: 0,
+    az: 0,
+    gx: 0,
+    gy: 0,
+    gz: 0,
+  });
+
+  it('falls back to 1000/sampleRateHz when there are fewer than 2 samples', () => {
+    expect(inferIntervalMs([], 100)).toBe(10);
+    expect(inferIntervalMs([sample(0)], 50)).toBe(20);
+  });
+
+  it('uses the per-sample timestamp span when available', () => {
+    // 5 samples spanning 64ms → mean interval = 16ms (≈ 60 fps render).
+    const samples = [0, 16, 32, 48, 64].map(sample);
+    expect(inferIntervalMs(samples, 100)).toBeCloseTo(16, 5);
+  });
+
+  it('reports the actual emitted rate even when it differs from requested', () => {
+    // The exact case behind the 2 s → 1.2 s bug: user asked for 100 Hz
+    // but the sampler emitted at ~60 Hz, so the trace would render
+    // 1.67× too short if we trusted the requested rate.
+    const samples = [];
+    for (let i = 0; i < 60; i++) samples.push(sample(i * 16.667));
+    expect(inferIntervalMs(samples, 100)).toBeCloseTo(16.667, 1);
+  });
+
+  it('falls back to the requested rate when timestamps are degenerate', () => {
+    // All samples carry the same timestamp (e.g. perf.now resolution
+    // clamped) — we can't infer anything, so use the requested rate.
+    const samples = [sample(0), sample(0), sample(0)];
+    expect(inferIntervalMs(samples, 100)).toBe(10);
+  });
+
+  it('falls back when the timestamps go backwards', () => {
+    const samples = [sample(100), sample(50)];
+    expect(inferIntervalMs(samples, 100)).toBe(10);
+  });
+});
+
 describe('buildDataAcquisitionPayload', () => {
   it('builds Edge Impulse JSON without requiring an API key', async () => {
     const body = await buildDataAcquisitionPayload(
@@ -117,6 +162,39 @@ describe('buildDataAcquisitionPayload', () => {
     expect(body.payload.device_name).toBe('unit-test');
     expect(body.payload.interval_ms).toBe(20);
     expect(body.payload.values).toEqual([[1, 2, 3, 4, 5, 6]]);
+  });
+
+  it('reports the actual sample interval, not the requested rate (the 2s→1.2s bug)', async () => {
+    // 122 samples over 2032ms (≈ 60 Hz emission, 100 Hz requested).
+    // EI plots `samples * interval_ms`, so a wrong interval here renders
+    // a 2 s drop as ~1.2 s in the Studio.
+    const N = 122;
+    const span = 2032;
+    const samples = [];
+    for (let i = 0; i < N; i++) {
+      samples.push({
+        t: (i * span) / (N - 1),
+        ax: 0,
+        ay: 9.81,
+        az: 0,
+        gx: 0,
+        gy: 0,
+        gz: 0,
+      });
+    }
+    const body = await buildDataAcquisitionPayload(
+      { device: 'unit-test', hmacKey: '' },
+      samples,
+      100, // user asked for 100 Hz
+    );
+    // Reported interval should reflect the *actual* spacing (~16.7 ms),
+    // not 1000/100 = 10 ms.
+    expect(body.payload.interval_ms).toBeCloseTo(span / (N - 1), 5);
+    // Sanity: trace duration EI will render is samples * interval ≈ span.
+    expect(body.payload.values.length * body.payload.interval_ms).toBeCloseTo(
+      (N * span) / (N - 1),
+      0,
+    );
   });
 });
 
