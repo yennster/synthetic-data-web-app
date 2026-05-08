@@ -342,29 +342,30 @@ label.field, div.field {
   border-top: 0;
   padding-top: 4px;
 }
+/* Headings are tracked uppercase at sidebar-label scale so they read as
+   editorial section breaks rather than chunky H3s. The slim accent bar
+   gives them a visual anchor; the small font size + open tracking is
+   what makes the all-caps feel intentional instead of shouty. */
 .card h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 700;
-  letter-spacing: -0.012em;
+  letter-spacing: 0.12em;
   color: var(--text);
-  text-transform: none;
+  text-transform: uppercase;
   position: relative;
   padding-left: 14px;
-  line-height: 1.2;
+  line-height: 1;
 }
-/* Slim accent bar that sits flush with the heading — gives each section
-   a visual anchor without adding chrome. Soft accent line color (instead
-   of the full accent) keeps it readable against neighbouring buttons
-   that already use the same accent more loudly. */
 .card h3::before {
   content: "";
   position: absolute;
   left: 0;
-  top: 4px;
-  bottom: 4px;
-  width: 2px;
-  background: var(--accent-line);
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 13px;
+  background: var(--accent);
   border-radius: 999px;
 }
 
