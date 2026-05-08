@@ -23,9 +23,14 @@ export function Hud() {
           {isGrabbed ? 'Grabbed' : 'Released'}
         </div>
         {isRecording && <div className="pill rec">● REC · {samples.length}</div>}
-        {restoring.total > 0 && (
+        {restoring.phase === 'busy' && (
           <div className="pill" title="Re-importing USDZ assets saved from a previous session">
             ⟳ Restoring {restoring.done}/{restoring.total}…
+          </div>
+        )}
+        {restoring.phase === 'success' && (
+          <div className="pill live" title="USDZ assets restored from saved storage">
+            ✓ Success!
           </div>
         )}
       </div>
@@ -53,9 +58,14 @@ export function Hud() {
       >
         Tip: Shift+drag · Hold Alt/Option/Ctrl for depth
       </div>
-      {restoring.total > 0 && (
+      {restoring.phase === 'busy' && (
         <div className="pill" title="Re-importing USDZ assets saved from a previous session">
           ⟳ Restoring {restoring.done}/{restoring.total}…
+        </div>
+      )}
+      {restoring.phase === 'success' && (
+        <div className="pill live" title="USDZ assets restored from saved storage">
+          ✓ Success!
         </div>
       )}
     </div>
