@@ -98,7 +98,12 @@ div.field {
 .app {
   position: relative;
   width: 100vw;
+  /* `dvh` (dynamic viewport height) excludes browser chrome like iOS
+     Safari's bottom toolbar, so absolutely-positioned overlays anchored
+     to `bottom` aren't clipped by it. Falls back to vh on older
+     browsers that don't understand dvh. */
   height: 100vh;
+  height: 100dvh;
   display: grid;
   grid-template-columns: 1fr 340px;
 }
@@ -602,8 +607,11 @@ div.field {
   .hud .pill { padding: 3px 8px; }
 
   .cam-overlay {
-    bottom: 12px;
-    left: 12px;
+    /* Clear the iOS home-indicator / gesture bar so the resize handle
+       in the bottom-right corner is reachable. `env(safe-area-inset-
+       bottom)` is 0 on devices without one, so this is safe everywhere. */
+    bottom: max(12px, env(safe-area-inset-bottom));
+    left: max(12px, env(safe-area-inset-left));
   }
   .cam-overlay.resizable {
     min-width: 120px;
