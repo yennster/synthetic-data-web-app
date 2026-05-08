@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  cameraRelativeToWorld,
   computePinchStrength,
   handSize,
   pinchCentroid,
@@ -134,5 +135,60 @@ describe('handSize', () => {
       indexTip: [0, 0, 0],
     });
     expect(handSize(a)).toBeCloseTo(handSize(b), 5);
+  });
+});
+
+describe('cameraRelativeToWorld', () => {
+  // Identity basis: hand axes already aligned with world axes. Result is
+  // anchor + target component-wise — i.e. the legacy world-space behavior.
+  const idRight: [number, number, number] = [1, 0, 0];
+  const idUp: [number, number, number] = [0, 1, 0];
+  const idBack: [number, number, number] = [0, 0, 1];
+
+  it('returns the anchor when target is zero', () => {
+    expect(
+      cameraRelativeToWorld([0, 0, 0], [0, 0.5, 0], idRight, idUp, idBack),
+    ).toEqual([0, 0.5, 0]);
+  });
+
+  it('with identity basis, sums anchor + target component-wise', () => {
+    expect(
+      cameraRelativeToWorld([1, 2, 3], [0, 0.5, 0], idRight, idUp, idBack),
+    ).toEqual([1, 2.5, 3]);
+  });
+
+  it('rotates hand-right by 90° around world Y so it maps to world -Z', () => {
+    // Camera orbited 90° to the right around the anchor: the camera now
+    // looks down +X, so its right vector points to world -Z and the back
+    // vector (away from look direction) points to +X.
+    const right: [number, number, number] = [0, 0, -1];
+    const up: [number, number, number] = [0, 1, 0];
+    const back: [number, number, number] = [1, 0, 0];
+    const out = cameraRelativeToWorld([1, 0, 0], [0, 0.5, 0], right, up, back);
+    expect(out[0]).toBeCloseTo(0);
+    expect(out[1]).toBeCloseTo(0.5);
+    expect(out[2]).toBeCloseTo(-1);
+  });
+
+  it('keeps target on the camera-back axis (toward camera) regardless of orbit', () => {
+    // Two camera orientations 180° apart should both move the body in
+    // their own "toward camera" direction when target z > 0 — that is the
+    // whole point of the orbit-aware mapping.
+    const a = cameraRelativeToWorld(
+      [0, 0, 1],
+      [0, 0, 0],
+      [1, 0, 0],
+      [0, 1, 0],
+      [0, 0, 1],
+    );
+    const b = cameraRelativeToWorld(
+      [0, 0, 1],
+      [0, 0, 0],
+      [-1, 0, 0],
+      [0, 1, 0],
+      [0, 0, -1],
+    );
+    expect(a).toEqual([0, 0, 1]);
+    expect(b).toEqual([0, 0, -1]);
   });
 });
