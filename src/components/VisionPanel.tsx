@@ -640,6 +640,7 @@ export function VisionPanel() {
             // Reset while the rehydrate hook is still walking pendingAssets;
             // without this it would re-add the asset we just cleared.
             setPendingAssets([]);
+            setEnvPreset('studio');
             setStatus('ok', 'Scene reset');
           }}
           disabled={sceneObjects.length === 0 && assets.length === 0}
