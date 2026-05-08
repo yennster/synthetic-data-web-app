@@ -3,23 +3,23 @@
        scripts/build-og-card.sh. Edit this and re-run that script to refresh. -->
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#0b0d10"/>
-      <stop offset="1" stop-color="#11161c"/>
+      <stop offset="0" stop-color="#16191d"/>
+      <stop offset="1" stop-color="#1d2025"/>
     </linearGradient>
     <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#5eead4"/>
-      <stop offset="1" stop-color="#14b8a6"/>
+      <stop offset="0" stop-color="#6c63f0"/>
+      <stop offset="1" stop-color="#3b47c2"/>
     </linearGradient>
     <radialGradient id="cubeGlow" cx="0.5" cy="0.5" r="0.6">
-      <stop offset="0" stop-color="#14b8a6" stop-opacity="0.35"/>
-      <stop offset="1" stop-color="#14b8a6" stop-opacity="0"/>
+      <stop offset="0" stop-color="#5251d8" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#5251d8" stop-opacity="0"/>
     </radialGradient>
   </defs>
 
   <rect width="1200" height="630" fill="url(#bg)"/>
 
   <!-- Subtle grid: evokes the 3D scene's floor without being noisy. -->
-  <g stroke="#1c2530" stroke-width="1" opacity="0.6">
+  <g stroke="#262a31" stroke-width="1" opacity="0.7">
     <path d="M0 460 L1200 460"/>
     <path d="M0 510 L1200 510"/>
     <path d="M0 560 L1200 560"/>
@@ -29,11 +29,11 @@
   <!-- Glow behind cube -->
   <circle cx="930" cy="320" r="300" fill="url(#cubeGlow)"/>
 
-  <!-- Isometric cube — matches favicon palette. -->
+  <!-- Isometric cube — matches favicon palette (EI indigo triad). -->
   <g transform="translate(930 320) scale(7)">
-    <path d="M 0 -18 L 18 -9 L 0 0 L -18 -9 Z" fill="#5eead4"/>
-    <path d="M -18 -9 L 0 0 L 0 18 L -18 9 Z" fill="#0d9488"/>
-    <path d="M 18 -9 L 0 0 L 0 18 L 18 9 Z" fill="#14b8a6"/>
+    <path d="M 0 -18 L 18 -9 L 0 0 L -18 -9 Z" fill="#6c63f0"/>
+    <path d="M -18 -9 L 0 0 L 0 18 L -18 9 Z" fill="#3b47c2"/>
+    <path d="M 18 -9 L 0 0 L 0 18 L 18 9 Z" fill="#5251d8"/>
   </g>
 
   <!-- Amber dot, mirroring the favicon's accent. -->
@@ -41,10 +41,10 @@
 
   <!-- Wordmark and tagline -->
   <g font-family="Helvetica Neue, Helvetica, Arial, sans-serif" fill="#e7eef7">
-    <text x="80" y="200" font-size="40" font-weight="500" fill="#5eead4" letter-spacing="6">SYNTHETIC DATA</text>
+    <text x="80" y="200" font-size="40" font-weight="500" fill="#9b94f7" letter-spacing="6">SYNTHETIC DATA</text>
     <text x="80" y="280" font-size="92" font-weight="700" letter-spacing="-2">Studio</text>
 
-    <text x="80" y="380" font-size="28" font-weight="400" fill="#94a3b8" >
+    <text x="80" y="380" font-size="28" font-weight="400" fill="#9aa1ad" >
       <tspan x="80" dy="0">Browser-based 3D tool for generating synthetic</tspan>
       <tspan x="80" dy="38">training data via hand-tracked gestures or a virtual</tspan>
       <tspan x="80" dy="38">camera, with direct Edge Impulse upload.</tspan>
@@ -53,5 +53,5 @@
 
   <!-- Footer accent bar -->
   <rect x="80" y="540" width="120" height="4" fill="url(#accent)"/>
-  <text x="80" y="580" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="20" fill="#64748b" letter-spacing="2">EDGE IMPULSE · OPENUSD · THREE.JS</text>
+  <text x="80" y="580" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="20" fill="#6f7681" letter-spacing="2">EDGE IMPULSE · OPENUSD · THREE.JS</text>
 </svg>
