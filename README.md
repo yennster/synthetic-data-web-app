@@ -223,7 +223,7 @@ Alternatively, unzip the WebAssembly deployment locally and upload `edge-impulse
 - Header `x-label` = label
 - Header `x-bounding-boxes` (detection only) = `[{"label":"cube","x":120,"y":80,"width":56,"height":56}, ...]`
 
-The `bounding_boxes.labels` sidecar (written via the **💾** button) follows the [Edge Impulse uploader format](https://docs.edgeimpulse.com/docs/edge-impulse-studio/data-acquisition/uploader#bounding-boxes):
+When you save a single detection-mode capture to disk, it downloads as a `.zip` containing the PNG plus a `bounding_boxes.labels` sidecar keyed to that filename — drop the unzipped folder straight into the EI uploader. Batch saves zip the whole batch with one shared sidecar. The sidecar follows the [Edge Impulse uploader format](https://docs.edgeimpulse.com/docs/edge-impulse-studio/data-acquisition/uploader#bounding-boxes):
 
 ```json
 {
@@ -236,6 +236,26 @@ The `bounding_boxes.labels` sidecar (written via the **💾** button) follows th
   }
 }
 ```
+
+## URL parameters
+
+The app reads a few query parameters at load so you can deep-link a configured studio (especially handy when embedding in an iframe):
+
+| Param      | Values                                                  | Effect                                                                 |
+| ---------- | ------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `apiKey`   | An `ei_…` key                                           | Pre-fills the Edge Impulse API key.                                    |
+| `category` | `training`, `testing`, `split` (also `train`, `test`)   | Pre-selects the upload bucket dropdown. `split` routes 80/20 per sample. |
+| `theme`    | `dark`, `light`                                         | Forces the chrome theme on this load. Overrides the persisted choice for the session, then is itself persisted, so a later toggle still works. |
+
+Examples:
+
+```
+https://your-host/?theme=light
+https://your-host/?apiKey=ei_abc123&category=testing
+https://your-host/?theme=dark&category=split
+```
+
+Unknown values are ignored — the app falls back to whatever was stored or the built-in default (dark theme, training bucket). The values are case-insensitive.
 
 ## Project structure
 
@@ -263,7 +283,7 @@ src/
 │   ├── usdz.ts                   // OpenUSD WASM loader wrapper, dispose helper
 │   ├── beltDynamics.ts           // Shared belt geometry + transportable-bodies set
 │   ├── dragMove.ts               // Shift+drag pointer-event handlers (XZ plane)
-│   ├── capture.ts                // Off-screen render, bbox projection, FS Access
+│   ├── capture.ts                // Off-screen render, bbox projection, download helper
 │   ├── edgeImpulse.ts            // Ingestion API + Studio API (list projects, fetch deployment)
 │   ├── eiModel.ts                // EI WebAssembly model loader + classifier wrapper
 │   ├── zip.ts                    // Minimal browser zip writer (STORE)

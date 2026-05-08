@@ -20,6 +20,54 @@ export function applyApiKeyFromUrl(
   if (key) setApiKey(key);
 }
 
+export type ThemeParam = 'dark' | 'light';
+
+/** Read `?theme=dark|light` from a search string. Case-insensitive; any
+ * other value (or absence) returns `null` so the caller can fall back to
+ * the persisted preference. */
+export function readThemeFromSearch(search: string): ThemeParam | null {
+  const v = new URLSearchParams(search).get('theme');
+  if (!v) return null;
+  const lower = v.trim().toLowerCase();
+  if (lower === 'dark' || lower === 'light') return lower;
+  return null;
+}
+
+/** Apply `?theme=…` from the current URL via `setTheme`. The setter is
+ * passed in so this stays usable outside the React tree (e.g. in the
+ * pre-paint bootstrap path). */
+export function applyThemeFromUrl(
+  search: string,
+  setTheme: (theme: ThemeParam) => void,
+): void {
+  const theme = readThemeFromSearch(search);
+  if (theme) setTheme(theme);
+}
+
+export type EiCategory = 'training' | 'testing' | 'split';
+
+/** Read `?category=training|testing|split` from a search string. Other
+ * values return `null`. Aliases: `train` → training, `test` → testing,
+ * since those are the words people usually type. */
+export function readEiCategoryFromSearch(search: string): EiCategory | null {
+  const v = new URLSearchParams(search).get('category');
+  if (!v) return null;
+  const lower = v.trim().toLowerCase();
+  if (lower === 'training' || lower === 'train') return 'training';
+  if (lower === 'testing' || lower === 'test') return 'testing';
+  if (lower === 'split') return 'split';
+  return null;
+}
+
+/** Apply `?category=…` from the current URL to the EI config. */
+export function applyEiCategoryFromUrl(
+  search: string,
+  setCategory: (category: EiCategory) => void,
+): void {
+  const cat = readEiCategoryFromSearch(search);
+  if (cat) setCategory(cat);
+}
+
 export type IframeHeightMessage = { type: 'IFRAME_HEIGHT'; height: number };
 
 /** Post the current document height to the parent window with the same
