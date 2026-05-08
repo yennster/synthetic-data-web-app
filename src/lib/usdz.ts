@@ -53,6 +53,17 @@ function getUsd(): Promise<USD> {
 }
 
 /**
+ * Eagerly start downloading + instantiating the 16 MB OpenUSD WASM. Safe to
+ * call repeatedly — it's a no-op once initiated. Call it from the panel
+ * that exposes the USDZ import UI so the WASM is ready by the time the
+ * user actually picks a file. Without pre-warming, the first import waits
+ * on WASM fetch + compile + Module.ready before any USD parsing starts.
+ */
+export function prewarmUsdz(): void {
+  void getUsd();
+}
+
+/**
  * Load a `.usdz` file (which is a ZIP of USD + textures) into a three.js
  * Group. Plain `.usd` / `.usda` / `.usdc` files need to be packaged into a
  * `.usdz` (or converted) before importing — see the README.
@@ -68,16 +79,17 @@ export async function loadUsdz(file: File): Promise<LoadedUsdz> {
   const wrapper = new THREE.Group();
   wrapper.userData.usdzWrapper = true;
 
-  const buffer = await file.arrayBuffer();
   // The needle loader needs `path` on the file so it can place it under the
-  // right directory in its in-memory virtual filesystem. We copy the File
-  // rather than mutate the caller's object.
-  const hydraFile = new File([buffer], file.name, { type: file.type }) as HydraFile;
+  // right directory in its in-memory virtual filesystem. We attach it to the
+  // caller's File rather than copy via `new File([await arrayBuffer()], ...)`
+  // — that copy round-tripped a full 20 MB through JS for the hummingbird
+  // and was wasted because createThreeHydra re-reads `file.arrayBuffer()`
+  // internally and ignores the `buffer:` config when `files:` is provided.
+  const hydraFile = file as HydraFile;
   hydraFile.path = file.name;
 
   const handle = await createThreeHydra({
     USD,
-    buffer,
     files: [hydraFile],
     scene: wrapper,
   });
