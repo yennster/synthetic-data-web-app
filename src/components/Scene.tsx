@@ -68,7 +68,16 @@ function ManipulatedObject() {
 
   const objectKind = useStore((s) => s.objectKind);
 
-  useFrame((_, dt) => {
+  // Reused per-frame to map hand-tracking input (camera-frame offsets
+  // around a world anchor) into world space, so OrbitControls rotation
+  // doesn't break the spatial mapping between hand and held object.
+  const camRight = useRef(new THREE.Vector3());
+  const camUp = useRef(new THREE.Vector3());
+  const camBack = useRef(new THREE.Vector3());
+  const targetVec = useRef(new THREE.Vector3());
+  const HAND_ANCHOR = useMemo(() => new THREE.Vector3(0, 0.5, 0), []);
+
+  useFrame((state, dt) => {
     const body = bodyRef.current;
     if (!body) return;
 
@@ -88,9 +97,21 @@ function ManipulatedObject() {
         body.setAngvel({ x: 0, y: 0, z: 0 }, true);
       }
       const cur = body.translation();
-      const target = new THREE.Vector3(...pinchTarget);
+      // Treat pinchTarget as offsets in the camera's view frame (right /
+      // up / toward-camera) anchored at HAND_ANCHOR. This keeps "hand
+      // right" pointing right on screen even after orbiting.
+      state.camera.matrixWorld.extractBasis(
+        camRight.current,
+        camUp.current,
+        camBack.current,
+      );
+      targetVec.current
+        .copy(HAND_ANCHOR)
+        .addScaledVector(camRight.current, pinchTarget[0])
+        .addScaledVector(camUp.current, pinchTarget[1])
+        .addScaledVector(camBack.current, pinchTarget[2]);
       const next = new THREE.Vector3(cur.x, cur.y, cur.z).lerp(
-        target,
+        targetVec.current,
         FOLLOW_LERP,
       );
       body.setNextKinematicTranslation({ x: next.x, y: next.y, z: next.z });
