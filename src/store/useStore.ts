@@ -259,6 +259,19 @@ type State = {
   envPreset: EnvPreset;
   setEnvPreset: (p: EnvPreset) => void;
 
+  /** Metadata for user-uploaded floor / wall textures. The actual image
+   * bytes live in IndexedDB (`textureStore.ts`); persisting just the file
+   * name here keeps the localStorage payload tiny while letting the UI
+   * show "Floor: my_oak.jpg" and the rehydrate path know to load from
+   * IDB. `null` means "use the procedural texture for the active env
+   * preset". A non-null value forces walls to render even on presets
+   * that wouldn't normally show them, so the upload isn't silently
+   * invisible. */
+  customFloorTexture: { name: string } | null;
+  setCustomFloorTexture: (t: { name: string } | null) => void;
+  customWallTexture: { name: string } | null;
+  setCustomWallTexture: (t: { name: string } | null) => void;
+
   // Imported USDZ assets
   assets: ImportedAsset[];
   addAsset: (a: ImportedAsset) => void;
@@ -438,6 +451,11 @@ export const useStore = create<State>()(
   envPreset: 'studio',
   setEnvPreset: (p) => set({ envPreset: p }),
 
+  customFloorTexture: null,
+  setCustomFloorTexture: (t) => set({ customFloorTexture: t }),
+  customWallTexture: null,
+  setCustomWallTexture: (t) => set({ customWallTexture: t }),
+
   assets: [],
   addAsset: (a) => set((s) => ({ assets: [...s.assets, a] })),
   removeAsset: (id) => {
@@ -539,6 +557,8 @@ export const useStore = create<State>()(
         showConveyor: s.showConveyor,
         conveyorSpeed: s.conveyorSpeed,
         envPreset: s.envPreset,
+        customFloorTexture: s.customFloorTexture,
+        customWallTexture: s.customWallTexture,
         capture: s.capture,
         anomalyLabel: s.anomalyLabel,
         sampleRateHz: s.sampleRateHz,

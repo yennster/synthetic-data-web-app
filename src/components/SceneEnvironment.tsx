@@ -1,8 +1,9 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { CuboidCollider, RigidBody } from '@react-three/rapier';
-import type { EnvPreset } from '../store/useStore';
+import { useStore, type EnvPreset } from '../store/useStore';
+import { getCustomTexture, type TextureKind } from '../lib/textureStore';
 
 /**
  * Renders the floor + optional back walls for the scene based on the
@@ -16,8 +17,18 @@ import type { EnvPreset } from '../store/useStore';
  * user picks.
  */
 export function SceneEnvironment({ preset }: { preset: EnvPreset }) {
-  const floorTex = useMemo(() => makeFloorTexture(preset), [preset]);
-  const wallTex = useMemo(() => makeWallTexture(preset), [preset]);
+  const customFloorMeta = useStore((s) => s.customFloorTexture);
+  const customWallMeta = useStore((s) => s.customWallTexture);
+  const customFloorTex = useCustomTexture('floor', customFloorMeta?.name ?? null, 4);
+  const customWallTex = useCustomTexture('wall', customWallMeta?.name ?? null, 2);
+  const floorTex = useMemo(
+    () => customFloorTex ?? makeFloorTexture(preset),
+    [customFloorTex, preset],
+  );
+  const wallTex = useMemo(
+    () => customWallTex ?? makeWallTexture(preset),
+    [customWallTex, preset],
+  );
   // Set scene.background so the virtual capture camera (which renders to its
   // own offscreen target through the same THREE.Scene) actually picks up the
   // sky/cyclorama backdrop. The CSS gradient on the <Canvas> only affects the
@@ -64,8 +75,11 @@ export function SceneEnvironment({ preset }: { preset: EnvPreset }) {
         </mesh>
       </RigidBody>
       {/* Back walls at the far edges. Provide both visual and a thin
-          collider so a fast-thrown object can't escape the scene. */}
-      {hasWalls(preset) && (
+          collider so a fast-thrown object can't escape the scene. Walls
+          render when the preset asks for them OR when the user has
+          uploaded a custom wall texture — otherwise their upload would
+          be invisible on `studio` / `outdoor`. */}
+      {(hasWalls(preset) || customWallMeta) && (
         <RigidBody type="fixed" colliders={false} friction={0.5}>
           {/* North wall */}
           <CuboidCollider args={[20, 5, 0.1]} position={[0, 5, -20]} />
@@ -181,6 +195,67 @@ function makeSkyGradient(): THREE.Texture {
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.minFilter = THREE.LinearFilter;
   tex.magFilter = THREE.LinearFilter;
+  return tex;
+}
+
+/**
+ * Pull a user-uploaded texture blob out of IndexedDB and turn it into a
+ * THREE.Texture, refreshing whenever the metadata file name changes.
+ * Returns `null` while loading or when the slot is empty.
+ *
+ * The dependency on `name` (not the blob itself) is what makes this
+ * cheap: the underlying bytes never enter React's render path, so a
+ * 5 MB photograph upload doesn't bloat the component tree. Only the
+ * decoded `THREE.Texture` (a GPU handle + a thin JS wrapper) ever sits
+ * on a fiber.
+ */
+function useCustomTexture(
+  kind: TextureKind,
+  name: string | null,
+  defaultRepeat: number,
+): THREE.Texture | null {
+  const [tex, setTex] = useState<THREE.Texture | null>(null);
+  useEffect(() => {
+    if (!name) {
+      setTex(null);
+      return;
+    }
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    let active: THREE.Texture | null = null;
+    (async () => {
+      try {
+        const blob = await getCustomTexture(kind);
+        if (cancelled || !blob) {
+          setTex(null);
+          return;
+        }
+        objectUrl = URL.createObjectURL(blob);
+        const loader = new THREE.TextureLoader();
+        const t = await new Promise<THREE.Texture>((resolve, reject) =>
+          loader.load(objectUrl!, resolve, undefined, reject),
+        );
+        if (cancelled) {
+          t.dispose();
+          return;
+        }
+        t.wrapS = t.wrapT = THREE.RepeatWrapping;
+        t.repeat.set(defaultRepeat, defaultRepeat);
+        t.colorSpace = THREE.SRGBColorSpace;
+        t.anisotropy = 4;
+        active = t;
+        setTex(t);
+      } catch (err) {
+        console.warn(`[textures] failed to load custom ${kind}:`, err);
+        setTex(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (active) active.dispose();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [kind, name, defaultRepeat]);
   return tex;
 }
 

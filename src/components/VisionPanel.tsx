@@ -19,6 +19,11 @@ import {
 import { loadEiModel, loadEiModelFromZip } from '../lib/eiModel';
 import { disposeUsdz, loadUsdz, prewarmUsdz } from '../lib/usdz';
 import { putAssetBlob } from '../lib/assetStore';
+import {
+  deleteCustomTexture,
+  putCustomTexture,
+  type TextureKind,
+} from '../lib/textureStore';
 import { EiAuthCard } from './EiAuthCard';
 import { ObjectCaptureCard } from './ObjectCaptureCard';
 
@@ -47,6 +52,10 @@ export function VisionPanel() {
     setConveyorSpeed,
     envPreset,
     setEnvPreset,
+    customFloorTexture,
+    setCustomFloorTexture,
+    customWallTexture,
+    setCustomWallTexture,
     assets,
     addAsset,
     removeAsset,
@@ -601,6 +610,20 @@ export function VisionPanel() {
             <option value="outdoor">Outdoor (grass + sky)</option>
           </select>
         </label>
+        <CustomTextureField
+          kind="floor"
+          label="Floor texture"
+          meta={customFloorTexture}
+          setMeta={setCustomFloorTexture}
+          setStatus={setStatus}
+        />
+        <CustomTextureField
+          kind="wall"
+          label="Wall texture"
+          meta={customWallTexture}
+          setMeta={setCustomWallTexture}
+          setStatus={setStatus}
+        />
         <label className="field">
           <span className="row" style={{ alignItems: 'center' }}>
             <input
@@ -641,6 +664,12 @@ export function VisionPanel() {
             // without this it would re-add the asset we just cleared.
             setPendingAssets([]);
             setEnvPreset('studio');
+            // Also drop any user-uploaded floor/wall textures — the reset
+            // takes the scene all the way back to studio defaults.
+            setCustomFloorTexture(null);
+            setCustomWallTexture(null);
+            void deleteCustomTexture('floor').catch(() => {});
+            void deleteCustomTexture('wall').catch(() => {});
             setStatus('ok', 'Scene reset');
           }}
           disabled={sceneObjects.length === 0 && assets.length === 0}
@@ -1495,5 +1524,75 @@ export function VisionPanel() {
         </button>
       </div>
     </>
+  );
+}
+
+/**
+ * File picker + clear control for a single custom surface texture
+ * (floor or wall). Writes the original image bytes to IndexedDB and
+ * stores just the file name in the persisted store, so the texture
+ * survives reloads without bloating localStorage.
+ */
+function CustomTextureField({
+  kind,
+  label,
+  meta,
+  setMeta,
+  setStatus,
+}: {
+  kind: TextureKind;
+  label: string;
+  meta: { name: string } | null;
+  setMeta: (m: { name: string } | null) => void;
+  setStatus: (
+    kind: 'idle' | 'ok' | 'err' | 'busy',
+    msg: string,
+  ) => void;
+}) {
+  return (
+    <label className="field">
+      {label}
+      <div className="row">
+        <input
+          type="file"
+          accept="image/*"
+          onChange={async (e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            try {
+              await putCustomTexture(kind, file);
+              setMeta({ name: file.name });
+              setStatus('ok', `${label}: ${file.name}`);
+            } catch (err) {
+              setStatus(
+                'err',
+                `${label} upload failed: ${(err as Error).message}`,
+              );
+            }
+            // Reset the input so picking the same file again still fires
+            // onChange (browsers skip the event if value didn't change).
+            e.target.value = '';
+          }}
+          style={{ fontSize: 11, flex: 1 }}
+        />
+        {meta && (
+          <button
+            onClick={() => {
+              setMeta(null);
+              void deleteCustomTexture(kind).catch(() => {});
+              setStatus('ok', `${label} cleared`);
+            }}
+            title={`Remove custom ${kind} texture`}
+          >
+            Clear
+          </button>
+        )}
+      </div>
+      {meta && (
+        <span style={{ fontSize: 10, color: 'var(--muted)' }}>
+          Using: {meta.name}
+        </span>
+      )}
+    </label>
   );
 }
