@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Group } from 'three';
-import type { USDZInstance } from 'three-usdz-loader/lib/USDZInstance';
+import type { NeedleThreeHydraHandle } from '@needle-tools/usd';
 import type { EiModelInfo, EiResult, LoadedEiModel } from '../lib/eiModel';
 
 export type ObjectKind =
@@ -65,10 +65,11 @@ export type ImportedAsset = {
   overrideColor: string;
   overrideRoughness: number;
   overrideMetalness: number;
-  /** Live USD instance — held so we can call `update(seconds)` per frame to
-   * play baked time-sample animation (Apple's animated AR Quick Look
-   * samples, etc.). Null for assets imported before this field existed. */
-  instance?: USDZInstance | null;
+  /** Live needle hydra handle — held so we can call `handle.update(dt)` per
+   * frame to advance baked time-sample animation (Apple's animated AR Quick
+   * Look samples, etc.) and to `dispose()` on remove. Null for assets
+   * imported before this field existed. */
+  handle?: NeedleThreeHydraHandle | null;
   /** Set at import time when the underlying stage has authored time samples
    * (endTimeCode > startTimeCode). Drives the play/pause UI. */
   isAnimated: boolean;

@@ -70,20 +70,18 @@ function useMaterialOverride(asset: ImportedAsset) {
 }
 
 /**
- * Drive USD time-sample animation forward by calling `instance.update(t)`
- * every frame. The loader's `update` advances the WASM HdWebSyncDriver and
- * pushes new transforms / vertex data through the render delegate, so any
- * baked animation in the .usdz (Apple's AR Quick Look samples, GLB-style
- * skeletal anim, vertex anim, etc.) plays back. We share one wall-clock so
- * multiple animated assets stay in sync.
+ * Drive USD time-sample animation forward by calling `handle.update(dt)`
+ * every frame. The needle hydra delegate accumulates the wall-clock delta
+ * internally, advances the OpenUSD HdWebSyncDriver, and pushes new mesh
+ * transforms / vertex data so any baked animation (Apple's AR Quick Look
+ * samples, etc.) plays back. We skip the call entirely for static assets
+ * (endTC == startTC would divide by zero inside the handle).
  */
 function useUsdzAnimation(asset: ImportedAsset) {
-  const tRef = useRef(0);
   useFrame((_, delta) => {
-    const inst = asset.instance;
-    if (!inst || !asset.isAnimated || !asset.animationPlaying) return;
-    tRef.current += delta;
-    inst.update(tRef.current);
+    const h = asset.handle;
+    if (!h || !asset.isAnimated || !asset.animationPlaying) return;
+    h.update(delta);
   });
 }
 

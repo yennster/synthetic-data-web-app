@@ -378,7 +378,7 @@ export function VisionPanel() {
       try {
         const {
           object,
-          instance,
+          handle,
           isAnimated,
           maxDim,
           meshCount,
@@ -423,7 +423,7 @@ export function VisionPanel() {
           overrideColor: '#a78bfa',
           overrideRoughness: 0.5,
           overrideMetalness: 0.1,
-          instance,
+          handle,
           isAnimated,
           animationPlaying: isAnimated,
         });
@@ -449,12 +449,12 @@ export function VisionPanel() {
 
   const onRemoveAsset = (id: string) => {
     const a = assets.find((x) => x.id === id);
-    if (a) disposeUsdz(a.object);
+    if (a) disposeUsdz(a.object, a.handle ?? undefined);
     removeAsset(id);
   };
 
   const onClearAssets = () => {
-    for (const a of assets) disposeUsdz(a.object);
+    for (const a of assets) disposeUsdz(a.object, a.handle ?? undefined);
     clearAssets();
   };
 

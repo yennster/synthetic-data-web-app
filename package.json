@@ -3,7 +3,7 @@
   "version": "0.9.19",
   "type": "module",
   "description": "Browser-based 3D synthetic-data studio for Edge Impulse — accelerometer, object detection, and visual anomaly modes with hand tracking, USDZ import, conveyor physics, and direct ingestion-API upload.",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "author": "yennster",
   "homepage": "https://github.com/yennster/synthetic-data-studio#readme",
   "repository": {
@@ -54,6 +54,7 @@
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.18",
+    "@needle-tools/usd": "^0.0.1-61ded11",
     "@react-three/drei": "^9.114.0",
     "@react-three/fiber": "^8.17.10",
     "@react-three/rapier": "^1.5.0",
@@ -61,7 +62,6 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "three": "^0.169.0",
-    "three-usdz-loader": "^1.0.9",
     "zustand": "^5.0.1"
   },
   "devDependencies": {
