@@ -271,6 +271,14 @@ type State = {
   setCustomFloorTexture: (t: { name: string } | null) => void;
   customWallTexture: { name: string } | null;
   setCustomWallTexture: (t: { name: string } | null) => void;
+  /** Optional `map` applied to every default-shape mesh — both the
+   * motion-mode `ManipulatedObject` and detection/anomaly mode's
+   * `SpawnedObjects`. Same metadata-vs-blob split as the floor/wall
+   * textures: file name persists in zustand, bytes live in IndexedDB
+   * under `kind: 'object'`. `null` falls back to the per-object
+   * solid-color material. */
+  customObjectTexture: { name: string } | null;
+  setCustomObjectTexture: (t: { name: string } | null) => void;
 
   // Imported USDZ assets
   assets: ImportedAsset[];
@@ -455,6 +463,8 @@ export const useStore = create<State>()(
   setCustomFloorTexture: (t) => set({ customFloorTexture: t }),
   customWallTexture: null,
   setCustomWallTexture: (t) => set({ customWallTexture: t }),
+  customObjectTexture: null,
+  setCustomObjectTexture: (t) => set({ customObjectTexture: t }),
 
   assets: [],
   addAsset: (a) => set((s) => ({ assets: [...s.assets, a] })),
@@ -559,6 +569,7 @@ export const useStore = create<State>()(
         envPreset: s.envPreset,
         customFloorTexture: s.customFloorTexture,
         customWallTexture: s.customWallTexture,
+        customObjectTexture: s.customObjectTexture,
         capture: s.capture,
         anomalyLabel: s.anomalyLabel,
         sampleRateHz: s.sampleRateHz,

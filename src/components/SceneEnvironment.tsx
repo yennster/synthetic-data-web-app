@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { CuboidCollider, RigidBody } from '@react-three/rapier';
 import { useStore, type EnvPreset } from '../store/useStore';
-import { getCustomTexture, type TextureKind } from '../lib/textureStore';
+import { useCustomTexture } from '../lib/useCustomTexture';
 
 /**
  * Renders the floor + optional back walls for the scene based on the
@@ -19,8 +19,12 @@ import { getCustomTexture, type TextureKind } from '../lib/textureStore';
 export function SceneEnvironment({ preset }: { preset: EnvPreset }) {
   const customFloorMeta = useStore((s) => s.customFloorTexture);
   const customWallMeta = useStore((s) => s.customWallTexture);
-  const customFloorTex = useCustomTexture('floor', customFloorMeta?.name ?? null, 4);
-  const customWallTex = useCustomTexture('wall', customWallMeta?.name ?? null, 2);
+  const customFloorTex = useCustomTexture('floor', customFloorMeta?.name ?? null, {
+    repeat: 4,
+  });
+  const customWallTex = useCustomTexture('wall', customWallMeta?.name ?? null, {
+    repeat: 2,
+  });
   const floorTex = useMemo(
     () => customFloorTex ?? makeFloorTexture(preset),
     [customFloorTex, preset],
@@ -195,67 +199,6 @@ function makeSkyGradient(): THREE.Texture {
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.minFilter = THREE.LinearFilter;
   tex.magFilter = THREE.LinearFilter;
-  return tex;
-}
-
-/**
- * Pull a user-uploaded texture blob out of IndexedDB and turn it into a
- * THREE.Texture, refreshing whenever the metadata file name changes.
- * Returns `null` while loading or when the slot is empty.
- *
- * The dependency on `name` (not the blob itself) is what makes this
- * cheap: the underlying bytes never enter React's render path, so a
- * 5 MB photograph upload doesn't bloat the component tree. Only the
- * decoded `THREE.Texture` (a GPU handle + a thin JS wrapper) ever sits
- * on a fiber.
- */
-function useCustomTexture(
-  kind: TextureKind,
-  name: string | null,
-  defaultRepeat: number,
-): THREE.Texture | null {
-  const [tex, setTex] = useState<THREE.Texture | null>(null);
-  useEffect(() => {
-    if (!name) {
-      setTex(null);
-      return;
-    }
-    let cancelled = false;
-    let objectUrl: string | null = null;
-    let active: THREE.Texture | null = null;
-    (async () => {
-      try {
-        const blob = await getCustomTexture(kind);
-        if (cancelled || !blob) {
-          setTex(null);
-          return;
-        }
-        objectUrl = URL.createObjectURL(blob);
-        const loader = new THREE.TextureLoader();
-        const t = await new Promise<THREE.Texture>((resolve, reject) =>
-          loader.load(objectUrl!, resolve, undefined, reject),
-        );
-        if (cancelled) {
-          t.dispose();
-          return;
-        }
-        t.wrapS = t.wrapT = THREE.RepeatWrapping;
-        t.repeat.set(defaultRepeat, defaultRepeat);
-        t.colorSpace = THREE.SRGBColorSpace;
-        t.anisotropy = 4;
-        active = t;
-        setTex(t);
-      } catch (err) {
-        console.warn(`[textures] failed to load custom ${kind}:`, err);
-        setTex(null);
-      }
-    })();
-    return () => {
-      cancelled = true;
-      if (active) active.dispose();
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [kind, name, defaultRepeat]);
   return tex;
 }
 

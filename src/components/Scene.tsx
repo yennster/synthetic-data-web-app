@@ -17,6 +17,7 @@ import {
   angularVelocityFromQuats as angVelFromQuats,
   cameraRelativeToWorld,
 } from '../lib/handMath';
+import { useCustomTexture } from '../lib/useCustomTexture';
 import { useStore, type ObjectKind } from '../store/useStore';
 import { Conveyor } from './Conveyor';
 import { ImportedAssets } from './ImportedAssets';
@@ -345,18 +346,25 @@ function ManipulatedMesh({
   meshRef: React.RefObject<THREE.Mesh>;
 }) {
   const isGrabbed = useStore((s) => s.isGrabbed);
-  const color = isGrabbed ? '#5eead4' : '#f59e0b';
+  const customObjectMeta = useStore((s) => s.customObjectTexture);
+  const texture = useCustomTexture('object', customObjectMeta?.name ?? null);
+  // When a texture is active, white-base lets the photo's own colors come
+  // through; the grab-state hint becomes a subtle teal emissive instead of
+  // a base-color swap so the user can still tell at a glance whether the
+  // body is held.
+  const color = texture ? '#ffffff' : isGrabbed ? '#5eead4' : '#f59e0b';
   const emissive = isGrabbed ? '#0d4d44' : '#3d2706';
   const material = useMemo(
     () => (
       <meshStandardMaterial
+        map={texture ?? undefined}
         color={color}
         emissive={emissive}
         roughness={0.4}
         metalness={0.2}
       />
     ),
-    [color, emissive],
+    [texture, color, emissive],
   );
   switch (kind) {
     case 'sphere':

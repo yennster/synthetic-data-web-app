@@ -1,8 +1,10 @@
 import { useFrame } from '@react-three/fiber';
 import { RigidBody, type RapierRigidBody } from '@react-three/rapier';
 import { useEffect, useRef, useState } from 'react';
+import * as THREE from 'three';
 import { BELT_TRANSPORTABLES } from '../lib/beltDynamics';
 import { useDragMove } from '../lib/dragMove';
+import { useCustomTexture } from '../lib/useCustomTexture';
 import { useStore, type ObjectKind, type SceneObject } from '../store/useStore';
 
 // If a body somehow tunnels through the ground (fast Shift+drag release, CCD
@@ -57,12 +59,51 @@ function Geometry({ kind }: { kind: ObjectKind }) {
 }
 
 /**
+ * `meshStandardMaterial` JSX with the custom object texture applied when
+ * one is loaded. We multiply the texture by white (instead of the user's
+ * `obj.color`) so the photo's own colors come through; rolling back to
+ * the solid `obj.color` happens automatically the moment `texture` is
+ * null. Roughness/metalness still come from the per-object knobs.
+ */
+function ObjectMaterial({
+  obj,
+  texture,
+}: {
+  obj: SceneObject;
+  texture: THREE.Texture | null;
+}) {
+  if (texture) {
+    return (
+      <meshStandardMaterial
+        map={texture}
+        color="#ffffff"
+        roughness={obj.roughness}
+        metalness={obj.metalness}
+      />
+    );
+  }
+  return (
+    <meshStandardMaterial
+      color={obj.color}
+      roughness={obj.roughness}
+      metalness={obj.metalness}
+    />
+  );
+}
+
+/**
  * Visual-only path used when the user has turned physics off for this
  * object — no RigidBody, no collider, no belt transport. The mesh sits at
  * its store position, still draggable via Shift+drag (the drag handler
  * just writes the new position back to the store).
  */
-function StaticSpawnedMesh({ obj }: { obj: SceneObject }) {
+function StaticSpawnedMesh({
+  obj,
+  texture,
+}: {
+  obj: SceneObject;
+  texture: THREE.Texture | null;
+}) {
   const updateSceneObject = useStore((s) => s.updateSceneObject);
   const dragHandlers = useDragMove({
     getPosition: () => obj.position,
@@ -79,16 +120,18 @@ function StaticSpawnedMesh({ obj }: { obj: SceneObject }) {
       {...dragHandlers}
     >
       <Geometry kind={obj.kind} />
-      <meshStandardMaterial
-        color={obj.color}
-        roughness={obj.roughness}
-        metalness={obj.metalness}
-      />
+      <ObjectMaterial obj={obj} texture={texture} />
     </mesh>
   );
 }
 
-function SpawnedMesh({ obj }: { obj: SceneObject }) {
+function SpawnedMesh({
+  obj,
+  texture,
+}: {
+  obj: SceneObject;
+  texture: THREE.Texture | null;
+}) {
   const bodyRef = useRef<RapierRigidBody>(null);
   const updateSceneObject = useStore((s) => s.updateSceneObject);
   const isInitialMount = useRef(true);
@@ -181,11 +224,7 @@ function SpawnedMesh({ obj }: { obj: SceneObject }) {
         {...dragHandlers}
       >
         <Geometry kind={obj.kind} />
-        <meshStandardMaterial
-          color={obj.color}
-          roughness={obj.roughness}
-          metalness={obj.metalness}
-        />
+        <ObjectMaterial obj={obj} texture={texture} />
       </mesh>
     </RigidBody>
   );
@@ -193,6 +232,10 @@ function SpawnedMesh({ obj }: { obj: SceneObject }) {
 
 export function SpawnedObjects() {
   const sceneObjects = useStore((s) => s.sceneObjects);
+  // One shared texture for every spawned object — decoded once, handed to
+  // each mesh via props rather than calling the hook per-object.
+  const customObjectMeta = useStore((s) => s.customObjectTexture);
+  const texture = useCustomTexture('object', customObjectMeta?.name ?? null);
   return (
     <>
       {sceneObjects.map((obj) => {
@@ -202,9 +245,9 @@ export function SpawnedObjects() {
         //    instead of trying to mutate a body in place.
         const key = `${obj.id}-${obj.scale.toFixed(3)}-${obj.physics ? 'p' : 's'}`;
         return obj.physics ? (
-          <SpawnedMesh key={key} obj={obj} />
+          <SpawnedMesh key={key} obj={obj} texture={texture} />
         ) : (
-          <StaticSpawnedMesh key={key} obj={obj} />
+          <StaticSpawnedMesh key={key} obj={obj} texture={texture} />
         );
       })}
     </>
