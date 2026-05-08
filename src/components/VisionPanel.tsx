@@ -995,7 +995,15 @@ export function VisionPanel() {
         <div style={{ fontSize: 11, color: 'var(--muted)' }}>
           Drop in <code>.usdz</code> files (zipped USD). For{' '}
           <code>.usd</code> / <code>.usda</code> / <code>.usdc</code>, convert
-          first via Blender, Omniverse, or <code>usdcat</code> (see README).
+          first via Blender, Omniverse, or <code>usdcat</code> (see{' '}
+          <a
+            href="https://github.com/yennster/synthetic-data-studio#readme"
+            target="_blank"
+            rel="noreferrer"
+          >
+            README
+          </a>
+          ).
         </div>
       </div>
 
