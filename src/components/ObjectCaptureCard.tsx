@@ -31,8 +31,8 @@ export function ObjectCaptureCard() {
         <a href={APPLE_DOC_URL} target="_blank" rel="noreferrer">
           Object Capture
         </a>{' '}
-        to turn real-world photos of an object into a USDZ, then import it
-        below.
+        to turn real-world photos of an object into a USDZ, then drop it
+        into the import box above.
       </p>
 
       <PlatformBadge platform={platform} />
@@ -63,8 +63,8 @@ export function ObjectCaptureCard() {
         <li>
           Export as <code>USDZ</code>.{' '}
           {platform.isMobile
-            ? 'Tap the import box below to bring it into the studio.'
-            : 'AirDrop the file to this machine, then drop it into the import box below.'}
+            ? 'Tap the import box above to bring it into the studio.'
+            : 'AirDrop the file to this machine, then drop it into the import box above.'}
         </li>
       </ol>
 
