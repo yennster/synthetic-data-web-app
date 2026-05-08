@@ -9,6 +9,7 @@ export function Hud() {
   const samples = useStore((s) => s.samples);
   const captures = useStore((s) => s.captures);
   const sceneObjects = useStore((s) => s.sceneObjects);
+  const assets = useStore((s) => s.assets);
 
   if (mode === 'motion') {
     return (
@@ -35,7 +36,7 @@ export function Hud() {
   return (
     <div className="hud">
       <div className="pill">Mode: {modeLabel}</div>
-      <div className="pill">Objects: {sceneObjects.length}</div>
+      <div className="pill">Objects: {sceneObjects.length + assets.length}</div>
       <div className={`pill ${captures.length > 0 ? 'live' : ''}`}>
         Captures: {captures.length}
       </div>

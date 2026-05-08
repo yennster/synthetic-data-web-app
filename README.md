@@ -3,7 +3,7 @@
 [![Release](https://img.shields.io/github/v/release/yennster/synthetic-data-studio?label=release&color=5eead4)](https://github.com/yennster/synthetic-data-studio/releases)
 [![Tests](https://img.shields.io/github/actions/workflow/status/yennster/synthetic-data-studio/test.yml?label=tests&logo=vitest&logoColor=fff)](https://github.com/yennster/synthetic-data-studio/actions/workflows/test.yml)
 [![CI](https://img.shields.io/github/actions/workflow/status/yennster/synthetic-data-studio/release.yml?label=release%20pipeline)](https://github.com/yennster/synthetic-data-studio/actions/workflows/release.yml)
-[![License: MIT](https://img.shields.io/github/license/yennster/synthetic-data-studio?color=blue)](LICENSE)
+[![License: Apache-2.0](https://img.shields.io/github/license/yennster/synthetic-data-studio?color=blue)](LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/yennster/synthetic-data-studio?style=flat&color=f59e0b)](https://github.com/yennster/synthetic-data-studio/stargazers)
 [![Built with React](https://img.shields.io/badge/built%20with-React%2018-61dafb?logo=react&logoColor=fff)](https://react.dev)
 [![Three.js](https://img.shields.io/badge/three.js-r169-000?logo=threedotjs&logoColor=fff)](https://threejs.org)
@@ -53,7 +53,7 @@ Created with Claude Code.
   - **Mouse wheel during drag** does the same closer/farther motion — useful when one hand is on the mouse and one isn't free for the keyboard.
   - When you release the mouse, the body switches back to dynamic. Velocity is zeroed first so it falls cleanly under gravity from rest instead of drifting. Drop it from any height to capture mid-fall.
   - Orbit/zoom keeps working without the Shift modifier.
-- **USDZ asset import** — drop in `.usdz` files (Pixar Universal Scene Description). Powered by a WASM build of OpenUSD, supporting both ASCII (`.usda`) and binary Crate (`.usdc`) payloads. Each imported asset gets per-instance scale / position / yaw / label controls and an opt-in **Physics** toggle that wraps it in a Rapier RigidBody with a convex-hull collider — toggle it on and the asset falls under gravity, collides with the ground / belt / other bodies, and rides the conveyor like the spawned primitives. Bounding boxes are computed for the whole asset, not per child mesh.
+- **USDZ asset import** — drop in `.usdz` files (Pixar Universal Scene Description). Powered by a full WASM build of OpenUSD with the **UsdSkel** schema plugins, so Apple's animated AR Quick Look samples (hummingbird, drummer, chameleon, …) play their baked skeletal animation as you record — not just static models. ASCII (`.usda`) and binary Crate (`.usdc`) payloads both work. Each imported asset gets per-instance scale / position / yaw / label controls, a play/pause toggle for animated stages, and an opt-in **Physics** toggle that wraps it in a Rapier RigidBody with a convex-hull collider — toggle it on and the asset falls under gravity, collides with the ground / belt / other bodies, and rides the conveyor like the spawned primitives. Bounding boxes are computed for the whole asset, not per child mesh.
 - **Conveyor belt prop** — animated scrolling belt with rails, end rollers, and supports. **Actually transports spawned objects** along its length — drop a cube on it and it rides off the end. Speed-tunable from −2 m/s to +2 m/s (negative reverses direction). The belt collider extends below the visible surface and dynamic bodies have CCD enabled, so fast-falling objects don't tunnel through.
 - **Virtual capture camera** — fully positionable (XYZ + target + FOV), with a frustum gizmo drawn into the scene so you can orbit around and see exactly what it sees.
 - **Live capture preview** in the corner overlay, rendered with a HiDPI backing canvas so preview labels and inference overlays stay sharp on Retina displays.
@@ -83,7 +83,7 @@ Created with Claude Code.
 | 3D rendering | three.js + `@react-three/fiber` + `@react-three/drei` |
 | Physics | Rapier (`@react-three/rapier`) |
 | Hand tracking | `@mediapipe/tasks-vision` (HandLandmarker, GPU delegate) |
-| USDZ import | `three-usdz-loader` (OpenUSD WASM, supports Crate + ASCII) |
+| USDZ import | `@needle-tools/usd` (OpenUSD WASM with UsdSkel — Crate + ASCII + skeletal animation) |
 | EI model inference | Edge Impulse WebAssembly deployment (Embind) |
 | ZIP read/write | Hand-rolled (STORE + DEFLATE via `DecompressionStream`) |
 | State | Zustand |
@@ -272,10 +272,11 @@ src/
 
 ## USDZ import — what's supported
 
-The app uses `three-usdz-loader`, which bundles a WASM build of Pixar / NVIDIA's OpenUSD and supports the formats most production tools emit:
+The app uses [`@needle-tools/usd`](https://www.npmjs.com/package/@needle-tools/usd), a WASM build of Pixar / Autodesk's OpenUSD with a three.js Hydra render delegate, and supports the formats most production tools emit:
 
 - ✅ `.usdz` containing **ASCII USD** (`.usda`) — exported by Blender's "USD" exporter, Maya, Houdini.
 - ✅ `.usdz` containing **binary Crate USD** (`.usdc`) — what NVIDIA Omniverse, Reality Composer, and Apple's tools produce by default. *This is what most modern `.usdz` files are.*
+- ✅ **Animated USD with `UsdSkel` rigs** — Apple's animated AR Quick Look samples (hummingbird, drummer, chameleon, robot, etc.) play their baked skeletal animation in-browser. Each animated asset shows a play/pause toggle in the import panel.
 - ⚠️ Plain `.usd`, `.usda`, `.usdc` files (not zipped) — convert to `.usdz` first (see below).
 
 ### Converting `.usd` / `.usda` / `.usdc` to `.usdz`
@@ -458,4 +459,6 @@ Requires Google Chrome installed at the standard macOS path; override with `CHRO
 
 ## License
 
-MIT
+[Apache-2.0](LICENSE) — permissive open source. You can use, modify, and redistribute this code commercially, including as a service, provided you keep the copyright notice and `NOTICE` file (if any). Includes an explicit patent grant.
+
+Note: this project depends on [`@needle-tools/usd`](https://www.npmjs.com/package/@needle-tools/usd) for USDZ rendering, which is **not** Apache-licensed and asks you to contact `hi@needle.tools` for commercial use of *that* package. That obligation is between you and Needle and does not affect the Apache-2.0 grant on the code in this repository.

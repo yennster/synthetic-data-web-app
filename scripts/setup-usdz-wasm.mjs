@@ -1,13 +1,14 @@
-// Postinstall: copy the three-usdz-loader WASM files into public/usdz-wasm/
-// so the dev server (and build output) serves them at /usdz-wasm/*.
-// The loader fetches them lazily the first time a USDZ is imported.
+// Postinstall: copy the @needle-tools/usd WASM bindings into public/usdz-wasm/
+// so the dev server (and build output) serves them at /usdz-wasm/*. The
+// emHdBindings.js script self-fetches the .wasm/.data/.worker.js siblings at
+// runtime, so all four files have to live at the same URL prefix.
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, '..');
-const src = path.join(root, 'node_modules', 'three-usdz-loader', 'external');
+const src = path.join(root, 'node_modules', '@needle-tools', 'usd', 'src', 'bindings');
 const dst = path.join(root, 'public', 'usdz-wasm');
 
 const FILES = [
@@ -29,8 +30,8 @@ try {
 try {
   await fs.access(src);
 } catch {
-  // three-usdz-loader not installed yet (first-run npm install ordering)
-  console.log('[setup-usdz-wasm] three-usdz-loader not installed yet, skipping');
+  // @needle-tools/usd not installed yet (first-run npm install ordering)
+  console.log('[setup-usdz-wasm] @needle-tools/usd not installed yet, skipping');
   process.exit(0);
 }
 

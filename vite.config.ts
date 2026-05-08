@@ -17,7 +17,12 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    exclude: ['@mediapipe/tasks-vision'],
+    // @needle-tools/usd's bindings index uses `import("./emHdBindings.data?url")`
+    // and similar `?url` imports for the WASM/worker assets. Vite handles
+    // `?url` natively but esbuild (the dep pre-bundler) doesn't recognise
+    // `.data` files and bails. Excluding the package lets Vite resolve
+    // those URLs at runtime.
+    exclude: ['@mediapipe/tasks-vision', '@needle-tools/usd'],
   },
   resolve: {
     dedupe: ['three'],
@@ -29,12 +34,13 @@ export default defineConfig({
     environment: 'happy-dom',
     globals: true,
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
-    // The OpenUSD WASM loader reads three-usdz-loader/external/ at runtime
-    // and the MediaPipe SDK touches the DOM aggressively. Both fail in
-    // tests because we're not wiring up their assets — exclude them.
+    // The OpenUSD WASM loader reads @needle-tools/usd/src/bindings/ at
+    // runtime and the MediaPipe SDK touches the DOM aggressively. Both
+    // fail in tests because we're not wiring up their assets — exclude
+    // them.
     server: {
       deps: {
-        external: ['@mediapipe/tasks-vision', 'three-usdz-loader'],
+        external: ['@mediapipe/tasks-vision', '@needle-tools/usd'],
       },
     },
   },
