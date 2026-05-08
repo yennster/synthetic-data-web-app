@@ -533,10 +533,17 @@ label.field, div.field {
  * ---------------------------------------------------------------------- */
 .capture-card { gap: 12px; }
 
-.capture-footer,
-.capture-batch-topline {
+.capture-footer {
   display: flex;
   align-items: center;
+  gap: 10px;
+}
+
+/* The label sits above the input in capture-batch-count, so bottom-align the
+   row to put the input and the Batch button on a shared baseline. */
+.capture-batch-topline {
+  display: flex;
+  align-items: flex-end;
   gap: 10px;
 }
 
@@ -547,11 +554,9 @@ label.field, div.field {
 }
 
 .capture-batch-section {
-  border-top: 1px solid var(--line);
-  padding-top: 12px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
 .capture-batch-count { flex: 0 0 92px; }
@@ -745,6 +750,7 @@ label.field, div.field {
   position: absolute;
   top: 8px;
   left: 8px;
+  max-width: calc(100% - 16px);
   padding: 2px 8px;
   font-family: var(--t-mono);
   font-size: var(--t-overline);
@@ -753,6 +759,9 @@ label.field, div.field {
   border: 1px solid var(--line);
   border-radius: var(--r-pill);
   letter-spacing: 0.06em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   z-index: 2;
 }
 
