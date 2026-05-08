@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <!-- Source SVG for the OG preview card. Rendered to public/og-card.png by
+       scripts/build-og-card.sh. Edit this and re-run that script to refresh. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b0d10"/>
+      <stop offset="1" stop-color="#11161c"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#5eead4"/>
+      <stop offset="1" stop-color="#14b8a6"/>
+    </linearGradient>
+    <radialGradient id="cubeGlow" cx="0.5" cy="0.5" r="0.6">
+      <stop offset="0" stop-color="#14b8a6" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#14b8a6" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)"/>
+
+  <!-- Subtle grid: evokes the 3D scene's floor without being noisy. -->
+  <g stroke="#1c2530" stroke-width="1" opacity="0.6">
+    <path d="M0 460 L1200 460"/>
+    <path d="M0 510 L1200 510"/>
+    <path d="M0 560 L1200 560"/>
+    <path d="M0 610 L1200 610"/>
+  </g>
+
+  <!-- Glow behind cube -->
+  <circle cx="930" cy="320" r="300" fill="url(#cubeGlow)"/>
+
+  <!-- Isometric cube — matches favicon palette. -->
+  <g transform="translate(930 320) scale(7)">
+    <path d="M 0 -18 L 18 -9 L 0 0 L -18 -9 Z" fill="#5eead4"/>
+    <path d="M -18 -9 L 0 0 L 0 18 L -18 9 Z" fill="#0d9488"/>
+    <path d="M 18 -9 L 0 0 L 0 18 L 18 9 Z" fill="#14b8a6"/>
+  </g>
+
+  <!-- Amber dot, mirroring the favicon's accent. -->
+  <circle cx="1080" cy="120" r="14" fill="#f59e0b"/>
+
+  <!-- Wordmark and tagline -->
+  <g font-family="Helvetica Neue, Helvetica, Arial, sans-serif" fill="#e7eef7">
+    <text x="80" y="200" font-size="40" font-weight="500" fill="#5eead4" letter-spacing="6">SYNTHETIC DATA</text>
+    <text x="80" y="280" font-size="92" font-weight="700" letter-spacing="-2">Studio</text>
+
+    <text x="80" y="380" font-size="28" font-weight="400" fill="#94a3b8" >
+      <tspan x="80" dy="0">Browser-based 3D tool for generating synthetic</tspan>
+      <tspan x="80" dy="38">training data via hand-tracked gestures or a virtual</tspan>
+      <tspan x="80" dy="38">camera, with direct Edge Impulse upload.</tspan>
+    </text>
+  </g>
+
+  <!-- Footer accent bar -->
+  <rect x="80" y="540" width="120" height="4" fill="url(#accent)"/>
+  <text x="80" y="580" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="20" fill="#64748b" letter-spacing="2">EDGE IMPULSE · OPENUSD · THREE.JS</text>
+</svg>
