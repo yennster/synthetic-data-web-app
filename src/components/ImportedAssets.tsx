@@ -69,12 +69,31 @@ function useMaterialOverride(asset: ImportedAsset) {
   ]);
 }
 
+/**
+ * Drive USD time-sample animation forward by calling `instance.update(t)`
+ * every frame. The loader's `update` advances the WASM HdWebSyncDriver and
+ * pushes new transforms / vertex data through the render delegate, so any
+ * baked animation in the .usdz (Apple's AR Quick Look samples, GLB-style
+ * skeletal anim, vertex anim, etc.) plays back. We share one wall-clock so
+ * multiple animated assets stay in sync.
+ */
+function useUsdzAnimation(asset: ImportedAsset) {
+  const tRef = useRef(0);
+  useFrame((_, delta) => {
+    const inst = asset.instance;
+    if (!inst || !asset.isAnimated || !asset.animationPlaying) return;
+    tRef.current += delta;
+    inst.update(tRef.current);
+  });
+}
+
 /** Visual-only path: transforms applied via parent group. */
 function VisualAsset({ asset }: { asset: ImportedAsset }) {
   const groupRef = useRef<THREE.Group>(null);
   const updateAsset = useStore((s) => s.updateAsset);
   useLabelTagging(asset);
   useMaterialOverride(asset);
+  useUsdzAnimation(asset);
   useEffect(() => {
     if (groupRef.current) {
       groupRef.current.userData.label = asset.label;
@@ -116,6 +135,7 @@ function PhysicsAsset({ asset }: { asset: ImportedAsset }) {
   const [isDragging, setIsDragging] = useState(false);
   useLabelTagging(asset);
   useMaterialOverride(asset);
+  useUsdzAnimation(asset);
 
   // Register with the belt transport set
   useEffect(() => {

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Group } from 'three';
+import type { USDZInstance } from 'three-usdz-loader/lib/USDZInstance';
 import type { EiModelInfo, EiResult, LoadedEiModel } from '../lib/eiModel';
 
 export type ObjectKind =
@@ -64,6 +65,16 @@ export type ImportedAsset = {
   overrideColor: string;
   overrideRoughness: number;
   overrideMetalness: number;
+  /** Live USD instance — held so we can call `update(seconds)` per frame to
+   * play baked time-sample animation (Apple's animated AR Quick Look
+   * samples, etc.). Null for assets imported before this field existed. */
+  instance?: USDZInstance | null;
+  /** Set at import time when the underlying stage has authored time samples
+   * (endTimeCode > startTimeCode). Drives the play/pause UI. */
+  isAnimated: boolean;
+  /** When true and `isAnimated`, the renderer advances animation each frame.
+   * Toggled from the asset's play/pause control in the panel. */
+  animationPlaying: boolean;
 };
 
 // A spawned object in the scene, used in detection / anomaly modes.

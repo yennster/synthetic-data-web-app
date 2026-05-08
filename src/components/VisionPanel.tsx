@@ -378,6 +378,8 @@ export function VisionPanel() {
       try {
         const {
           object,
+          instance,
+          isAnimated,
           maxDim,
           meshCount,
           triangleCount,
@@ -421,6 +423,9 @@ export function VisionPanel() {
           overrideColor: '#a78bfa',
           overrideRoughness: 0.5,
           overrideMetalness: 0.1,
+          instance,
+          isAnimated,
+          animationPlaying: isAnimated,
         });
 
         // Surface what we got so the user can debug Omniverse / usdzip
@@ -430,7 +435,8 @@ export function VisionPanel() {
           defaultMaterialMeshes === 0
             ? ''
             : ` · ${defaultMaterialMeshes}/${meshCount} default-material${autoOverride ? ' (override auto-enabled)' : ''}`;
-        setStatus('ok', `Imported ${baseName}.usdz: ${summary}${matNote}`);
+        const animNote = isAnimated ? ' · animated' : '';
+        setStatus('ok', `Imported ${baseName}.usdz: ${summary}${matNote}${animNote}`);
 
         count += 1;
       } catch (e) {
@@ -812,13 +818,29 @@ export function VisionPanel() {
                       title={a.name}
                     >
                       {a.name}.usdz
+                      {a.isAnimated ? ' · 🎞️' : ''}
                     </span>
-                    <button
-                      onClick={() => onRemoveAsset(a.id)}
-                      style={{ padding: '2px 6px' }}
-                    >
-                      ×
-                    </button>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      {a.isAnimated && (
+                        <button
+                          onClick={() =>
+                            updateAsset(a.id, {
+                              animationPlaying: !a.animationPlaying,
+                            })
+                          }
+                          title={a.animationPlaying ? 'Pause animation' : 'Play animation'}
+                          style={{ padding: '2px 6px' }}
+                        >
+                          {a.animationPlaying ? '⏸' : '▶'}
+                        </button>
+                      )}
+                      <button
+                        onClick={() => onRemoveAsset(a.id)}
+                        style={{ padding: '2px 6px' }}
+                      >
+                        ×
+                      </button>
+                    </div>
                   </div>
                   <input
                     value={a.label}
