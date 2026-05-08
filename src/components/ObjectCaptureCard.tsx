@@ -43,9 +43,16 @@ export function ObjectCaptureCard() {
         type="button"
         onClick={() => setOpen((b) => !b)}
         aria-expanded={open}
-        style={{ alignSelf: 'center' }}
+        className="section-toggle"
       >
-        {open ? 'Hide instructions ↑' : 'How to capture ↓'}
+        <span style={{ flex: 1 }}>{open ? 'Hide instructions' : 'How to capture'}</span>
+        <span
+          className="section-toggle-chevron"
+          style={{ transform: open ? 'rotate(90deg)' : 'rotate(0deg)' }}
+          aria-hidden
+        >
+          ▸
+        </span>
       </button>
 
       {open && (

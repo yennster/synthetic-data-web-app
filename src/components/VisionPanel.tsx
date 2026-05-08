@@ -622,13 +622,6 @@ export function VisionPanel() {
           aria-expanded={texturesOpen}
           className="section-toggle"
         >
-          <span
-            className="section-toggle-chevron"
-            style={{ transform: texturesOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}
-            aria-hidden
-          >
-            ▸
-          </span>
           <span style={{ flex: 1 }}>Custom textures</span>
           {(customFloorTexture || customWallTexture) && !texturesOpen && (
             <span
@@ -643,9 +636,28 @@ export function VisionPanel() {
                 .join(' + ')}
             </span>
           )}
+          <span
+            className="section-toggle-chevron"
+            style={{ transform: texturesOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}
+            aria-hidden
+          >
+            ▸
+          </span>
         </button>
         {texturesOpen && (
           <>
+            <p
+              style={{
+                margin: 0,
+                fontSize: 11,
+                lineHeight: 1.45,
+                color: 'var(--muted)',
+              }}
+            >
+              Drop in a tileable image (PNG, JPG, WebP, AVIF, or GIF). For
+              best results use a seamless 512×512 to 2048×2048 texture —
+              the floor tiles 4× and walls tile 2× across the scene.
+            </p>
             <CustomTextureField
               kind="floor"
               label="Floor texture"
