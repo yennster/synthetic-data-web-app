@@ -241,6 +241,23 @@ function ManipulatedObject() {
           },
           true,
         );
+        // One-shot angular-velocity hint from the procedural-motion
+        // runner. Without it, Rapier zeroes the kinematic body's angvel
+        // on type-switch and a flat cube can land without any post-impact
+        // torque — the gyroscope channel ends up flat at zero. Consume
+        // and clear so a subsequent user-driven release isn't affected.
+        const { nextReleaseAngVel, setNextReleaseAngVel } = useStore.getState();
+        if (nextReleaseAngVel) {
+          body.setAngvel(
+            {
+              x: nextReleaseAngVel[0],
+              y: nextReleaseAngVel[1],
+              z: nextReleaseAngVel[2],
+            },
+            true,
+          );
+          setNextReleaseAngVel(null);
+        }
         wasGrabbed.current = false;
       }
       const cur = body.translation();

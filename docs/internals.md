@@ -61,6 +61,10 @@ This is one finite-difference, not two. An earlier version chained two — pos �
 
 So: stationary object reads `(0, +9.81, 0)` (ground pushes up against gravity), freefall reads `(0, 0, 0)`, hand-driven shake gives a realistic IMU waveform.
 
+### Initial spin on procedural release
+
+Rapier zeroes a kinematic body's angular velocity when it switches back to dynamic, and a symmetric cube can land flat with no post-impact torque — both of which leave the gyroscope channel as a flat zero line. The procedural-motion runner therefore writes a one-shot `nextReleaseAngVel` hint into the store before each `releaseBody()` call, and the manipulator's kinematic→dynamic transition consumes it via `body.setAngvel(...)`. Magnitudes are tuned per motion class (drop ≈ 3 rad/s, push ≈ 2 rad/s, throw ≈ 5 rad/s) — a real-world drop almost always carries some initial spin, so matching that gives EI a richer 6-channel signal to discriminate from. User-driven manual recordings don't set the hint, so they keep the natural release behavior.
+
 **Gyroscope** measures **angular velocity** in the sensor's own body frame, in rad/s. Rapier reports `body.angvel()` in world space; we rotate it by the body's inverse orientation quaternion (the same `qInv` used for the accelerometer transform) to land in body coordinates. So: stationary object reads `(0, 0, 0)`, a body spinning around its own up-axis at 90°/s reads `(0, ~1.57, 0)`, etc.
 
 Both sensors share the same per-sample timestamp so EI's signal-processing blocks can do windowed feature extraction (DSP, spectral analysis) across all 6 channels.

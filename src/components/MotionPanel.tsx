@@ -220,7 +220,24 @@ export function MotionPanel() {
     return [x, y, z];
   };
 
-  const releaseBody = () => {
+  /**
+   * Random uniform sample on [-mag, +mag] per axis. Used by the procedural
+   * runners to give released bodies visible spin so the gyroscope channel
+   * isn't a flat line in the captured IMU data. Real-world drops (a phone
+   * slipping out of a hand, a can falling off a shelf) almost always carry
+   * some initial rotation; matching that here gives EI a richer 6-channel
+   * signal to discriminate motion classes from.
+   */
+  const randomAngVel = (mag: number): [number, number, number] => [
+    (Math.random() * 2 - 1) * mag,
+    (Math.random() * 2 - 1) * mag,
+    (Math.random() * 2 - 1) * mag,
+  ];
+
+  const releaseBody = (opts?: { angVelMag?: number }) => {
+    if (opts?.angVelMag && opts.angVelMag > 0) {
+      useStore.getState().setNextReleaseAngVel(randomAngVel(opts.angVelMag));
+    }
     setGrabbed(false);
     setPinchTarget(null);
     setPinchRotation(null);
@@ -237,6 +254,7 @@ export function MotionPanel() {
     start: [number, number, number],
     velocity: [number, number, number],
     steps: number,
+    opts?: { angVelMag?: number },
   ): Promise<void> => {
     const STEP_MS = 16;
     let [cx, cy, cz] = start;
@@ -247,7 +265,7 @@ export function MotionPanel() {
       setPinchTarget([cx, cy, cz]);
       await sleepCancellable(STEP_MS);
     }
-    releaseBody();
+    releaseBody(opts);
   };
 
   type RunCtx = { motion: MotionKind; index: number; total: number };
@@ -267,7 +285,9 @@ export function MotionPanel() {
     // pre-release linvel, which is artificial.
     await sleepCancellable(40);
     setStatus('busy', `${ctx.index}/${ctx.total} drop: falling…`);
-    releaseBody();
+    // Gentle tumble — a real-world drop almost always carries some
+    // initial spin from the hand letting go.
+    releaseBody({ angVelMag: 3 });
     await sleepCancellable(drops.durationMs);
     return recordSnapshot();
   };
@@ -281,10 +301,12 @@ export function MotionPanel() {
     const angle = Math.random() * 2 * Math.PI;
     const speed = drops.throwSpeed * (0.85 + Math.random() * 0.3);
     const upKick = 0.4 + Math.random() * 0.8; // gentle upward arc
+    // Throws are sportier than drops — bigger spin imparted at release.
     await accelerateAndRelease(
       start,
       [Math.cos(angle) * speed, upKick, Math.sin(angle) * speed],
       8,
+      { angVelMag: 5 },
     );
     await sleepCancellable(drops.durationMs);
     return recordSnapshot();
@@ -302,10 +324,13 @@ export function MotionPanel() {
     setStatus('busy', `${ctx.index}/${ctx.total} push: shoving…`);
     const angle = Math.random() * 2 * Math.PI;
     const speed = drops.pushSpeed * (0.85 + Math.random() * 0.3);
+    // Pushes are mostly lateral — modest spin so the body slides AND
+    // tumbles, the way a knocked-over object usually does.
     await accelerateAndRelease(
       start,
       [Math.cos(angle) * speed, 0, Math.sin(angle) * speed],
       8,
+      { angVelMag: 2 },
     );
     await sleepCancellable(drops.durationMs);
     return recordSnapshot();

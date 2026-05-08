@@ -99,6 +99,29 @@ describe('captures', () => {
   });
 });
 
+describe('nextReleaseAngVel', () => {
+  it('starts at null', () => {
+    expect(useStore.getState().nextReleaseAngVel).toBeNull();
+  });
+
+  it('setNextReleaseAngVel stores the requested vector', () => {
+    useStore.getState().setNextReleaseAngVel([1.5, -0.5, 2.0]);
+    expect(useStore.getState().nextReleaseAngVel).toEqual([1.5, -0.5, 2.0]);
+  });
+
+  it('setNextReleaseAngVel(null) clears the hint', () => {
+    useStore.getState().setNextReleaseAngVel([1, 2, 3]);
+    useStore.getState().setNextReleaseAngVel(null);
+    expect(useStore.getState().nextReleaseAngVel).toBeNull();
+  });
+
+  it('does not affect other state', () => {
+    const before = useStore.getState().mode;
+    useStore.getState().setNextReleaseAngVel([0.1, 0.2, 0.3]);
+    expect(useStore.getState().mode).toBe(before);
+  });
+});
+
 describe('anomalyLabel', () => {
   it('default is "normal"', () => {
     expect(useStore.getState().anomalyLabel).toBe('normal');
