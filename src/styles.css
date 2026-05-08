@@ -413,7 +413,13 @@ label.field, div.field {
   cursor: pointer;
   transition: color 120ms ease;
 }
-.section-toggle:hover { color: var(--text); }
+/* Explicitly transparent — overrides the global `button:hover` rule that
+   would otherwise paint a dark surface fill behind the row and make it
+   look like a misaligned filled chip. */
+.section-toggle:hover {
+  background: transparent;
+  color: var(--text);
+}
 .section-toggle:focus-visible {
   outline: 2px solid var(--accent-line);
   outline-offset: 2px;
