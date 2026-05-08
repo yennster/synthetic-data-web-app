@@ -341,15 +341,14 @@ label.field, div.field {
 /* Full-bleed divider above each card. Pulled out of the card via negative
    left/right offsets so it spans the entire sidebar width (the sidebar
    has 18px horizontal padding) instead of stopping at the card's own
-   left/right edges. 2px + --line-strong makes the section break read
-   clearly from across the room. */
+   left/right edges. */
 .card::before {
   content: "";
   position: absolute;
   top: 0;
   left: -18px;
   right: -18px;
-  height: 2px;
+  height: 1px;
   background: var(--line-strong);
 }
 .sidebar > .card:first-of-type {
