@@ -45,7 +45,7 @@ export function ObjectCaptureCard() {
         aria-expanded={open}
         className="section-toggle"
       >
-        <span style={{ flex: 1 }}>{open ? 'Hide instructions' : 'How to capture'}</span>
+        <span>{open ? 'Hide instructions' : 'How to capture'}</span>
         <span
           className="section-toggle-chevron"
           style={{ transform: open ? 'rotate(90deg)' : 'rotate(0deg)' }}

@@ -622,10 +622,18 @@ export function VisionPanel() {
           aria-expanded={texturesOpen}
           className="section-toggle"
         >
-          <span style={{ flex: 1 }}>Custom textures</span>
+          <span>Custom textures</span>
+          <span
+            className="section-toggle-chevron"
+            style={{ transform: texturesOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}
+            aria-hidden
+          >
+            ▸
+          </span>
           {(customFloorTexture || customWallTexture) && !texturesOpen && (
             <span
               style={{
+                marginLeft: 'auto',
                 fontSize: 10,
                 color: 'var(--accent)',
                 fontWeight: 500,
@@ -636,13 +644,6 @@ export function VisionPanel() {
                 .join(' + ')}
             </span>
           )}
-          <span
-            className="section-toggle-chevron"
-            style={{ transform: texturesOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}
-            aria-hidden
-          >
-            ▸
-          </span>
         </button>
         {texturesOpen && (
           <>
