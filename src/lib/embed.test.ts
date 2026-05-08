@@ -1,9 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   applyApiKeyFromUrl,
+  applyEiCategoryFromUrl,
+  applyThemeFromUrl,
   initPostContentHeight,
   postContentHeight,
   readApiKeyFromSearch,
+  readEiCategoryFromSearch,
+  readThemeFromSearch,
 } from './embed';
 
 describe('readApiKeyFromSearch', () => {
@@ -41,6 +45,94 @@ describe('applyApiKeyFromUrl', () => {
     const setApiKey = vi.fn();
     applyApiKeyFromUrl('?other=1', setApiKey);
     expect(setApiKey).not.toHaveBeenCalled();
+  });
+});
+
+describe('readThemeFromSearch', () => {
+  it('returns "dark" or "light" when explicitly set', () => {
+    expect(readThemeFromSearch('?theme=dark')).toBe('dark');
+    expect(readThemeFromSearch('?theme=light')).toBe('light');
+  });
+
+  it('is case-insensitive', () => {
+    expect(readThemeFromSearch('?theme=DARK')).toBe('dark');
+    expect(readThemeFromSearch('?theme=Light')).toBe('light');
+  });
+
+  it('trims surrounding whitespace', () => {
+    expect(readThemeFromSearch('?theme=%20light%20')).toBe('light');
+  });
+
+  it('returns null for missing or empty values', () => {
+    expect(readThemeFromSearch('')).toBeNull();
+    expect(readThemeFromSearch('?other=1')).toBeNull();
+    expect(readThemeFromSearch('?theme=')).toBeNull();
+  });
+
+  it('returns null for unknown values (rather than guessing)', () => {
+    expect(readThemeFromSearch('?theme=sepia')).toBeNull();
+    expect(readThemeFromSearch('?theme=auto')).toBeNull();
+  });
+});
+
+describe('applyThemeFromUrl', () => {
+  it('calls the setter with the parsed theme', () => {
+    const setTheme = vi.fn();
+    applyThemeFromUrl('?theme=light', setTheme);
+    expect(setTheme).toHaveBeenCalledExactlyOnceWith('light');
+  });
+
+  it('does not call the setter when the param is absent or invalid', () => {
+    const setTheme = vi.fn();
+    applyThemeFromUrl('?other=1', setTheme);
+    applyThemeFromUrl('?theme=sepia', setTheme);
+    expect(setTheme).not.toHaveBeenCalled();
+  });
+});
+
+describe('readEiCategoryFromSearch', () => {
+  it('returns the canonical bucket for each accepted value', () => {
+    expect(readEiCategoryFromSearch('?category=training')).toBe('training');
+    expect(readEiCategoryFromSearch('?category=testing')).toBe('testing');
+    expect(readEiCategoryFromSearch('?category=split')).toBe('split');
+  });
+
+  it('accepts the short aliases "train" and "test"', () => {
+    expect(readEiCategoryFromSearch('?category=train')).toBe('training');
+    expect(readEiCategoryFromSearch('?category=test')).toBe('testing');
+  });
+
+  it('is case-insensitive', () => {
+    expect(readEiCategoryFromSearch('?category=TRAINING')).toBe('training');
+    expect(readEiCategoryFromSearch('?category=Split')).toBe('split');
+  });
+
+  it('returns null for missing, empty, or unknown values', () => {
+    expect(readEiCategoryFromSearch('')).toBeNull();
+    expect(readEiCategoryFromSearch('?other=1')).toBeNull();
+    expect(readEiCategoryFromSearch('?category=')).toBeNull();
+    expect(readEiCategoryFromSearch('?category=validation')).toBeNull();
+  });
+});
+
+describe('applyEiCategoryFromUrl', () => {
+  it('calls the setter with the parsed category', () => {
+    const setCategory = vi.fn();
+    applyEiCategoryFromUrl('?category=testing', setCategory);
+    expect(setCategory).toHaveBeenCalledExactlyOnceWith('testing');
+  });
+
+  it('normalizes "train" → "training"', () => {
+    const setCategory = vi.fn();
+    applyEiCategoryFromUrl('?category=train', setCategory);
+    expect(setCategory).toHaveBeenCalledExactlyOnceWith('training');
+  });
+
+  it('does not call the setter when the param is absent or invalid', () => {
+    const setCategory = vi.fn();
+    applyEiCategoryFromUrl('?other=1', setCategory);
+    applyEiCategoryFromUrl('?category=garbage', setCategory);
+    expect(setCategory).not.toHaveBeenCalled();
   });
 });
 

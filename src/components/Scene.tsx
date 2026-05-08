@@ -17,6 +17,7 @@ import {
   angularVelocityFromQuats as angVelFromQuats,
   cameraRelativeToWorld,
 } from '../lib/handMath';
+import { computeImuReading } from '../lib/imu';
 import { useStore, type ObjectKind } from '../store/useStore';
 import { Conveyor } from './Conveyor';
 import { ImportedAssets } from './ImportedAssets';
@@ -240,16 +241,54 @@ function ManipulatedObject() {
           },
           true,
         );
+        // One-shot angular-velocity hint from the procedural-motion
+        // runner. Without it, Rapier zeroes the kinematic body's angvel
+        // on type-switch and a flat cube can land without any post-impact
+        // torque — the gyroscope channel ends up flat at zero. Consume
+        // and clear so a subsequent user-driven release isn't affected.
+        const { nextReleaseAngVel, setNextReleaseAngVel } = useStore.getState();
+        if (nextReleaseAngVel) {
+          body.setAngvel(
+            {
+              x: nextReleaseAngVel[0],
+              y: nextReleaseAngVel[1],
+              z: nextReleaseAngVel[2],
+            },
+            true,
+          );
+          setNextReleaseAngVel(null);
+        }
         wasGrabbed.current = false;
       }
       const cur = body.translation();
       prevPos.current.set(cur.x, cur.y, cur.z);
     }
 
+    // IMU sampling.
+    //
+    // The previous version computed acceleration by *double* finite-
+    // differencing the body's position (pos→linvel→accel, each over one
+    // `period`) and ran a `while (accum >= period)` loop, so a 60 fps
+    // render with a 100 Hz request would emit two samples per frame
+    // sharing the same `body.translation()`. That collapsed every other
+    // sample's linvel to zero and the second derivative spiked to
+    // ±|V|/period — ~500 m/s² of pure aliasing on top of the real signal.
+    //
+    // Now: we read Rapier's integrator state (`body.linvel()`) when the
+    // body is dynamic — that's smooth, drift-free, and only needs *one*
+    // numerical differentiation to get acceleration. During kinematic
+    // phases (held by a pinch, or driven by the procedural-motions
+    // controller) Rapier reports linvel = 0, so we fall back to a single
+    // position delta — same accuracy as before but only one division.
+    //
+    // We also emit at most one sample per frame and divide by the actual
+    // elapsed time since the last sample, not the nominal period — that
+    // removes the same-frame duplicate-emit aliasing entirely.
     const period = 1 / sampleRateHz;
     sampleAccumulator.current += dt;
-    while (sampleAccumulator.current >= period) {
-      sampleAccumulator.current -= period;
+    if (sampleAccumulator.current >= period) {
+      const sampleDt = sampleAccumulator.current;
+      sampleAccumulator.current = 0;
 
       const t = body.translation();
       const r = body.rotation();
@@ -257,52 +296,56 @@ function ManipulatedObject() {
       const curQuat = new THREE.Quaternion(r.x, r.y, r.z, r.w);
 
       // First sample after init (or remount) seeds the history with no
-      // emission — otherwise the apparent velocity would be (curPos − 0)/dt
-      // and the gyro would jump from identity to the body's current pose.
+      // emission — otherwise the apparent acceleration would jump from a
+      // zero baseline.
       if (!sampleInit.current) {
         prevSamplePos.current.copy(curPos);
         prevSampleQuat.current.copy(curQuat);
         prevSampleLinvel.current.set(0, 0, 0);
         sampleInit.current = true;
-        continue;
+        return;
       }
 
-      const linvel = curPos.clone().sub(prevSamplePos.current).divideScalar(period);
-      const aInertial = linvel
-        .clone()
-        .sub(prevSampleLinvel.current)
-        .divideScalar(period);
-      const aProper = aInertial.sub(
-        new THREE.Vector3(GRAVITY[0], GRAVITY[1], GRAVITY[2]),
-      );
+      const isDynamic = body.bodyType() === 0;
+      const linvel = new THREE.Vector3();
+      if (isDynamic) {
+        const lv = body.linvel();
+        linvel.set(lv.x, lv.y, lv.z);
+      } else {
+        linvel
+          .copy(curPos)
+          .sub(prevSamplePos.current)
+          .divideScalar(sampleDt);
+      }
       angularVelocityFromQuats(
         prevSampleQuat.current,
         curQuat,
-        period,
+        sampleDt,
         angVelWorld.current,
       );
-
-      // Inverse body rotation maps world-frame vectors into the body's
-      // local frame — used for both the proper-acceleration readout and
-      // the gyroscope (we computed angvel in world frame above).
-      const qInv = curQuat.clone().invert();
-      aProper.applyQuaternion(qInv);
-      const angVelLocal = angVelWorld.current.clone().applyQuaternion(qInv);
+      const reading = computeImuReading({
+        linvel: [linvel.x, linvel.y, linvel.z],
+        prevLinvel: [
+          prevSampleLinvel.current.x,
+          prevSampleLinvel.current.y,
+          prevSampleLinvel.current.z,
+        ],
+        angVelWorld: [
+          angVelWorld.current.x,
+          angVelWorld.current.y,
+          angVelWorld.current.z,
+        ],
+        qCur: [curQuat.x, curQuat.y, curQuat.z, curQuat.w],
+        dt: sampleDt,
+        gWorld: [GRAVITY[0], GRAVITY[1], GRAVITY[2]],
+      });
 
       prevSamplePos.current.copy(curPos);
       prevSampleQuat.current.copy(curQuat);
       prevSampleLinvel.current.copy(linvel);
 
       if (isRecording) {
-        pushSample({
-          t: performance.now(),
-          ax: aProper.x,
-          ay: aProper.y,
-          az: aProper.z,
-          gx: angVelLocal.x,
-          gy: angVelLocal.y,
-          gz: angVelLocal.z,
-        });
+        pushSample({ t: performance.now(), ...reading });
       }
     }
   });

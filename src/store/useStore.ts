@@ -213,6 +213,16 @@ type State = {
   handTrackingEnabled: boolean;
   setHandTrackingEnabled: (b: boolean) => void;
 
+  /** One-shot hint consumed by the next kinematic→dynamic release in
+   * Scene's ManipulatedObject. The procedural-motion runner sets this so
+   * the released body has visible spin in the captured IMU data — a clean
+   * kinematic hold leaves Rapier's angular velocity at zero, and a
+   * symmetric cube can otherwise land flat with no post-impact torque, so
+   * the gyroscope channel reads as a flat line. Cleared back to null
+   * after Scene applies it. */
+  nextReleaseAngVel: [number, number, number] | null;
+  setNextReleaseAngVel: (v: [number, number, number] | null) => void;
+
   /** Procedural motion-generator config. Each batch produces N labelled
    * IMU samples for the selected `motion` class. */
   drops: {
@@ -318,10 +328,6 @@ type State = {
   batchSignal: number;
   triggerBatch: () => void;
 
-  // FS Access directory handle (Chromium only)
-  saveDirHandle: any | null;
-  setSaveDirHandle: (h: any | null) => void;
-
   // anomaly batch label
   anomalyLabel: string;
   setAnomalyLabel: (s: string) => void;
@@ -412,6 +418,9 @@ export const useStore = create<State>()(
   setPinchStrength: (n) => set({ pinchStrength: n }),
   handTrackingEnabled: true,
   setHandTrackingEnabled: (b) => set({ handTrackingEnabled: b }),
+
+  nextReleaseAngVel: null,
+  setNextReleaseAngVel: (v) => set({ nextReleaseAngVel: v }),
 
   drops: {
     count: 10,
@@ -506,9 +515,6 @@ export const useStore = create<State>()(
   triggerCapture: () => set((s) => ({ captureSignal: s.captureSignal + 1 })),
   batchSignal: 0,
   triggerBatch: () => set((s) => ({ batchSignal: s.batchSignal + 1 })),
-
-  saveDirHandle: null,
-  setSaveDirHandle: (h) => set({ saveDirHandle: h }),
 
   anomalyLabel: 'normal',
   setAnomalyLabel: (s) => set({ anomalyLabel: s }),

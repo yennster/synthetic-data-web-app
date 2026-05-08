@@ -52,8 +52,7 @@ export function Hud() {
         Captures: {captures.length}
       </div>
       <div
-        className="pill"
-        style={{ background: 'rgba(20,24,29,0.6)', fontSize: 10 }}
+        className="pill tip"
         title="Shift+drag = camera-aligned plane. Press/release Alt/Option/Ctrl/Cmd mid-drag to switch into depth mode — vertical cursor motion brings the object closer (up) or farther (down). Mouse wheel during drag does the same depth motion."
       >
         Tip: Shift+drag · Hold Alt/Option/Ctrl for depth

@@ -19,11 +19,116 @@ beforeEach(() => {
     isGrabbed: false,
     pinchTarget: null,
     captures: [],
-    saveDirHandle: null,
     showConveyor: false,
     conveyorSpeed: 0.5,
+    envPreset: 'studio',
     anomalyLabel: 'normal',
     status: { kind: 'idle', msg: '' },
+  });
+});
+
+describe('envPreset', () => {
+  it('starts at studio (the dark-theme default)', () => {
+    expect(useStore.getState().envPreset).toBe('studio');
+  });
+
+  it('setEnvPreset persists the chosen preset', () => {
+    useStore.getState().setEnvPreset('whitebox');
+    expect(useStore.getState().envPreset).toBe('whitebox');
+    useStore.getState().setEnvPreset('warehouse');
+    expect(useStore.getState().envPreset).toBe('warehouse');
+    useStore.getState().setEnvPreset('outdoor');
+    expect(useStore.getState().envPreset).toBe('outdoor');
+  });
+
+  it('does not auto-change when switching mode', () => {
+    useStore.getState().setEnvPreset('warehouse');
+    useStore.getState().setMode('detection');
+    expect(useStore.getState().envPreset).toBe('warehouse');
+    useStore.getState().setMode('anomaly');
+    expect(useStore.getState().envPreset).toBe('warehouse');
+  });
+});
+
+describe('captures', () => {
+  const fakeBlob = new Blob(['x'], { type: 'image/png' });
+
+  it('addCapture appends and assigns ts ordering', () => {
+    const s = useStore.getState();
+    s.addCapture({
+      id: 'a',
+      filename: 'a.png',
+      blob: fakeBlob,
+      boxes: [],
+      label: '',
+      width: 64,
+      height: 48,
+      ts: 1,
+    });
+    s.addCapture({
+      id: 'b',
+      filename: 'b.png',
+      blob: fakeBlob,
+      boxes: [{ label: 'cube', x: 0, y: 0, width: 10, height: 10 }],
+      label: '',
+      width: 64,
+      height: 48,
+      ts: 2,
+    });
+    const list = useStore.getState().captures;
+    expect(list).toHaveLength(2);
+    expect(list.map((c) => c.id)).toEqual(['a', 'b']);
+    expect(list[1].boxes).toHaveLength(1);
+  });
+
+  it('clearCaptures empties the list', () => {
+    const s = useStore.getState();
+    s.addCapture({
+      id: 'a',
+      filename: 'a.png',
+      blob: fakeBlob,
+      boxes: [],
+      label: '',
+      width: 1,
+      height: 1,
+      ts: 0,
+    });
+    expect(useStore.getState().captures).toHaveLength(1);
+    s.clearCaptures();
+    expect(useStore.getState().captures).toHaveLength(0);
+  });
+});
+
+describe('nextReleaseAngVel', () => {
+  it('starts at null', () => {
+    expect(useStore.getState().nextReleaseAngVel).toBeNull();
+  });
+
+  it('setNextReleaseAngVel stores the requested vector', () => {
+    useStore.getState().setNextReleaseAngVel([1.5, -0.5, 2.0]);
+    expect(useStore.getState().nextReleaseAngVel).toEqual([1.5, -0.5, 2.0]);
+  });
+
+  it('setNextReleaseAngVel(null) clears the hint', () => {
+    useStore.getState().setNextReleaseAngVel([1, 2, 3]);
+    useStore.getState().setNextReleaseAngVel(null);
+    expect(useStore.getState().nextReleaseAngVel).toBeNull();
+  });
+
+  it('does not affect other state', () => {
+    const before = useStore.getState().mode;
+    useStore.getState().setNextReleaseAngVel([0.1, 0.2, 0.3]);
+    expect(useStore.getState().mode).toBe(before);
+  });
+});
+
+describe('anomalyLabel', () => {
+  it('default is "normal"', () => {
+    expect(useStore.getState().anomalyLabel).toBe('normal');
+  });
+  it('setAnomalyLabel updates the value', () => {
+    useStore.getState().setAnomalyLabel('anomaly');
+    expect(useStore.getState().anomalyLabel).toBe('anomaly');
   });
 });
 

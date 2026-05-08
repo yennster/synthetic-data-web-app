@@ -1,6 +1,7 @@
 import { useRef, useState, type CSSProperties } from 'react';
 import { useStore, type AppMode } from '../store/useStore';
 import { MotionPanel } from './MotionPanel';
+import { ThemeToggle } from './ThemeToggle';
 import { VisionPanel } from './VisionPanel';
 
 /* The Edge Impulse · auth card used to live between Mode and the panels.
@@ -123,7 +124,17 @@ export function Sidebar({
       onTouchCancel={onTouchEnd}
     >
       <div className="card">
-        <h3>Mode</h3>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 8,
+          }}
+        >
+          <h3>Mode</h3>
+          <ThemeToggle />
+        </div>
         <div
           style={{
             display: 'grid',

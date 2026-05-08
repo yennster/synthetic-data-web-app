@@ -14,6 +14,8 @@ import {
   uploadSample,
   waitForEiJob,
 } from '../lib/edgeImpulse';
+import { randomPreReleaseMs } from '../lib/proceduralMotion';
+import { useNumberInput } from '../lib/useNumberInput';
 import { buildZip, type ZipEntry } from '../lib/zip';
 import { EiAuthCard } from './EiAuthCard';
 
@@ -84,6 +86,24 @@ export function MotionPanel() {
     setPinchRotation,
     setDropsCancelRequested,
   } = useStore();
+
+  // Controlled number inputs that tolerate transient empty / partial
+  // entries while the user is typing — without this, clearing "10" snaps
+  // straight back to "10" before the next digit can be typed.
+  const sampleRateInput = useNumberInput(sampleRateHz, setSampleRateHz, {
+    min: 20,
+    max: 500,
+  });
+  const countInput = useNumberInput(
+    drops.count,
+    (n) => setDrops({ count: n }),
+    { min: 1, max: 500 },
+  );
+  const durationInput = useNumberInput(
+    drops.durationMs,
+    (n) => setDrops({ durationMs: n }),
+    { min: 300, max: 6000 },
+  );
 
   const onUpload = async () => {
     setStatus('busy', 'Uploading…');
@@ -220,7 +240,24 @@ export function MotionPanel() {
     return [x, y, z];
   };
 
-  const releaseBody = () => {
+  /**
+   * Random uniform sample on [-mag, +mag] per axis. Used by the procedural
+   * runners to give released bodies visible spin so the gyroscope channel
+   * isn't a flat line in the captured IMU data. Real-world drops (a phone
+   * slipping out of a hand, a can falling off a shelf) almost always carry
+   * some initial rotation; matching that here gives EI a richer 6-channel
+   * signal to discriminate motion classes from.
+   */
+  const randomAngVel = (mag: number): [number, number, number] => [
+    (Math.random() * 2 - 1) * mag,
+    (Math.random() * 2 - 1) * mag,
+    (Math.random() * 2 - 1) * mag,
+  ];
+
+  const releaseBody = (opts?: { angVelMag?: number }) => {
+    if (opts?.angVelMag && opts.angVelMag > 0) {
+      useStore.getState().setNextReleaseAngVel(randomAngVel(opts.angVelMag));
+    }
     setGrabbed(false);
     setPinchTarget(null);
     setPinchRotation(null);
@@ -237,6 +274,7 @@ export function MotionPanel() {
     start: [number, number, number],
     velocity: [number, number, number],
     steps: number,
+    opts?: { angVelMag?: number },
   ): Promise<void> => {
     const STEP_MS = 16;
     let [cx, cy, cz] = start;
@@ -247,7 +285,7 @@ export function MotionPanel() {
       setPinchTarget([cx, cy, cz]);
       await sleepCancellable(STEP_MS);
     }
-    releaseBody();
+    releaseBody(opts);
   };
 
   type RunCtx = { motion: MotionKind; index: number; total: number };
@@ -258,35 +296,48 @@ export function MotionPanel() {
     return snap;
   };
 
+  /** Sleep until `t0 + durationMs` (no-op if we've already passed it). */
+  const sleepUntil = async (t0: number, durationMs: number): Promise<void> => {
+    const remaining = Math.max(0, durationMs - (performance.now() - t0));
+    if (remaining > 0) await sleepCancellable(remaining);
+  };
+
   const runDrop = async (ctx: RunCtx): Promise<AccelSample[]> => {
     setStatus('busy', `${ctx.index}/${ctx.total} drop: lifting…`);
     await liftTo(1.2, drops.heightMin, drops.heightMax, true);
+    // Total recording window is exactly `durationMs`; the release moment
+    // floats randomly within it so each sample's baseline-vs-flight
+    // proportion varies. Bounded pre-release so the trace always has a
+    // few baseline frames AND meaningful flight time.
+    const t0 = performance.now();
     startRecording();
-    // Brief beat so the first sample is captured before release —
-    // otherwise the very first reading would be the kinematic body's
-    // pre-release linvel, which is artificial.
-    await sleepCancellable(40);
+    await sleepCancellable(randomPreReleaseMs(drops.durationMs));
     setStatus('busy', `${ctx.index}/${ctx.total} drop: falling…`);
-    releaseBody();
-    await sleepCancellable(drops.durationMs);
+    // Gentle tumble — a real-world drop almost always carries some
+    // initial spin from the hand letting go.
+    releaseBody({ angVelMag: 3 });
+    await sleepUntil(t0, drops.durationMs);
     return recordSnapshot();
   };
 
   const runThrow = async (ctx: RunCtx): Promise<AccelSample[]> => {
     setStatus('busy', `${ctx.index}/${ctx.total} throw: winding up…`);
     const start = await liftTo(0.8, drops.heightMin, drops.heightMax, true);
+    const t0 = performance.now();
     startRecording();
-    await sleepCancellable(40);
+    await sleepCancellable(randomPreReleaseMs(drops.durationMs));
     setStatus('busy', `${ctx.index}/${ctx.total} throw: releasing…`);
     const angle = Math.random() * 2 * Math.PI;
     const speed = drops.throwSpeed * (0.85 + Math.random() * 0.3);
     const upKick = 0.4 + Math.random() * 0.8; // gentle upward arc
+    // Throws are sportier than drops — bigger spin imparted at release.
     await accelerateAndRelease(
       start,
       [Math.cos(angle) * speed, upKick, Math.sin(angle) * speed],
       8,
+      { angVelMag: 5 },
     );
-    await sleepCancellable(drops.durationMs);
+    await sleepUntil(t0, drops.durationMs);
     return recordSnapshot();
   };
 
@@ -297,17 +348,21 @@ export function MotionPanel() {
     // Hold high enough that a tilted body's corner doesn't intersect the
     // ground while we accelerate the kinematic target.
     const start = await liftTo(1.2, 0.25, 0.4, true);
+    const t0 = performance.now();
     startRecording();
-    await sleepCancellable(40);
+    await sleepCancellable(randomPreReleaseMs(drops.durationMs));
     setStatus('busy', `${ctx.index}/${ctx.total} push: shoving…`);
     const angle = Math.random() * 2 * Math.PI;
     const speed = drops.pushSpeed * (0.85 + Math.random() * 0.3);
+    // Pushes are mostly lateral — modest spin so the body slides AND
+    // tumbles, the way a knocked-over object usually does.
     await accelerateAndRelease(
       start,
       [Math.cos(angle) * speed, 0, Math.sin(angle) * speed],
       8,
+      { angVelMag: 2 },
     );
-    await sleepCancellable(drops.durationMs);
+    await sleepUntil(t0, drops.durationMs);
     return recordSnapshot();
   };
 
@@ -442,7 +497,7 @@ export function MotionPanel() {
           `motions_${zipEntries.length}`,
         ).replace(/\.json$/, '.zip');
         const zip = await buildZip(zipEntries);
-        await saveBlob({ kind: 'download' }, zipName, zip);
+        await saveBlob(zipName, zip);
         setStatus(
           cancelled || failed > 0 ? 'err' : 'ok',
           `${headline}: downloaded ${zipEntries.length} samples${
@@ -467,7 +522,7 @@ export function MotionPanel() {
               `motions_${zipEntries.length}`,
             ).replace(/\.json$/, '.zip');
             const zip = await buildZip(zipEntries);
-            await saveBlob({ kind: 'download' }, zipName, zip);
+            await saveBlob(zipName, zip);
           } catch {
             /* ignore zip failure on cancel */
           }
@@ -494,7 +549,17 @@ export function MotionPanel() {
     }
   };
 
-  const durationSec = samples.length / sampleRateHz;
+  // Display the actual recording span — same reason the EI payload now
+  // reports an inferred interval rather than the requested rate. The
+  // sampler caps emission at the render frame rate (one sample per
+  // useFrame call), so dividing the sample count by the *requested*
+  // sample rate underreports the duration on machines where frame rate
+  // < requested Hz (e.g. 60 fps render with 100 Hz requested → trace
+  // shown as 1.2 s instead of the actual 2.0 s).
+  const durationSec =
+    samples.length > 1
+      ? (samples[samples.length - 1].t - samples[0].t) / 1000
+      : samples.length / sampleRateHz;
   const hasApiKey = ei.apiKey.trim().length > 0;
 
   return (
@@ -567,12 +632,7 @@ export function MotionPanel() {
             min={20}
             max={500}
             step={10}
-            value={sampleRateHz}
-            onChange={(e) =>
-              setSampleRateHz(
-                Math.max(20, Math.min(500, Number(e.target.value) || 100)),
-              )
-            }
+            {...sampleRateInput.inputProps}
             disabled={isRecording}
           />
         </label>
@@ -630,10 +690,7 @@ export function MotionPanel() {
               min={1}
               max={500}
               step={1}
-              value={drops.count}
-              onChange={(e) =>
-                setDrops({ count: Number(e.target.value) || 10 })
-              }
+              {...countInput.inputProps}
               disabled={dropsRunning}
             />
           </label>
@@ -644,10 +701,7 @@ export function MotionPanel() {
               min={300}
               max={6000}
               step={100}
-              value={drops.durationMs}
-              onChange={(e) =>
-                setDrops({ durationMs: Number(e.target.value) || 1500 })
-              }
+              {...durationInput.inputProps}
               disabled={dropsRunning}
             />
           </label>

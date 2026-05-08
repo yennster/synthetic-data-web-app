@@ -1,12 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore, type ObjectKind } from '../store/useStore';
 import {
-  buildBoundingBoxLabelsFile,
-  fsAccessSupported,
-  pickDirectory,
-  saveBlob,
-} from '../lib/capture';
-import {
   buildEiDeployment,
   downloadEiHistoricDeployment,
   listEiDeploymentHistory,
@@ -17,6 +11,7 @@ import {
   type EiProject,
 } from '../lib/edgeImpulse';
 import { loadEiModel, loadEiModelFromZip } from '../lib/eiModel';
+import { NumberField, useNumberInput } from '../lib/useNumberInput';
 import { disposeUsdz, loadUsdz, prewarmUsdz } from '../lib/usdz';
 import { putAssetBlob } from '../lib/assetStore';
 import {
@@ -68,8 +63,6 @@ export function VisionPanel() {
     clearCaptures,
     triggerCapture,
     triggerBatch,
-    saveDirHandle,
-    setSaveDirHandle,
     anomalyLabel,
     setAnomalyLabel,
     ei,
@@ -90,6 +83,23 @@ export function VisionPanel() {
   const triggerInference = useStore((s) => s.triggerInference);
   const modelFilesRef = useRef<HTMLInputElement>(null);
   const [modelLoading, setModelLoading] = useState(false);
+  // Controlled number inputs that tolerate transient empty / partial
+  // entries while the user is typing — see lib/useNumberInput for why.
+  const widthInput = useNumberInput(
+    cs.width,
+    (n) => setCapture({ width: n }),
+    { min: 64, max: 4096 },
+  );
+  const heightInput = useNumberInput(
+    cs.height,
+    (n) => setCapture({ height: n }),
+    { min: 64, max: 4096 },
+  );
+  const batchCountInput = useNumberInput(
+    cs.batchCount,
+    (n) => setCapture({ batchCount: n }),
+    { min: 1, max: 500 },
+  );
   // Auto-expand the custom-texture section if the user already has one
   // uploaded — they probably want to see / clear it. Otherwise hide the
   // controls behind a single toggle so the Scene card stays compact.
@@ -493,32 +503,6 @@ export function VisionPanel() {
     clearAssets();
   };
 
-  const onPickDir = async () => {
-    try {
-      const h = await pickDirectory();
-      if (h) {
-        setSaveDirHandle(h);
-        setStatus('ok', `Saving to: ${h.name}/`);
-      }
-    } catch (e) {
-      setStatus('err', `Picker: ${(e as Error).message}`);
-    }
-  };
-
-  const onSaveLabelsFile = async () => {
-    if (!saveDirHandle) {
-      setStatus('err', 'Pick a directory first');
-      return;
-    }
-    const json = buildBoundingBoxLabelsFile(captures);
-    await saveBlob(
-      { kind: 'fs', dir: saveDirHandle },
-      'bounding_boxes.labels',
-      new Blob([json], { type: 'application/json' }),
-    );
-    setStatus('ok', 'Wrote bounding_boxes.labels');
-  };
-
   const onUpload = async () => {
     setStatus('busy', `Uploading 0/${captures.length}…`);
     const includeBoxes = mode === 'detection';
@@ -828,7 +812,7 @@ export function VisionPanel() {
                       updateSceneObject(o.id, { color: e.target.value })
                     }
                     title={`Color: ${o.color}`}
-                    style={{ flex: 'none', width: 16, height: 16 }}
+                    style={{ flex: 'none', width: 28, height: 28, padding: 0 }}
                   />
                   <input
                     value={o.label}
@@ -870,17 +854,12 @@ export function VisionPanel() {
                       }
                       style={{ flex: 1 }}
                     />
-                    <input
-                      type="number"
+                    <NumberField
                       min={0.1}
                       max={5}
                       step={0.05}
                       value={o.scale}
-                      onChange={(e) =>
-                        updateSceneObject(o.id, {
-                          scale: Number(e.target.value) || 0.1,
-                        })
-                      }
+                      onChange={(n) => updateSceneObject(o.id, { scale: n })}
                       style={{
                         width: 64,
                         flex: 'none',
@@ -1026,17 +1005,12 @@ export function VisionPanel() {
                         }
                         style={{ flex: 1 }}
                       />
-                      <input
-                        type="number"
+                      <NumberField
                         min={0.001}
                         max={5}
                         step={0.01}
                         value={a.scale}
-                        onChange={(e) =>
-                          updateAsset(a.id, {
-                            scale: Number(e.target.value) || 0.001,
-                          })
-                        }
+                        onChange={(n) => updateAsset(a.id, { scale: n })}
                         style={{
                           width: 64,
                           flex: 'none',
@@ -1196,10 +1170,7 @@ export function VisionPanel() {
               min={64}
               max={2048}
               step={32}
-              value={cs.width}
-              onChange={(e) =>
-                setCapture({ width: Number(e.target.value) || 640 })
-              }
+              {...widthInput.inputProps}
             />
           </label>
           <label className="field">
@@ -1209,10 +1180,7 @@ export function VisionPanel() {
               min={64}
               max={2048}
               step={32}
-              value={cs.height}
-              onChange={(e) =>
-                setCapture({ height: Number(e.target.value) || 480 })
-              }
+              {...heightInput.inputProps}
             />
           </label>
         </div>
@@ -1288,10 +1256,7 @@ export function VisionPanel() {
                 min={1}
                 max={500}
                 step={1}
-                value={cs.batchCount}
-                onChange={(e) =>
-                  setCapture({ batchCount: Number(e.target.value) || 10 })
-                }
+                {...batchCountInput.inputProps}
               />
             </label>
             <button
@@ -1542,30 +1507,6 @@ export function VisionPanel() {
               </div>
             )}
           </>
-        )}
-      </div>
-
-      <div className="card">
-        <h3>Save directory</h3>
-        {fsAccessSupported() ? (
-          <>
-            <button onClick={onPickDir}>
-              {saveDirHandle ? `📂 ${saveDirHandle.name}/` : 'Choose directory…'}
-            </button>
-            {mode === 'detection' && (
-              <button
-                onClick={onSaveLabelsFile}
-                disabled={!saveDirHandle || captures.length === 0}
-              >
-                💾 Write bounding_boxes.labels
-              </button>
-            )}
-          </>
-        ) : (
-          <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-            File System Access API not supported in this browser. Captures will
-            download individually to your Downloads folder.
-          </div>
         )}
       </div>
 
