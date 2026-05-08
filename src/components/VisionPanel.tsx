@@ -19,6 +19,7 @@ import {
 import { loadEiModel, loadEiModelFromZip } from '../lib/eiModel';
 import { disposeUsdz, loadUsdz } from '../lib/usdz';
 import { EiAuthCard } from './EiAuthCard';
+import { ObjectCaptureCard } from './ObjectCaptureCard';
 
 const OBJECT_OPTIONS: ObjectKind[] = [
   'cube',
@@ -751,6 +752,8 @@ export function VisionPanel() {
           </div>
         )}
       </div>
+
+      <ObjectCaptureCard />
 
       <div className="card">
         <h3>Import (.usdz) ({assets.length})</h3>
