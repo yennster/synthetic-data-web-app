@@ -18,6 +18,11 @@ import {
   cameraRelativeToWorld,
 } from '../lib/handMath';
 import { computeImuReading } from '../lib/imu';
+import {
+  applyImuNoise,
+  makeImuNoiseState,
+  type ImuNoiseState,
+} from '../lib/imuNoise';
 import { useStore, type ObjectKind } from '../store/useStore';
 import { BraccioArm } from './BraccioArm';
 import { Conveyor } from './Conveyor';
@@ -153,6 +158,10 @@ function ManipulatedObject() {
   const prevSamplePos = useRef(new THREE.Vector3());
   const prevSampleQuat = useRef(new THREE.Quaternion());
   const prevSampleLinvel = useRef(new THREE.Vector3());
+  // Per-IMU noise state (Allan-variance bias drift + per-axis scale
+  // factor). Reset alongside `sampleInit` when the body is remounted
+  // for a different shape so the bias doesn't carry between objects.
+  const noiseState = useRef<ImuNoiseState | null>(null);
 
   const objectKind = useStore((s) => s.objectKind);
 
@@ -170,9 +179,12 @@ function ManipulatedObject() {
 
   // Body remount (objectKind change) gives us a fresh body at a different
   // pose — drop the IMU history so we don't emit a one-sample velocity
-  // spike from the pre-remount position.
+  // spike from the pre-remount position. Also reset the synthetic
+  // noise state so a fresh object gets its own bias-drift trajectory
+  // and per-axis scale-factor errors.
   useEffect(() => {
     sampleInit.current = false;
+    noiseState.current = null;
   }, [objectKind]);
 
   useFrame((state, dt) => {
@@ -348,8 +360,30 @@ function ManipulatedObject() {
       prevSampleQuat.current.copy(curQuat);
       prevSampleLinvel.current.copy(linvel);
 
+      // Apply MathWorks-style sensor noise to the clean reading. The
+      // noise state's bias accumulators advance in place each tick so
+      // the recorded trace contains realistic Allan-variance bias
+      // wandering, not just per-sample white noise.
+      const noiseCfg = useStore.getState().imuNoise;
+      if (!noiseState.current) noiseState.current = makeImuNoiseState(noiseCfg);
+      const noisy = applyImuNoise(
+        [reading.ax, reading.ay, reading.az],
+        [reading.gx, reading.gy, reading.gz],
+        noiseState.current,
+        noiseCfg,
+        sampleDt,
+      );
+
       if (isRecording) {
-        pushSample({ t: performance.now(), ...reading });
+        pushSample({
+          t: performance.now(),
+          ax: noisy.accel[0],
+          ay: noisy.accel[1],
+          az: noisy.accel[2],
+          gx: noisy.gyro[0],
+          gy: noisy.gyro[1],
+          gz: noisy.gyro[2],
+        });
       }
     }
   });

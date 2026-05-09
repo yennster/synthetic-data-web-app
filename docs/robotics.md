@@ -122,6 +122,72 @@ a teammate without making them click around:
 
 Aliases accepted for `?mode=`: `robot`, `robotics`, `rover`, `arm`.
 
+## Sensor modality (rover)
+
+The rover panel exposes a three-way picker for which sensor channels
+land in the EI payload:
+
+| Modality       | Channels                          | Use case |
+|----------------|-----------------------------------|----------|
+| **Fused** *(default)* | 6 IMU + N lidar in one sample | Sensor-fusion classifiers — what makes the rover dataset interesting. |
+| **IMU only**   | 6 IMU channels                    | Train collision detection on the bumper signal alone, the way a sensorless rover would. |
+| **Lidar only** | N range channels                  | Train environment classification (open / corridor / corner) without IMU. |
+
+The IMU and lidar are recorded in lockstep at 20 Hz regardless of
+modality, so switching is purely a payload-shape choice — nothing
+about the synthesis changes.
+
+## ROS 2 export
+
+Toggle **ROS export** in the Sensor modality card to also write a
+`<event>_<i>.rosbag.jsonl` next to each EI payload. Each line is one
+canonical ROS 2 message:
+
+```json
+{"topic":"/imu/data","msg":{"header":{"stamp":{"sec":1,"nanosec":500000000},"frame_id":"imu_link"},"linear_acceleration":{...},"angular_velocity":{...},"orientation":{...},...}}
+{"topic":"/scan","msg":{"header":{...,"frame_id":"laser_link"},"angle_min":0,"angle_max":...,"ranges":[...],...}}
+```
+
+Topics + frames follow REP-105 / REP-103:
+
+| Topic        | Type                  | Frame        |
+|--------------|-----------------------|--------------|
+| `/imu/data`  | `sensor_msgs/Imu`     | `imu_link`   |
+| `/scan`      | `sensor_msgs/LaserScan` | `laser_link` |
+| `/odom`      | `nav_msgs/Odometry`   | `odom` → `base_link` (when pose log is enabled) |
+
+JSONL replays trivially (`ros2 run rosbag2_play_jsonl rosbag.jsonl`
+with any user-side player) and the message shapes match `ros2 msg show`
+exactly so a deserializer is a one-liner. Bundles into the same zip
+as the EI payload — works whether the rover is uploading to EI or
+just downloading samples.
+
+## Synthetic IMU noise model
+
+Every IMU sample (motion mode, rover chassis, arm end-effector) is
+post-processed through a MathWorks `imuSensor`-style noise model in
+[`lib/imuNoise.ts`](../src/lib/imuNoise.ts). The clean inertial
+reading is degraded by:
+
+- **Allan-variance noise density** — gaussian per-sample noise scaled
+  by `density · √Hz`. Defaults match an LSM6DSO at ±4 g / ±2000 dps
+  (`5.9e-4 m/s²/√Hz` accel, `1.2e-4 rad/s/√Hz` gyro).
+- **Bias instability** — slow random walk of the per-axis zero offset.
+  Makes the recorded trace exhibit realistic bias wandering rather
+  than a flat baseline.
+- **Per-axis scale-factor error** — a fixed `1 ± ε` gain sampled once
+  per IMU instance (defaults to ±0.5 %).
+- **Saturation** — clip to the configured dynamic range (defaults to
+  ±4 g accel, ±2000 dps gyro).
+- **ADC quantization** — round to the configured LSB (defaults to
+  16-bit-effective).
+
+Disable the model by toggling `imuNoise.enabled` to false in the
+store (or your own UI control) — the clean underlying inertial
+reading flows straight through. The defaults are calibrated for the
+LSM6DSO in the Arduino Nano 33 BLE Sense / RP2040 Connect, the boards
+Edge Impulse users typically deploy to.
+
 ## Edge Impulse upload
 
 Both rigs upload to the standard Edge Impulse data acquisition endpoint.

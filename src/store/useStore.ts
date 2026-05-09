@@ -9,6 +9,10 @@ import {
   ALL_ARM_TRAJECTORIES as _ALL_ARM_TRAJECTORIES,
   type ArmTrajectory as _ArmTrajectory,
 } from '../lib/armTrajectories';
+import {
+  DEFAULT_IMU_NOISE,
+  type ImuNoiseConfig,
+} from '../lib/imuNoise';
 
 export type ObjectKind =
   | 'cube'
@@ -50,6 +54,20 @@ export type RobotKind = 'rover' | 'arm';
 export type RoverEvent = 'cruise' | 'collision' | 'stuck';
 
 export const ALL_ROVER_EVENTS: RoverEvent[] = ['cruise', 'collision', 'stuck'];
+
+/** Selects which sensor modalities go into the EI payload for the
+ * rover. `fused` packs both IMU and lidar into one multi-channel
+ * sample (the default — sensor fusion is what makes the rover dataset
+ * interesting). `imu` and `lidar` constrain the upload to a single
+ * modality so the user can train one tower at a time, or compare
+ * model accuracy with vs. without the second sensor. */
+export type RoverUploadModality = 'fused' | 'imu' | 'lidar';
+
+export const ALL_ROVER_UPLOAD_MODALITIES: RoverUploadModality[] = [
+  'fused',
+  'imu',
+  'lidar',
+];
 
 /** Procedurally-placed obstacle disc. The renderer picks a visual
  * shape (pillar / crate / cone) deterministically from `id`, so the
@@ -327,6 +345,20 @@ type State = {
      * across the batch. When false, the field is fixed (good for
      * reproducible debugging). */
     randomizeObstaclesEachRun: boolean;
+    /** Which sensor modalities go into the EI payload for the rover.
+     * `fused` packs IMU + lidar into one multi-channel sample (default,
+     * since sensor fusion is what makes the rover dataset interesting).
+     * `imu` and `lidar` constrain the upload to a single modality so
+     * the user can train one tower at a time, or compare model accuracy
+     * with vs. without the second sensor. */
+    uploadModality: RoverUploadModality;
+    /** When true, the runner additionally writes a `rosbag.jsonl` next
+     * to each EI payload (or into the zip, when no API key is set)
+     * with the same data formatted as canonical ROS 2 sensor messages
+     * — `sensor_msgs/Imu`, `sensor_msgs/LaserScan`, `nav_msgs/Odometry`.
+     * Useful for ROS users who want to replay the synthetic data
+     * through `ros2 bag play` or feed it to a real navigation stack. */
+    rosExport: boolean;
   };
   setRobot: (patch: Partial<State['robot']>) => void;
   /** True while a procedural robot run is active. */
@@ -410,6 +442,13 @@ type State = {
   // ---------- Scene (detection/anomaly) ----------
   sceneObjects: SceneObject[];
   addSceneObject: (kind: ObjectKind, label?: string) => void;
+  /** Like `addSceneObject` but tuned for the Braccio arm — small
+   * (~3 cm cube), placed on the table at a random arm-reachable
+   * radius. Avoids the human-scale defaults in `defaultObject`,
+   * which puts a 60 cm cube floating 1.2 m off the floor and reads
+   * absurd next to a 30 cm arm. Returns the new object's id so the
+   * caller can target it for pick-and-place. */
+  addArmPickupTarget: (kind?: ObjectKind, label?: string) => string;
   removeSceneObject: (id: string) => void;
   updateSceneObject: (id: string, patch: Partial<SceneObject>) => void;
   clearSceneObjects: () => void;
@@ -486,6 +525,15 @@ type State = {
   // anomaly batch label
   anomalyLabel: string;
   setAnomalyLabel: (s: string) => void;
+
+  /** Synthetic-IMU noise model parameters (MathWorks `imuSensor`-style:
+   * Allan-variance noise density, bias instability, scale-factor
+   * error, dynamic range, ADC quantization). Applied to every IMU
+   * sample produced by motion mode, the rover chassis sampler, and
+   * the arm end-effector sampler. Toggle off to get the clean
+   * underlying inertial reading. */
+  imuNoise: ImuNoiseConfig;
+  setImuNoise: (patch: Partial<ImuNoiseConfig>) => void;
 
   // ---------- Edge Impulse ----------
   ei: EdgeImpulseConfig;
@@ -604,6 +652,8 @@ export const useStore = create<State>()(
     lidarBins: 16,
     lidarMaxRange: 6,
     randomizeObstaclesEachRun: false,
+    uploadModality: 'fused',
+    rosExport: false,
   },
   setRobot: (patch) => set((s) => ({ robot: { ...s.robot, ...patch } })),
   robotRunning: false,
@@ -675,6 +725,44 @@ export const useStore = create<State>()(
       if (label) obj.label = label;
       return { sceneObjects: [...s.sceneObjects, obj] };
     }),
+  addArmPickupTarget: (kind = 'cube', label) => {
+    // Place targets on a 12 cm radial ring around the arm base, on
+    // the floor, so they're solidly inside the Braccio's reachable
+    // workspace (the IK clamps to a ~25 cm reach). Targets get their
+    // own counter-based angle so successive spawns don't overlap.
+    const id = crypto.randomUUID();
+    const idx = useStore.getState().sceneObjects.length;
+    // Cube is 3 cm — a credible "EI sticker block" the published Braccio
+    // demos use. Scale field on SceneObject scales the default geometry,
+    // and the default cube is 0.6 m, so 3 cm = scale 0.05.
+    const radius = 0.14;
+    const angle = (idx * 0.5 + 0.4) % (Math.PI * 2);
+    const obj: SceneObject = {
+      id,
+      kind,
+      label: label ?? 'pickup',
+      position: [
+        Math.sin(angle) * radius,
+        // Place the cube center at half its size above the floor so
+        // the bottom face rests on y=0 — same convention as the
+        // existing detection scene. With scale 0.05 the cube is 3 cm,
+        // so center height is 1.5 cm.
+        0.015,
+        Math.cos(angle) * radius,
+      ],
+      rotation: [0, Math.random() * Math.PI * 2, 0],
+      scale: 0.05,
+      color: '#5eead4',
+      metalness: 0.2,
+      roughness: 0.4,
+      // Targets are static — leaving physics off keeps them from
+      // sliding when the arm taps them and avoids the rapier
+      // collision with the immobile arm chain.
+      physics: false,
+    };
+    set((s) => ({ sceneObjects: [...s.sceneObjects, obj] }));
+    return id;
+  },
   removeSceneObject: (id) =>
     set((s) => ({ sceneObjects: s.sceneObjects.filter((o) => o.id !== id) })),
   updateSceneObject: (id, patch) =>
@@ -747,6 +835,11 @@ export const useStore = create<State>()(
   anomalyLabel: 'normal',
   setAnomalyLabel: (s) => set({ anomalyLabel: s }),
 
+  // IMU noise (MathWorks-style)
+  imuNoise: { ...DEFAULT_IMU_NOISE },
+  setImuNoise: (patch) =>
+    set((s) => ({ imuNoise: { ...s.imuNoise, ...patch } })),
+
   // EI
   ei: {
     apiKey: '',
@@ -804,6 +897,7 @@ export const useStore = create<State>()(
         drops: s.drops,
         robot: s.robot,
         robotObstacles: s.robotObstacles,
+        imuNoise: s.imuNoise,
         eiThreshold: s.eiThreshold,
         pendingAssets: s.assets.map<PersistedAsset>((a) => ({
           id: a.id,

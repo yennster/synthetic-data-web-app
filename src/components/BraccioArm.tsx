@@ -7,6 +7,11 @@ import {
   type ArmParametricPath,
 } from '../lib/armTrajectories';
 import { computeImuReading } from '../lib/imu';
+import {
+  applyImuNoise,
+  makeImuNoiseState,
+  type ImuNoiseState,
+} from '../lib/imuNoise';
 import { useStore } from '../store/useStore';
 
 /**
@@ -132,8 +137,19 @@ export function BraccioArm() {
                   </mesh>
 
                   {/* End-effector group — anchor for the IMU sampler
-                       and the optional POV camera mount. */}
-                  <group position={[0, L.wristRoll, 0]} ref={endEffectorRef}>
+                       AND the wrist-mounted POV camera. The POV
+                       camera reads this group's world matrix each
+                       frame via `scene.getObjectByName('arm-pov-mount')`,
+                       so it stays correctly attached regardless of
+                       how the joint vector changes — much more robust
+                       than recomputing forward kinematics in the POV
+                       component (which suffered from sign errors that
+                       put the camera inside the base column). */}
+                  <group
+                    position={[0, L.wristRoll, 0]}
+                    ref={endEffectorRef}
+                    name="arm-pov-mount"
+                  >
                     <mesh position={[0, 0.01, 0]} castShadow>
                       <boxGeometry args={[L.gripperWidth + 0.04, 0.02, 0.04]} />
                       <meshStandardMaterial
@@ -194,6 +210,16 @@ export function BraccioArm() {
                         metalness={0.2}
                       />
                     </mesh>
+                    {/* Look-at anchor 8 cm "below" the gripper in
+                         the carrier's local frame (which is along the
+                         +Y axis the fingers extend on). The POV
+                         camera reads this group's world position so
+                         its lookAt always tracks where the gripper
+                         is pointing, regardless of joint pose. */}
+                    <group
+                      name="arm-pov-look"
+                      position={[0, L.fingerLength + 0.04, 0]}
+                    />
                   </group>
                 </group>
               </group>
@@ -291,6 +317,7 @@ function ArmImuSampler({
   const prevPos = useRef(new THREE.Vector3());
   const prevQuat = useRef(new THREE.Quaternion());
   const prevLinvel = useRef(new THREE.Vector3());
+  const noiseState = useRef<ImuNoiseState | null>(null);
 
   useFrame((_, dt) => {
     recordAccum.current += dt;
@@ -352,9 +379,27 @@ function ArmImuSampler({
     prevQuat.current.copy(curQuat);
     prevLinvel.current.copy(linvel);
 
+    const noiseCfg = useStore.getState().imuNoise;
+    if (!noiseState.current) noiseState.current = makeImuNoiseState(noiseCfg);
+    const noisy = applyImuNoise(
+      [reading.ax, reading.ay, reading.az],
+      [reading.gx, reading.gy, reading.gz],
+      noiseState.current,
+      noiseCfg,
+      sampleDt,
+    );
+
     const { robotRunning, pushRobotImuSample } = useStore.getState();
     if (robotRunning) {
-      pushRobotImuSample({ t: performance.now(), ...reading });
+      pushRobotImuSample({
+        t: performance.now(),
+        ax: noisy.accel[0],
+        ay: noisy.accel[1],
+        az: noisy.accel[2],
+        gx: noisy.gyro[0],
+        gy: noisy.gyro[1],
+        gz: noisy.gyro[2],
+      });
     }
   });
 
