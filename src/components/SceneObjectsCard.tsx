@@ -1,0 +1,218 @@
+import { useState } from 'react';
+import {
+  useStore,
+  type ObjectKind,
+  type SceneObject,
+} from '../store/useStore';
+import { NumberField } from '../lib/useNumberInput';
+
+/**
+ * Shared "Objects" card used by detection / anomaly / robotics-arm
+ * panels. Owns the same kind/label spawn row, color picker, size
+ * slider, physics checkbox, and remove button across all of them so
+ * the user gets one consistent object-editing surface no matter which
+ * mode they're in.
+ *
+ * Robotics mode opted into this in v0.13 — previously it had a
+ * stripped-down per-target editor that omitted kind/physics/etc.
+ *
+ * `addCustom` lets robotics-arm route through `addArmPickupTarget`
+ * (which spawns an arm-scale object on the configured mount surface)
+ * instead of the human-scale `addSceneObject` defaults. Pass null to
+ * fall through to `addSceneObject`. The kind selector + label input
+ * still flow into the chosen spawner.
+ *
+ * `sizeRange` lets each caller pick a sensible slider range for its
+ * scene scale — vision modes default to 0.1..5 (the existing range);
+ * arm mode wants 0.02..0.2 so 3 cm targets are reachable from the
+ * minimum. Out-of-range objects clamp into the slider but stay valid.
+ */
+export function SceneObjectsCard({
+  title = 'Objects',
+  addCustom,
+  sizeRange = { min: 0.1, max: 5, step: 0.05 },
+  defaultLabel = '',
+  helpText,
+  hidden = false,
+}: {
+  title?: string;
+  addCustom?: ((kind: ObjectKind, label?: string) => string) | null;
+  sizeRange?: { min: number; max: number; step: number };
+  defaultLabel?: string;
+  helpText?: string;
+  hidden?: boolean;
+}) {
+  const sceneObjects = useStore((s) => s.sceneObjects);
+  const addSceneObject = useStore((s) => s.addSceneObject);
+  const updateSceneObject = useStore((s) => s.updateSceneObject);
+  const removeSceneObject = useStore((s) => s.removeSceneObject);
+  const clearSceneObjects = useStore((s) => s.clearSceneObjects);
+
+  const [newKind, setNewKind] = useState<ObjectKind>('cube');
+  const [newLabel, setNewLabel] = useState<string>(defaultLabel);
+
+  if (hidden) return null;
+
+  const onAdd = () => {
+    const lbl = newLabel || newKind;
+    if (addCustom) {
+      addCustom(newKind, lbl);
+    } else {
+      addSceneObject(newKind, lbl);
+    }
+  };
+
+  return (
+    <div className="card">
+      <h3>
+        {title} ({sceneObjects.length})
+      </h3>
+      {helpText && (
+        <div style={{ fontSize: 11, color: 'var(--muted)' }}>{helpText}</div>
+      )}
+      <div className="row">
+        <select
+          value={newKind}
+          onChange={(e) => setNewKind(e.target.value as ObjectKind)}
+        >
+          {OBJECT_OPTIONS.map((k) => (
+            <option key={k} value={k}>
+              {k}
+            </option>
+          ))}
+        </select>
+        <input
+          value={newLabel}
+          onChange={(e) => setNewLabel(e.target.value)}
+          placeholder="label"
+        />
+      </div>
+      <div className="row">
+        <button onClick={onAdd}>+ Add</button>
+        <button
+          onClick={clearSceneObjects}
+          disabled={sceneObjects.length === 0}
+        >
+          Clear all
+        </button>
+      </div>
+      {sceneObjects.length > 0 && (
+        <div
+          style={{
+            maxHeight: 200,
+            overflowY: 'auto',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+            marginTop: 4,
+          }}
+        >
+          {sceneObjects.map((o) => (
+            <SceneObjectRow
+              key={o.id}
+              obj={o}
+              sizeRange={sizeRange}
+              onUpdate={(patch) => updateSceneObject(o.id, patch)}
+              onRemove={() => removeSceneObject(o.id)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const OBJECT_OPTIONS: ObjectKind[] = [
+  'cube',
+  'sphere',
+  'cylinder',
+  'cone',
+  'torus',
+  'capsule',
+  'phone',
+  'soda_can',
+];
+
+function SceneObjectRow({
+  obj,
+  sizeRange,
+  onUpdate,
+  onRemove,
+}: {
+  obj: SceneObject;
+  sizeRange: { min: number; max: number; step: number };
+  onUpdate: (patch: Partial<SceneObject>) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 4,
+        fontSize: 12,
+        border: '1px solid var(--border)',
+        borderRadius: 6,
+        padding: 6,
+      }}
+    >
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <input
+          type="color"
+          value={obj.color}
+          onChange={(e) => onUpdate({ color: e.target.value })}
+          title={`Color: ${obj.color}`}
+          style={{ flex: 'none', width: 28, height: 28, padding: 0 }}
+        />
+        <input
+          value={obj.label}
+          onChange={(e) => onUpdate({ label: e.target.value })}
+          style={{ flex: 1, padding: '3px 6px' }}
+        />
+        <span style={{ color: 'var(--muted)' }}>{obj.kind}</span>
+        <button onClick={onRemove} style={{ padding: '2px 6px' }}>
+          ×
+        </button>
+      </div>
+      <label className="field" style={{ gap: 2, fontSize: 10 }}>
+        Size
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <input
+            type="range"
+            min={sizeRange.min}
+            max={sizeRange.max}
+            step={sizeRange.step}
+            value={obj.scale}
+            onChange={(e) => onUpdate({ scale: Number(e.target.value) })}
+            style={{ flex: 1 }}
+          />
+          <NumberField
+            min={sizeRange.min}
+            max={sizeRange.max}
+            step={sizeRange.step}
+            value={obj.scale}
+            onChange={(n) => onUpdate({ scale: n })}
+            style={{ width: 64, flex: 'none', padding: '3px 6px' }}
+          />
+        </div>
+      </label>
+      <label
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          fontSize: 11,
+          color: 'var(--muted)',
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={obj.physics}
+          onChange={(e) => onUpdate({ physics: e.target.checked })}
+          style={{ width: 'auto', flex: 'none' }}
+        />
+        <span>Physics (falls, collides)</span>
+      </label>
+    </div>
+  );
+}

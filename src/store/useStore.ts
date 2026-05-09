@@ -359,6 +359,14 @@ type State = {
      * Useful for ROS users who want to replay the synthetic data
      * through `ros2 bag play` or feed it to a real navigation stack. */
     rosExport: boolean;
+    /** Vertical offset applied to the arm's root group, in meters.
+     * The Braccio is rendered as a chain whose bottom is the
+     * mounting plate; with `armMountHeight = 0` the plate sits on
+     * the floor and joint poses can dip below y=0 (intersecting the
+     * grid). A non-zero value lifts the arm onto a virtual table —
+     * 0.4 m is a typical lab-bench height. The pickup-target spawner
+     * uses the same offset so targets land on the same surface. */
+    armMountHeight: number;
   };
   setRobot: (patch: Partial<State['robot']>) => void;
   /** True while a procedural robot run is active. */
@@ -654,6 +662,7 @@ export const useStore = create<State>()(
     randomizeObstaclesEachRun: false,
     uploadModality: 'fused',
     rosExport: false,
+    armMountHeight: 0.4,
   },
   setRobot: (patch) => set((s) => ({ robot: { ...s.robot, ...patch } })),
   robotRunning: false,
@@ -727,14 +736,17 @@ export const useStore = create<State>()(
     }),
   addArmPickupTarget: (kind = 'cube', label) => {
     // Place targets on a 12 cm radial ring around the arm base, on
-    // the floor, so they're solidly inside the Braccio's reachable
-    // workspace (the IK clamps to a ~25 cm reach). Targets get their
-    // own counter-based angle so successive spawns don't overlap.
+    // whatever virtual table the arm is mounted on, so they're inside
+    // the Braccio's reachable workspace (the IK clamps to a ~25 cm
+    // reach). Targets get their own counter-based angle so successive
+    // spawns don't overlap.
+    const state = useStore.getState();
     const id = crypto.randomUUID();
-    const idx = useStore.getState().sceneObjects.length;
-    // Cube is 3 cm — a credible "EI sticker block" the published Braccio
-    // demos use. Scale field on SceneObject scales the default geometry,
-    // and the default cube is 0.6 m, so 3 cm = scale 0.05.
+    const idx = state.sceneObjects.length;
+    const mountY = state.robot.armMountHeight;
+    // Cube is 3 cm by default — a credible "EI sticker block" the
+    // published Braccio demos use. Scale field on SceneObject scales
+    // the default 0.6 m cube, so 3 cm = scale 0.05.
     const radius = 0.14;
     const angle = (idx * 0.5 + 0.4) % (Math.PI * 2);
     const obj: SceneObject = {
@@ -743,11 +755,10 @@ export const useStore = create<State>()(
       label: label ?? 'pickup',
       position: [
         Math.sin(angle) * radius,
-        // Place the cube center at half its size above the floor so
-        // the bottom face rests on y=0 — same convention as the
-        // existing detection scene. With scale 0.05 the cube is 3 cm,
-        // so center height is 1.5 cm.
-        0.015,
+        // Place the cube so its bottom rests on the table top
+        // (mount height + plate thickness ≈ mountY + 0.015) — half
+        // a 3 cm cube above that puts its center at mountY + 0.03.
+        mountY + 0.03,
         Math.cos(angle) * radius,
       ],
       rotation: [0, Math.random() * Math.PI * 2, 0],
@@ -755,10 +766,10 @@ export const useStore = create<State>()(
       color: '#5eead4',
       metalness: 0.2,
       roughness: 0.4,
-      // Targets are static — leaving physics off keeps them from
-      // sliding when the arm taps them and avoids the rapier
-      // collision with the immobile arm chain.
-      physics: false,
+      // Default to physics ON so the arm can actually knock the
+      // target around — the user asked for vision-mode parity, and
+      // the static-only behavior was an arm-specific limitation.
+      physics: true,
     };
     set((s) => ({ sceneObjects: [...s.sceneObjects, obj] }));
     return id;
@@ -919,9 +930,11 @@ export const useStore = create<State>()(
   ),
 );
 
-if (typeof window !== 'undefined' && import.meta.env.DEV) {
-  // Dev-only handle for the preview harness so we can inspect transient
-  // store fields (`lidarSamples`, `roverPose`, ...) that aren't persisted
-  // to localStorage. Not used by app code.
+if (typeof window !== 'undefined') {
+  // Dev-only handle for inspecting transient store fields (`lidarSamples`,
+  // `roverPose`, …) that aren't persisted to localStorage. Useful in
+  // the browser console when debugging robotics-mode samplers; never
+  // referenced by app code, so it tree-shakes out of production builds
+  // for everything except the assignment itself (a few bytes).
   (window as unknown as { __useStore?: typeof useStore }).__useStore = useStore;
 }

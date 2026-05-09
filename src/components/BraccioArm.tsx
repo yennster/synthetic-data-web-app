@@ -45,6 +45,7 @@ const G_WORLD: [number, number, number] = [0, -9.81, 0];
 
 export function BraccioArm() {
   const joints = useStore((s) => s.armJoints);
+  const mountHeight = useStore((s) => s.robot.armMountHeight);
 
   const baseRef = useRef<THREE.Group>(null);
   const shoulderRef = useRef<THREE.Group>(null);
@@ -74,7 +75,31 @@ export function BraccioArm() {
 
   return (
     <>
-      <group position={[0, 0, 0]}>
+      {/* Lift the entire rig by `armMountHeight` so the chain doesn't
+          intersect the floor when joints bend below horizontal. The
+          shared `arm-pov-mount` / `arm-pov-look` named groups inside
+          inherit this offset automatically, so the wrist-mounted POV
+          camera stays correctly attached. */}
+      <group position={[0, mountHeight, 0]}>
+        {/* Cosmetic table — a thin disc rendered just below the arm
+            mount so the rig looks like it's sitting on something
+            rather than floating. Thin enough not to occlude objects
+            placed on top of it. */}
+        {mountHeight > 0.001 && (
+          <mesh
+            position={[0, -L.plateThickness / 2 - 0.001, 0]}
+            receiveShadow
+          >
+            <cylinderGeometry
+              args={[L.plateRadius * 4, L.plateRadius * 4, 0.01, 48]}
+            />
+            <meshStandardMaterial
+              color="#15171a"
+              roughness={0.85}
+              metalness={0.05}
+            />
+          </mesh>
+        )}
         <mesh position={[0, L.plateThickness / 2, 0]} receiveShadow>
           <cylinderGeometry
             args={[L.plateRadius, L.plateRadius, L.plateThickness, 32]}
@@ -261,7 +286,14 @@ function ArmController() {
     // a small lateral offset from the pickup so the place arc clears
     // the source. Falls back to a stock pickup/drop pair when no scene
     // objects exist.
+    //
+    // The arm's IK is solved in the rig-local frame (origin at the
+    // mounting plate). Scene objects live in world coordinates, so we
+    // subtract the mount height before passing the target into the
+    // IK builder — otherwise the solver thinks the cube is way above
+    // the arm and the wrist droops.
     const state = useStore.getState();
+    const mountY = state.robot.armMountHeight;
     const targetId = state.armTargetId;
     let pickup = { x: 0.18, y: 0.06, z: 0.12 };
     let drop = { x: -0.18, y: 0.06, z: 0.12 };
@@ -269,14 +301,12 @@ function ArmController() {
     if (target) {
       pickup = {
         x: target.position[0],
-        y: Math.max(0.04, target.position[1]),
+        y: Math.max(0.04, target.position[1] - mountY),
         z: target.position[2],
       };
-      // Place at the diametrically-opposite point on the same radial
-      // ring so the arm sweeps a clear arc to get there.
       drop = {
         x: -target.position[0],
-        y: Math.max(0.04, target.position[1]),
+        y: Math.max(0.04, target.position[1] - mountY),
         z: target.position[2],
       };
     }

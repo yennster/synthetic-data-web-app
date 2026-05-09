@@ -630,21 +630,24 @@ function CameraRig() {
   );
   const mode = useStore((s) => s.mode);
   const robotKind = useStore((s) => s.robot.kind);
+  const armMountHeight = useStore((s) => s.robot.armMountHeight);
 
   useEffect(() => {
     if (!controls) return;
     if (mode === 'robot' && robotKind === 'arm') {
       // Tight framing for the Braccio (≈30 cm tall) — eye-level on the
-      // shoulder joint with the gripper roughly centered in the frame.
-      camera.position.set(0.55, 0.45, 0.65);
-      controls.target.set(0, 0.25, 0);
+      // shoulder joint with the gripper roughly centered. The mount
+      // height lifts both the orbit target and the camera so the arm
+      // stays in frame regardless of how high the user pedestals it.
+      camera.position.set(0.55, armMountHeight + 0.45, 0.65);
+      controls.target.set(0, armMountHeight + 0.25, 0);
     } else {
       // Default meter-scale framing used by every other mode.
       camera.position.set(4, 3, 6);
       controls.target.set(0, 0.7, 0);
     }
     controls.update();
-  }, [mode, robotKind, camera, controls]);
+  }, [mode, robotKind, armMountHeight, camera, controls]);
 
   return null;
 }
