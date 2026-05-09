@@ -24,7 +24,6 @@ import {
   uploadRoverSample,
   uploadSample,
 } from '../lib/edgeImpulse';
-import { generateObstacles } from '../lib/rover';
 import { buildRoverRosJsonl } from '../lib/rosMessages';
 import { useNumberInput } from '../lib/useNumberInput';
 import { buildZip, type ZipEntry } from '../lib/zip';
@@ -60,9 +59,6 @@ export function RobotPanel() {
   const setRoverPose = useStore((s) => s.setRoverPose);
   const setArmJoints = useStore((s) => s.setArmJoints);
   const setArmTargetId = useStore((s) => s.setArmTargetId);
-  const sceneObjects = useStore((s) => s.sceneObjects);
-  const addSceneObject = useStore((s) => s.addSceneObject);
-  const setRobotObstacles = useStore((s) => s.setRobotObstacles);
   const resetRobotScene = useStore((s) => s.resetRobotScene);
   const ei = useStore((s) => s.ei);
   const status = useStore((s) => s.status);
@@ -86,14 +82,6 @@ export function RobotPanel() {
     if (useStore.getState().robotCancelRequested) throw new CancelledError();
   };
 
-  const onRandomizeObstacles = () => {
-    const fresh = generateObstacles(7, 4.0, 0.6).map((o, i) => ({
-      id: `obs-${Date.now()}-${i}`,
-      ...o,
-    }));
-    setRobotObstacles(fresh);
-  };
-
   const onRunRover = async () => {
     const runEi = { ...ei, apiKey: ei.apiKey.trim() };
     const shouldUpload = runEi.apiKey.length > 0;
@@ -109,7 +97,6 @@ export function RobotPanel() {
     try {
       await sleepCancellable(60);
       for (let i = 0; i < robot.count; i++) {
-        if (robot.randomizeObstaclesEachRun) onRandomizeObstacles();
         setStatus(
           'busy',
           `${i + 1}/${robot.count} ${event}: building path…`,
@@ -460,16 +447,6 @@ export function RobotPanel() {
           >
             ↺ Reset scene
           </button>
-          {robot.kind === 'rover' && (
-            <button
-              type="button"
-              onClick={onRandomizeObstacles}
-              disabled={robotRunning}
-              title="Re-roll obstacle positions only — keeps the rover and recording state."
-            >
-              🎲 Randomize obstacles
-            </button>
-          )}
         </div>
       </div>
 
@@ -505,48 +482,6 @@ export function RobotPanel() {
               'Aim straight at an obstacle; bumper-style impact mid-window.'}
             {robot.roverEvent === 'stuck' &&
               'Pin a wheel against an obstacle; vibrate without translation.'}
-          </div>
-          <div className="webcam-control">
-            <div className="webcam-control-copy">
-              <div className="webcam-control-heading">
-                <span className="webcam-control-title">
-                  Randomize each iteration
-                </span>
-                <span
-                  className={`webcam-control-state ${
-                    robot.randomizeObstaclesEachRun ? 'on' : 'off'
-                  }`}
-                >
-                  {robot.randomizeObstaclesEachRun ? 'On' : 'Off'}
-                </span>
-              </div>
-              <div className="webcam-control-help">
-                {robot.randomizeObstaclesEachRun
-                  ? 'Re-roll obstacle positions before every recorded sample.'
-                  : 'Keep the obstacle field fixed across the batch.'}
-              </div>
-            </div>
-            <button
-              type="button"
-              className={`webcam-switch ${
-                robot.randomizeObstaclesEachRun ? 'on' : ''
-              }`}
-              role="switch"
-              aria-checked={robot.randomizeObstaclesEachRun}
-              aria-label={
-                robot.randomizeObstaclesEachRun
-                  ? 'Turn off per-iteration obstacle randomization'
-                  : 'Turn on per-iteration obstacle randomization'
-              }
-              onClick={() =>
-                setRobot({
-                  randomizeObstaclesEachRun: !robot.randomizeObstaclesEachRun,
-                })
-              }
-              disabled={robotRunning}
-            >
-              <span className="webcam-switch-thumb" />
-            </button>
           </div>
         </div>
       ) : (
@@ -638,7 +573,7 @@ export function RobotPanel() {
           title="Scene obstacles"
           sizeRange={{ min: 0.05, max: 1.5, step: 0.05 }}
           defaultLabel="obstacle"
-          helpText="Add custom obstacles the rover can bump into. Same controls as detection mode — kind, label, color, size, physics, drag with Shift+drag. The lidar fan and contact detector see these alongside the procedural pillars/crates/cones."
+          helpText="Add obstacles the rover can bump into. The lidar fan and contact detector see them all."
         />
       )}
 

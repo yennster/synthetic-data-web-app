@@ -27,7 +27,6 @@ import { useStore, type ObjectKind } from '../store/useStore';
 import { BraccioArm } from './BraccioArm';
 import { Conveyor } from './Conveyor';
 import { ImportedAssets } from './ImportedAssets';
-import { RobotObstacles } from './RobotObstacles';
 import { RobotPovCamera } from './RobotPovCamera';
 import { Rover } from './Rover';
 import { SceneEnvironment } from './SceneEnvironment';
@@ -588,18 +587,19 @@ function PreviewCanvasMount({
  * later without re-threading.
  */
 function RoverScene() {
-  // Single ref-tracked group holds BOTH the procedurally placed
-  // obstacle field (`<RobotObstacles>` — pillars/crates/cones) AND
-  // any vision-mode scene objects the user spawned via the
-  // `<SceneObjectsCard>` in the rover panel. The lidar raycaster
-  // recurses through the whole subtree, so both kinds of obstacle
-  // get scanned uniformly. The path planner reads from the same
-  // two sources to build the disc list it plans against.
+  // Ref-tracked group holding all rover-scene obstacles. Currently
+  // just the user-spawned `<SpawnedObjects>` (kind/label/color/size/
+  // physics configurable via the same `<SceneObjectsCard>` detection
+  // mode uses). The lidar raycaster recurses through the subtree;
+  // the path planner reads `sceneObjects` from the store. The
+  // procedurally-placed pillar/crate/cone field was removed in a
+  // prior iteration — re-add by mounting a `<RobotObstacles>` here
+  // and combining with sceneObjects in `Rover.tsx` if it ever comes
+  // back.
   const obstaclesRef = useRef<THREE.Group>(null);
   return (
     <>
       <group ref={obstaclesRef}>
-        <RobotObstacles />
         <SpawnedObjects />
       </group>
       <Rover obstaclesRef={obstaclesRef} />
