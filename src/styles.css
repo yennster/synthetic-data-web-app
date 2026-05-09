@@ -681,6 +681,19 @@ label.field, div.field {
   border-color: var(--line-strong);
   box-shadow: var(--shadow-1);
 }
+/* Trajectory variant — used in robotics mode where there are 5 longer
+ * labels (Figure Eight, Random Walk, Pick Place, Random Pose,
+ * Draw Circle). Flex-wrap with `flex: 1` produces an uneven 4 + 1
+ * collapse where the last pill stretches to fill the second row. A
+ * fixed 3-column grid lays the 5 items out as 3 + 2 with consistent
+ * column widths instead. */
+.trajectory-pills {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.trajectory-pills .motion-pill {
+  flex: initial;
+}
 
 /* ---------------------------------------------------------------------- *
  * Capture (Vision panel)                                                  *

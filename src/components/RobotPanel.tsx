@@ -1,0 +1,618 @@
+import {
+  ALL_ROVER_EVENTS,
+  useStore,
+  type AccelSample,
+  type LidarSample,
+  type RobotKind,
+  type RoverEvent,
+} from '../store/useStore';
+import {
+  ALL_ARM_TRAJECTORIES,
+  type ArmTrajectory,
+} from '../lib/armTrajectories';
+import { saveBlob } from '../lib/capture';
+import {
+  buildDataAcquisitionPayload,
+  buildFileName,
+  buildRoverDataAcquisitionPayload,
+  uploadRoverSample,
+  uploadSample,
+} from '../lib/edgeImpulse';
+import { generateObstacles } from '../lib/rover';
+import { useNumberInput } from '../lib/useNumberInput';
+import { buildZip, type ZipEntry } from '../lib/zip';
+import { EiAuthCard } from './EiAuthCard';
+
+const ROBOT_KINDS: { value: RobotKind; label: string; hint: string }[] = [
+  { value: 'rover', label: 'Rover', hint: 'Chassis IMU + lidar / ToF ring' },
+  {
+    value: 'arm',
+    label: 'Arm (Arduino Braccio)',
+    hint: 'End-effector IMU, optional pick-and-place',
+  },
+];
+
+class CancelledError extends Error {
+  constructor() {
+    super('cancelled');
+    this.name = 'CancelledError';
+  }
+}
+
+export function RobotPanel() {
+  const robot = useStore((s) => s.robot);
+  const setRobot = useStore((s) => s.setRobot);
+  const robotRunning = useStore((s) => s.robotRunning);
+  const setRobotRunning = useStore((s) => s.setRobotRunning);
+  const setRobotCancelRequested = useStore((s) => s.setRobotCancelRequested);
+  const bumpRoverEpoch = useStore((s) => s.bumpRoverEpoch);
+  const bumpArmEpoch = useStore((s) => s.bumpArmEpoch);
+  const clearLidarSamples = useStore((s) => s.clearLidarSamples);
+  const clearRobotImuSamples = useStore((s) => s.clearRobotImuSamples);
+  const setRoverPose = useStore((s) => s.setRoverPose);
+  const setArmJoints = useStore((s) => s.setArmJoints);
+  const setArmTargetId = useStore((s) => s.setArmTargetId);
+  const sceneObjects = useStore((s) => s.sceneObjects);
+  const addSceneObject = useStore((s) => s.addSceneObject);
+  const setRobotObstacles = useStore((s) => s.setRobotObstacles);
+  const resetRobotScene = useStore((s) => s.resetRobotScene);
+  const ei = useStore((s) => s.ei);
+  const status = useStore((s) => s.status);
+  const setStatus = useStore((s) => s.setStatus);
+  const lidarSampleCount = useStore((s) => s.lidarSamples.length);
+  const imuSampleCount = useStore((s) => s.robotImuSamples.length);
+
+  const countInput = useNumberInput(
+    robot.count,
+    (n) => setRobot({ count: n }),
+    { min: 1, max: 200 },
+  );
+  const durationInput = useNumberInput(
+    robot.durationMs,
+    (n) => setRobot({ durationMs: n }),
+    { min: 500, max: 15000 },
+  );
+
+  const sleepCancellable = async (ms: number): Promise<void> => {
+    await new Promise<void>((r) => setTimeout(r, ms));
+    if (useStore.getState().robotCancelRequested) throw new CancelledError();
+  };
+
+  const onRandomizeObstacles = () => {
+    const fresh = generateObstacles(7, 4.0, 0.6).map((o, i) => ({
+      id: `obs-${Date.now()}-${i}`,
+      ...o,
+    }));
+    setRobotObstacles(fresh);
+  };
+
+  const onRunRover = async () => {
+    const runEi = { ...ei, apiKey: ei.apiKey.trim() };
+    const shouldUpload = runEi.apiKey.length > 0;
+    const event: RoverEvent = robot.roverEvent;
+    setRobotCancelRequested(false);
+    setRobotRunning(true);
+    let uploaded = 0;
+    let captured = 0;
+    let failed = 0;
+    let cancelled = false;
+    const zipEntries: ZipEntry[] = [];
+
+    try {
+      await sleepCancellable(60);
+      for (let i = 0; i < robot.count; i++) {
+        if (robot.randomizeObstaclesEachRun) onRandomizeObstacles();
+        setStatus(
+          'busy',
+          `${i + 1}/${robot.count} ${event}: building path…`,
+        );
+        clearLidarSamples();
+        clearRobotImuSamples();
+        bumpRoverEpoch();
+        await sleepCancellable(robot.durationMs);
+        const lidar: LidarSample[] = useStore
+          .getState()
+          .lidarSamples.slice();
+        const imu: AccelSample[] = useStore
+          .getState()
+          .robotImuSamples.slice();
+        clearLidarSamples();
+        clearRobotImuSamples();
+        if (imu.length === 0) {
+          failed += 1;
+          continue;
+        }
+        const fileName = buildFileName(`${event}_${i + 1}`);
+        const sampleRateHz = 20;
+        const meta = {
+          mode: 'robot',
+          robot_kind: 'rover',
+          event,
+          event_index: i + 1,
+          event_total: robot.count,
+          lidar_bins: robot.lidarBins,
+          lidar_max_range_m: robot.lidarMaxRange,
+          duration_ms: robot.durationMs,
+        };
+        if (shouldUpload) {
+          try {
+            const res = await uploadRoverSample(
+              { ...runEi, label: event },
+              imu,
+              lidar,
+              sampleRateHz,
+              robot.lidarMaxRange,
+              fileName,
+              meta,
+            );
+            if (res.ok) uploaded += 1;
+            else failed += 1;
+          } catch {
+            failed += 1;
+          }
+        } else {
+          const body = await buildRoverDataAcquisitionPayload(
+            runEi,
+            imu,
+            lidar,
+            sampleRateHz,
+            robot.lidarMaxRange,
+          );
+          zipEntries.push({
+            name: fileName,
+            data: JSON.stringify(body, null, 2),
+          });
+          captured += 1;
+        }
+        setStatus(
+          'busy',
+          shouldUpload
+            ? `Rover: ${uploaded} uploaded · ${failed} failed (of ${i + 1}/${robot.count})`
+            : `Rover: ${captured} captured · ${failed} failed (of ${i + 1}/${robot.count})`,
+        );
+      }
+      const headline = cancelled ? 'Rover run stopped' : 'Rover run complete';
+      if (shouldUpload) {
+        setStatus(
+          cancelled || failed > 0 ? 'err' : 'ok',
+          `${headline}: ${uploaded} uploaded${failed ? ` · ${failed} failed` : ''}`,
+        );
+      } else if (zipEntries.length > 0) {
+        setStatus('busy', `Packaging ${zipEntries.length} samples…`);
+        const zipName = buildFileName(
+          `rover_${event}_${zipEntries.length}`,
+        ).replace(/\.json$/, '.zip');
+        const zip = await buildZip(zipEntries);
+        await saveBlob(zipName, zip);
+        setStatus(
+          cancelled || failed > 0 ? 'err' : 'ok',
+          `${headline}: downloaded ${zipEntries.length} samples${failed ? ` · ${failed} failed` : ''}`,
+        );
+      } else {
+        setStatus('err', `${headline}: no samples captured`);
+      }
+    } catch (e) {
+      if (e instanceof CancelledError) {
+        cancelled = true;
+        setStatus(
+          'err',
+          shouldUpload
+            ? `Rover run stopped: ${uploaded} uploaded${failed ? ` · ${failed} failed` : ''}`
+            : `Rover run stopped: ${zipEntries.length} samples saved`,
+        );
+      } else {
+        setStatus('err', `Rover error: ${(e as Error).message}`);
+      }
+    } finally {
+      setRobotRunning(false);
+      setRobotCancelRequested(false);
+      setRoverPose(null);
+    }
+  };
+
+  const onRunArm = async () => {
+    const runEi = { ...ei, apiKey: ei.apiKey.trim() };
+    const shouldUpload = runEi.apiKey.length > 0;
+    const trajectory: ArmTrajectory = robot.armTrajectory;
+    setRobotCancelRequested(false);
+    setRobotRunning(true);
+    let uploaded = 0;
+    let captured = 0;
+    let failed = 0;
+    let cancelled = false;
+    const zipEntries: ZipEntry[] = [];
+    try {
+      await sleepCancellable(60);
+      for (let i = 0; i < robot.count; i++) {
+        // For pick_place, pick a random scene object as the pickup
+        // target so the IK keyframes anchor on something visible. If
+        // there are no scene objects, the controller falls back to a
+        // stock placeholder pickup point.
+        if (trajectory === 'pick_place') {
+          const objs = useStore.getState().sceneObjects;
+          if (objs.length > 0) {
+            const pick = objs[Math.floor(Math.random() * objs.length)];
+            setArmTargetId(pick.id);
+          } else {
+            setArmTargetId(null);
+          }
+        }
+        setStatus(
+          'busy',
+          `${i + 1}/${robot.count} ${trajectory}: building trajectory…`,
+        );
+        clearRobotImuSamples();
+        bumpArmEpoch();
+        await sleepCancellable(robot.durationMs);
+        const imu: AccelSample[] = useStore
+          .getState()
+          .robotImuSamples.slice();
+        clearRobotImuSamples();
+        if (imu.length === 0) {
+          failed += 1;
+          continue;
+        }
+        const fileName = buildFileName(`${trajectory}_${i + 1}`);
+        const meta = {
+          mode: 'robot',
+          robot_kind: 'arm',
+          trajectory,
+          trajectory_index: i + 1,
+          trajectory_total: robot.count,
+          duration_ms: robot.durationMs,
+          arm_target_id: useStore.getState().armTargetId ?? '',
+        };
+        if (shouldUpload) {
+          try {
+            const res = await uploadSample(
+              { ...runEi, label: trajectory },
+              imu,
+              20,
+              fileName,
+              meta,
+            );
+            if (res.ok) uploaded += 1;
+            else failed += 1;
+          } catch {
+            failed += 1;
+          }
+        } else {
+          const body = await buildDataAcquisitionPayload(runEi, imu, 20);
+          zipEntries.push({
+            name: fileName,
+            data: JSON.stringify(body, null, 2),
+          });
+          captured += 1;
+        }
+        setStatus(
+          'busy',
+          shouldUpload
+            ? `Arm: ${uploaded} uploaded · ${failed} failed (of ${i + 1}/${robot.count})`
+            : `Arm: ${captured} captured · ${failed} failed (of ${i + 1}/${robot.count})`,
+        );
+      }
+      const headline = cancelled ? 'Arm run stopped' : 'Arm run complete';
+      if (shouldUpload) {
+        setStatus(
+          cancelled || failed > 0 ? 'err' : 'ok',
+          `${headline}: ${uploaded} uploaded${failed ? ` · ${failed} failed` : ''}`,
+        );
+      } else if (zipEntries.length > 0) {
+        setStatus('busy', `Packaging ${zipEntries.length} samples…`);
+        const zipName = buildFileName(
+          `arm_${trajectory}_${zipEntries.length}`,
+        ).replace(/\.json$/, '.zip');
+        const zip = await buildZip(zipEntries);
+        await saveBlob(zipName, zip);
+        setStatus(
+          cancelled || failed > 0 ? 'err' : 'ok',
+          `${headline}: downloaded ${zipEntries.length} samples${failed ? ` · ${failed} failed` : ''}`,
+        );
+      } else {
+        setStatus('err', `${headline}: no samples captured`);
+      }
+    } catch (e) {
+      if (e instanceof CancelledError) {
+        cancelled = true;
+        setStatus(
+          'err',
+          shouldUpload
+            ? `Arm run stopped: ${uploaded} uploaded${failed ? ` · ${failed} failed` : ''}`
+            : `Arm run stopped: ${zipEntries.length} samples saved`,
+        );
+      } else {
+        setStatus('err', `Arm error: ${(e as Error).message}`);
+      }
+    } finally {
+      setRobotRunning(false);
+      setRobotCancelRequested(false);
+      setArmJoints(null);
+      setArmTargetId(null);
+    }
+  };
+
+  const onRun = () => {
+    if (robot.kind === 'rover') void onRunRover();
+    else void onRunArm();
+  };
+
+  const hasApiKey = ei.apiKey.trim().length > 0;
+
+  return (
+    <>
+      <div className="card">
+        <h3>Robot</h3>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: 4,
+          }}
+        >
+          {ROBOT_KINDS.map((k) => (
+            <button
+              key={k.value}
+              className={robot.kind === k.value ? 'primary' : ''}
+              onClick={() => setRobot({ kind: k.value })}
+              title={k.hint}
+              disabled={robotRunning}
+              style={{ padding: '8px 4px', fontSize: 11 }}
+            >
+              {k.label}
+            </button>
+          ))}
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+          {ROBOT_KINDS.find((k) => k.value === robot.kind)?.hint}
+        </div>
+        <div className="row">
+          <button
+            type="button"
+            onClick={resetRobotScene}
+            disabled={robotRunning}
+            title="Regenerate the obstacle field, clear the rover pose and any in-flight recording."
+          >
+            ↺ Reset scene
+          </button>
+          {robot.kind === 'rover' && (
+            <button
+              type="button"
+              onClick={onRandomizeObstacles}
+              disabled={robotRunning}
+              title="Re-roll obstacle positions only — keeps the rover and recording state."
+            >
+              🎲 Randomize obstacles
+            </button>
+          )}
+        </div>
+      </div>
+
+      {robot.kind === 'rover' ? (
+        <div className="card">
+          <h3>Event</h3>
+          <div
+            className="motion-pills trajectory-pills"
+            role="radiogroup"
+            aria-label="Rover event"
+          >
+            {ALL_ROVER_EVENTS.map((kind) => (
+              <label
+                key={kind}
+                className={`motion-pill ${robot.roverEvent === kind ? 'on' : ''}`}
+              >
+                <input
+                  type="radio"
+                  name="rover-event"
+                  value={kind}
+                  checked={robot.roverEvent === kind}
+                  disabled={robotRunning}
+                  onChange={() => setRobot({ roverEvent: kind })}
+                />
+                {kind.replace(/_/g, ' ')}
+              </label>
+            ))}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+            {robot.roverEvent === 'cruise' &&
+              'Drive cleanly through the obstacle field, no contact.'}
+            {robot.roverEvent === 'collision' &&
+              'Aim straight at an obstacle; bumper-style impact mid-window.'}
+            {robot.roverEvent === 'stuck' &&
+              'Pin a wheel against an obstacle; vibrate without translation.'}
+          </div>
+          <label
+            className="field"
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
+          >
+            <input
+              type="checkbox"
+              checked={robot.randomizeObstaclesEachRun}
+              onChange={(e) =>
+                setRobot({ randomizeObstaclesEachRun: e.target.checked })
+              }
+              disabled={robotRunning}
+            />
+            Randomize obstacles each iteration
+          </label>
+        </div>
+      ) : (
+        <div className="card">
+          <h3>Trajectory</h3>
+          <ArmTrajectoryPicker
+            value={robot.armTrajectory}
+            onChange={(t) => setRobot({ armTrajectory: t })}
+            disabled={robotRunning}
+          />
+          <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+            {robot.armTrajectory === 'pick_place' &&
+              'Approach a scene object, grasp, lift, place at a destination.'}
+            {robot.armTrajectory === 'sweep' &&
+              'Base servo sweeps left/right at a fixed shoulder/elbow.'}
+            {robot.armTrajectory === 'wave' &&
+              'Wrist-pitch oscillation; clean gyro signature.'}
+            {robot.armTrajectory === 'random_pose' &&
+              'Interpolate between two random reachable joint vectors.'}
+            {robot.armTrajectory === 'draw_circle' &&
+              'End-effector traces a horizontal circle via planar IK.'}
+          </div>
+          {robot.armTrajectory === 'pick_place' && (
+            <div className="row">
+              <button
+                type="button"
+                onClick={() => addSceneObject('cube')}
+                disabled={robotRunning}
+                title="Add a cube the arm can target as a pickup."
+              >
+                + Pickup target
+              </button>
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                {sceneObjects.length} object
+                {sceneObjects.length === 1 ? '' : 's'} in scene
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="card">
+        <h3>Recording</h3>
+        <div className="row">
+          <label className="field">
+            Count
+            <input
+              type="number"
+              min={1}
+              max={200}
+              step={1}
+              {...countInput.inputProps}
+              disabled={robotRunning}
+            />
+          </label>
+          <label className="field">
+            Per-iteration ms
+            <input
+              type="number"
+              min={500}
+              max={15000}
+              step={100}
+              {...durationInput.inputProps}
+              disabled={robotRunning}
+            />
+          </label>
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+          {robotRunning
+            ? robot.kind === 'rover'
+              ? `Capturing… ${imuSampleCount} IMU · ${lidarSampleCount} lidar this window`
+              : `Capturing… ${imuSampleCount} IMU samples this window`
+            : robot.kind === 'rover'
+              ? '6-channel IMU + N-channel lidar per sample.'
+              : '6-channel end-effector IMU per sample.'}
+        </div>
+      </div>
+
+      {robot.kind === 'rover' && (
+        <div className="card">
+          <h3>Lidar / ToF ring</h3>
+          <label className="field">
+            Beams {robot.lidarBins}
+            <input
+              type="range"
+              min={4}
+              max={64}
+              step={1}
+              value={robot.lidarBins}
+              onChange={(e) => setRobot({ lidarBins: Number(e.target.value) })}
+              disabled={robotRunning}
+            />
+          </label>
+          <label className="field">
+            Max range {robot.lidarMaxRange.toFixed(1)} m
+            <input
+              type="range"
+              min={1}
+              max={20}
+              step={0.5}
+              value={robot.lidarMaxRange}
+              onChange={(e) =>
+                setRobot({ lidarMaxRange: Number(e.target.value) })
+              }
+              disabled={robotRunning}
+            />
+          </label>
+        </div>
+      )}
+
+      <EiAuthCard showHmac />
+
+      <div className="card">
+        <h3>Generate</h3>
+        <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+          {robot.kind === 'rover' ? (
+            <>
+              Each iteration drives the rover through one{' '}
+              <strong>{robot.roverEvent}</strong> event and records the IMU +
+              lidar window.
+            </>
+          ) : (
+            <>
+              Each iteration runs one <strong>{robot.armTrajectory.replace(/_/g, ' ')}</strong>{' '}
+              motion and records the end-effector IMU.
+            </>
+          )}
+        </div>
+        {robotRunning ? (
+          <button
+            className="danger"
+            onClick={() => setRobotCancelRequested(true)}
+          >
+            ■ Stop
+          </button>
+        ) : (
+          <button
+            className="primary"
+            onClick={onRun}
+            disabled={status.kind === 'busy'}
+          >
+            {`⚡ Generate & ${hasApiKey ? 'upload' : 'download'} ${robot.count} samples`}
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
+
+function ArmTrajectoryPicker({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: ArmTrajectory;
+  onChange: (t: ArmTrajectory) => void;
+  disabled: boolean;
+}) {
+  return (
+    <div
+      className="motion-pills trajectory-pills"
+      role="radiogroup"
+      aria-label="Arm trajectory"
+    >
+      {ALL_ARM_TRAJECTORIES.map((kind) => (
+        <label
+          key={kind}
+          className={`motion-pill ${value === kind ? 'on' : ''}`}
+        >
+          <input
+            type="radio"
+            name="arm-trajectory"
+            value={kind}
+            checked={value === kind}
+            disabled={disabled}
+            onChange={() => onChange(kind)}
+          />
+          {kind.replace(/_/g, ' ')}
+        </label>
+      ))}
+    </div>
+  );
+}

@@ -1,6 +1,7 @@
 import { useRef, useState, type CSSProperties } from 'react';
 import { useStore, type AppMode } from '../store/useStore';
 import { MotionPanel } from './MotionPanel';
+import { RobotPanel } from './RobotPanel';
 import { ThemeToggle } from './ThemeToggle';
 import { VisionPanel } from './VisionPanel';
 
@@ -13,6 +14,7 @@ const MODES: { value: AppMode; label: string; hint: string }[] = [
   { value: 'motion', label: 'Motion', hint: 'Accelerometer' },
   { value: 'detection', label: 'Object detection', hint: 'Images + bboxes' },
   { value: 'anomaly', label: 'Visual anomaly', hint: 'Images, batch label' },
+  { value: 'robot', label: 'Robotics', hint: 'Rover lidar / Arm IMU' },
 ];
 
 /* Right-edge drawer dismiss thresholds. The drawer slides in from the
@@ -138,7 +140,7 @@ export function Sidebar({
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: '1fr 1fr 1fr',
+            gridTemplateColumns: '1fr 1fr',
             gap: 4,
           }}
         >
@@ -159,7 +161,13 @@ export function Sidebar({
         </div>
       </div>
 
-      {mode === 'motion' ? <MotionPanel /> : <VisionPanel />}
+      {mode === 'motion' ? (
+        <MotionPanel />
+      ) : mode === 'robot' ? (
+        <RobotPanel />
+      ) : (
+        <VisionPanel />
+      )}
 
       {status.msg && (
         <div className={`status ${status.kind}`}>{status.msg}</div>

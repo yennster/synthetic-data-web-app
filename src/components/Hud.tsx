@@ -42,7 +42,9 @@ export function Hud() {
       ? 'object detection'
       : mode === 'anomaly'
         ? 'visual anomaly'
-        : mode;
+        : mode === 'robot'
+          ? 'robotics'
+          : mode;
 
   return (
     <div className="hud">

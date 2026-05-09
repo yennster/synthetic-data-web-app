@@ -19,8 +19,12 @@ import {
 } from '../lib/handMath';
 import { computeImuReading } from '../lib/imu';
 import { useStore, type ObjectKind } from '../store/useStore';
+import { BraccioArm } from './BraccioArm';
 import { Conveyor } from './Conveyor';
 import { ImportedAssets } from './ImportedAssets';
+import { RobotObstacles } from './RobotObstacles';
+import { RobotPovCamera } from './RobotPovCamera';
+import { Rover } from './Rover';
 import { SceneEnvironment } from './SceneEnvironment';
 import { SpawnedObjects } from './SpawnedObjects';
 import { VirtualCamera } from './VirtualCamera';
@@ -542,6 +546,75 @@ function PreviewCanvasMount({
   return null;
 }
 
+/**
+ * Wraps the rover rig and the static obstacle field together so they
+ * share a single `obstaclesRef`. The Rover's lidar component raycasts
+ * against this ref each frame; keeping it inside one component avoids
+ * prop-drilling the ref through Scene and lets us swap rovers / scenes
+ * later without re-threading.
+ */
+function RoverScene() {
+  const obstaclesRef = useRef<THREE.Group>(null);
+  return (
+    <>
+      <RobotObstacles ref={obstaclesRef} />
+      <Rover obstaclesRef={obstaclesRef} />
+    </>
+  );
+}
+
+/** Arm scene: the Braccio rig + the user's spawned scene objects so
+ * the arm has things to pick up. SpawnedObjects already renders each
+ * `sceneObject` as a draggable mesh with optional physics, so we just
+ * mount it alongside the arm. */
+function ArmScene() {
+  return (
+    <>
+      <BraccioArm />
+      <SpawnedObjects />
+    </>
+  );
+}
+
+/**
+ * Snap the camera + orbit target to a sensible default whenever the
+ * scene's "subject" changes — currently that means switching the robot
+ * kind, since the Braccio arm is ~30 cm tall and disappears against
+ * the meter-scale framing used for the manipulated cube and the rover.
+ *
+ * Reads `controls` via `useThree` so we get whatever OrbitControls
+ * registered as the default. The user can still freely orbit after we
+ * snap; we only re-snap when the dependency tuple changes.
+ */
+function CameraRig() {
+  const camera = useThree((s) => s.camera);
+  const controls = useThree(
+    (s) => s.controls as unknown as {
+      target: THREE.Vector3;
+      update: () => void;
+    } | null,
+  );
+  const mode = useStore((s) => s.mode);
+  const robotKind = useStore((s) => s.robot.kind);
+
+  useEffect(() => {
+    if (!controls) return;
+    if (mode === 'robot' && robotKind === 'arm') {
+      // Tight framing for the Braccio (≈30 cm tall) — eye-level on the
+      // shoulder joint with the gripper roughly centered in the frame.
+      camera.position.set(0.55, 0.45, 0.65);
+      controls.target.set(0, 0.25, 0);
+    } else {
+      // Default meter-scale framing used by every other mode.
+      camera.position.set(4, 3, 6);
+      controls.target.set(0, 0.7, 0);
+    }
+    controls.update();
+  }, [mode, robotKind, camera, controls]);
+
+  return null;
+}
+
 export function Scene({
   previewCanvas,
 }: {
@@ -550,6 +623,7 @@ export function Scene({
   const mode = useStore((s) => s.mode);
   const showConveyor = useStore((s) => s.showConveyor);
   const envPreset = useStore((s) => s.envPreset);
+  const robotKind = useStore((s) => s.robot.kind);
 
   return (
     <Canvas
@@ -603,6 +677,12 @@ export function Scene({
             <ManipulatedObject />
             <PinchMarker />
           </>
+        ) : mode === 'robot' ? (
+          robotKind === 'rover' ? (
+            <RoverScene />
+          ) : (
+            <ArmScene />
+          )
         ) : (
           <>
             {showConveyor && <Conveyor />}
@@ -612,16 +692,22 @@ export function Scene({
         )}
       </Physics>
 
-      {mode !== 'motion' && <VirtualCamera previewCanvas={previewCanvas} />}
+      {(mode === 'detection' || mode === 'anomaly') && (
+        <VirtualCamera previewCanvas={previewCanvas} />
+      )}
+      {mode === 'robot' && (
+        <RobotPovCamera previewCanvas={previewCanvas} />
+      )}
 
       <OrbitControls
         makeDefault
         enableDamping
         dampingFactor={0.1}
-        minDistance={2}
+        minDistance={0.3}
         maxDistance={20}
         target={[0, 0.7, 0]}
       />
+      <CameraRig />
       <PreviewCanvasMount setCanvas={() => {}} />
     </Canvas>
   );

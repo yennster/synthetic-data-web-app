@@ -4,6 +4,11 @@ import type { Group } from 'three';
 import type { NeedleThreeHydraHandle } from '@needle-tools/usd';
 import { clearAssetBlobs, deleteAssetBlob } from '../lib/assetStore';
 import type { EiModelInfo, EiResult, LoadedEiModel } from '../lib/eiModel';
+import { generateObstacles } from '../lib/rover';
+import {
+  ALL_ARM_TRAJECTORIES as _ALL_ARM_TRAJECTORIES,
+  type ArmTrajectory as _ArmTrajectory,
+} from '../lib/armTrajectories';
 
 export type ObjectKind =
   | 'cube'
@@ -19,7 +24,7 @@ export type ObjectKind =
  * back-wall geometry. "studio" is the original dark backdrop. */
 export type EnvPreset = 'studio' | 'warehouse' | 'whitebox' | 'outdoor';
 
-export type AppMode = 'motion' | 'detection' | 'anomaly';
+export type AppMode = 'motion' | 'detection' | 'anomaly' | 'robot';
 
 /** Procedural motion generator class. Each kind is recorded as its own
  * label so EI receives correctly-classed training data. */
@@ -31,6 +36,49 @@ export const ALL_MOTION_KINDS: MotionKind[] = [
   'push',
   'shake',
 ];
+
+/** Robot mode picks one of two rigs. The two rigs synthesize different
+ * sensor modalities — the rover emits a 2D lidar/ToF ring scan per tick,
+ * the arm emits chassis-frame IMU readings from its end-effector. */
+export type RobotKind = 'rover' | 'arm';
+
+/** Event classes for the rover — what's happening to the chassis
+ * during a recording window. Replaces the earlier "trajectory shape"
+ * labels because the shape can be recovered from heading/odometry,
+ * which makes it a trivial ML target. Event classification on the
+ * chassis IMU is the canonical Edge Impulse rover dataset. */
+export type RoverEvent = 'cruise' | 'collision' | 'stuck';
+
+export const ALL_ROVER_EVENTS: RoverEvent[] = ['cruise', 'collision', 'stuck'];
+
+/** Procedurally-placed obstacle disc. The renderer picks a visual
+ * shape (pillar / crate / cone) deterministically from `id`, so the
+ * same disc list reproduces the same scene; the planner / contact
+ * detector only ever look at (x, z, r). */
+export type RobotObstacle = {
+  id: string;
+  x: number;
+  z: number;
+  r: number;
+};
+
+/** Joint-space trajectory classes for the Braccio arm. Re-exported
+ * from `../lib/armTrajectories` so the store stays the single source
+ * of truth for app-shape types while the trajectory implementations
+ * live in pure-helper land. */
+export type ArmTrajectory = _ArmTrajectory;
+export const ALL_ARM_TRAJECTORIES = _ALL_ARM_TRAJECTORIES;
+
+/** One scan from the rover's lidar/ToF ring. `ranges[i]` is the distance
+ * to the nearest obstacle along the i-th angular bin, in meters; the bin
+ * spacing is `2π / ranges.length`, starting at the rover's forward
+ * heading and sweeping counter-clockwise. Bins that hit nothing within
+ * `lidarMaxRange` are clamped to that max value (matches how a real
+ * VL53L0X/lidar reports an out-of-range hit). */
+export type LidarSample = {
+  t: number;
+  ranges: number[];
+};
 
 /** Per-tick IMU sample. `a*` are accelerometer readings (m/s², body-local
  * proper acceleration — what a real IMU measures: stationary = +9.81 on
@@ -252,6 +300,113 @@ type State = {
   dropsCancelRequested: boolean;
   setDropsCancelRequested: (b: boolean) => void;
 
+  // ---------- Robot mode ----------
+  /** Procedural robotics-data generator config. The rover (ground vehicle
+   * recording chassis IMU + lidar through cruise / collision / stuck
+   * events) and the Braccio arm (6-DOF stationary arm picking up scene
+   * objects) live in the same mode behind a `kind` toggle because they
+   * share the procedural-runner shape, EI upload path, and sidebar
+   * surface. */
+  robot: {
+    kind: RobotKind;
+    /** Currently-selected rover event class — also the EI label written
+     * onto the next batch of recordings. */
+    roverEvent: RoverEvent;
+    armTrajectory: ArmTrajectory;
+    /** How many trajectories to record this batch — one EI sample each. */
+    count: number;
+    /** Recording window per trajectory. */
+    durationMs: number;
+    /** Number of angular bins in the rover's lidar ring (≥3). */
+    lidarBins: number;
+    /** Maximum reportable distance for the lidar — readings beyond this
+     * are clamped, matching a real ToF/lidar's "no return" behavior. */
+    lidarMaxRange: number;
+    /** When true, "Randomize obstacles" reruns the procedural placer
+     * before each recording iteration so the obstacle field varies
+     * across the batch. When false, the field is fixed (good for
+     * reproducible debugging). */
+    randomizeObstaclesEachRun: boolean;
+  };
+  setRobot: (patch: Partial<State['robot']>) => void;
+  /** True while a procedural robot run is active. */
+  robotRunning: boolean;
+  setRobotRunning: (b: boolean) => void;
+  robotCancelRequested: boolean;
+  setRobotCancelRequested: (b: boolean) => void;
+  /** Lidar/ToF time-series for the in-progress (or just-finished) rover
+   * recording. Distinct from the IMU `samples` array because the per-tick
+   * payload is N range bins, not a 6-channel reading. Cleared at the
+   * start of each rover trajectory the same way `samples` is. */
+  lidarSamples: LidarSample[];
+  pushLidarSample: (s: LidarSample) => void;
+  clearLidarSamples: () => void;
+
+  /** Live kinematic pose for the rover, written by the trajectory
+   * controller and read by the rig component every frame. The position
+   * is on the ground plane (y = 0); `heading` is yaw in radians measured
+   * from world +Z, counter-clockwise about +Y (so `heading = 0` faces
+   * +Z, `π/2` faces +X). Null while no rig is active. */
+  roverPose: { x: number; z: number; heading: number } | null;
+  setRoverPose: (p: State['roverPose']) => void;
+  /** Bumped by the procedural runner once per recording iteration. The
+   * in-canvas `RoverController` listens on this counter; on bump it
+   * builds a fresh random path for the currently-selected event class
+   * and starts driving the rover from `t = 0`. Bumping (rather than
+   * writing the path itself) keeps the path closure off zustand's
+   * structural-clone path — RNG-bound closures don't survive `set`. */
+  roverEpoch: number;
+  bumpRoverEpoch: () => void;
+
+  /** Live obstacle field for robotics mode. The disc descriptors here
+   * drive both the visual rendering (in `RobotObstacles`) and the
+   * lidar / planner / contact detector. Stored as ordinary state so
+   * the user can drag obstacles around and so "Randomize obstacles"
+   * just rewrites the array. */
+  robotObstacles: RobotObstacle[];
+  setRobotObstacles: (o: RobotObstacle[]) => void;
+  updateRobotObstacle: (id: string, patch: Partial<RobotObstacle>) => void;
+  /** Reset the robot scene: regenerate a fresh procedurally-placed
+   * obstacle field, clear pose / samples, and reset the runner state.
+   * Also clears `armTargetId` so a stale target doesn't reference a
+   * deleted scene object. */
+  resetRobotScene: () => void;
+
+  /** Chassis-frame IMU samples recorded during the in-progress (or
+   * just-finished) rover run. Same 6-channel shape as motion mode —
+   * accelerometer + gyroscope, body local. Cleared per iteration. */
+  robotImuSamples: AccelSample[];
+  pushRobotImuSample: (s: AccelSample) => void;
+  clearRobotImuSamples: () => void;
+
+  /** True when the rover's contact detector reports overlap with at
+   * least one obstacle this frame. The IMU sampler reads this to
+   * inject a brief impulse along the contact axis (so the recorded
+   * sample carries a real "collision" signature) and the runner uses
+   * it to flag the recording's `event_observed` metadata. */
+  roverInContact: boolean;
+  setRoverInContact: (b: boolean) => void;
+
+  /** Live joint angles for the Braccio arm, in radians. Six channels:
+   * base yaw, shoulder, elbow, wrist pitch, wrist roll, gripper aperture
+   * (0 = fully closed, 1 = fully open in the published spec mapping).
+   * Null while no arm is active. */
+  armJoints: [number, number, number, number, number, number] | null;
+  setArmJoints: (j: State['armJoints']) => void;
+
+  /** Bumped by the arm runner once per recording iteration to ask the
+   * `ArmController` to start a fresh trajectory. Same pattern as
+   * `roverEpoch`. */
+  armEpoch: number;
+  bumpArmEpoch: () => void;
+
+  /** ID of the scene object the arm is currently targeting for
+   * pick-and-place. Null when no target is selected. The arm picks
+   * one randomly per iteration when `pick_place` is the trajectory
+   * class. */
+  armTargetId: string | null;
+  setArmTargetId: (id: string | null) => void;
+
   // ---------- Scene (detection/anomaly) ----------
   sceneObjects: SceneObject[];
   addSceneObject: (kind: ObjectKind, label?: string) => void;
@@ -439,6 +594,79 @@ export const useStore = create<State>()(
   dropsCancelRequested: false,
   setDropsCancelRequested: (b) => set({ dropsCancelRequested: b }),
 
+  // robot
+  robot: {
+    kind: 'rover',
+    roverEvent: 'cruise',
+    armTrajectory: 'pick_place',
+    count: 10,
+    durationMs: 3000,
+    lidarBins: 16,
+    lidarMaxRange: 6,
+    randomizeObstaclesEachRun: false,
+  },
+  setRobot: (patch) => set((s) => ({ robot: { ...s.robot, ...patch } })),
+  robotRunning: false,
+  setRobotRunning: (b) => set({ robotRunning: b }),
+  robotCancelRequested: false,
+  setRobotCancelRequested: (b) => set({ robotCancelRequested: b }),
+  lidarSamples: [],
+  pushLidarSample: (s) =>
+    set((state) =>
+      state.robotRunning ? { lidarSamples: [...state.lidarSamples, s] } : state,
+    ),
+  clearLidarSamples: () => set({ lidarSamples: [] }),
+  roverPose: null,
+  setRoverPose: (p) => set({ roverPose: p }),
+  roverEpoch: 0,
+  bumpRoverEpoch: () => set((s) => ({ roverEpoch: s.roverEpoch + 1 })),
+
+  robotObstacles: generateObstacles(7, 4.0, 0.6).map((o, i) => ({
+    id: `obs-${i}`,
+    ...o,
+  })),
+  setRobotObstacles: (o) => set({ robotObstacles: o }),
+  updateRobotObstacle: (id, patch) =>
+    set((s) => ({
+      robotObstacles: s.robotObstacles.map((o) =>
+        o.id === id ? { ...o, ...patch } : o,
+      ),
+    })),
+  resetRobotScene: () => {
+    const fresh = generateObstacles(7, 4.0, 0.6).map((o, i) => ({
+      id: `obs-${Date.now()}-${i}`,
+      ...o,
+    }));
+    set({
+      robotObstacles: fresh,
+      roverPose: null,
+      lidarSamples: [],
+      robotImuSamples: [],
+      armJoints: null,
+      armTargetId: null,
+      roverInContact: false,
+      robotCancelRequested: false,
+    });
+  },
+
+  robotImuSamples: [],
+  pushRobotImuSample: (s) =>
+    set((state) =>
+      state.robotRunning
+        ? { robotImuSamples: [...state.robotImuSamples, s] }
+        : state,
+    ),
+  clearRobotImuSamples: () => set({ robotImuSamples: [] }),
+  roverInContact: false,
+  setRoverInContact: (b) => set({ roverInContact: b }),
+
+  armJoints: null,
+  setArmJoints: (j) => set({ armJoints: j }),
+  armEpoch: 0,
+  bumpArmEpoch: () => set((s) => ({ armEpoch: s.armEpoch + 1 })),
+  armTargetId: null,
+  setArmTargetId: (id) => set({ armTargetId: id }),
+
   // scene
   sceneObjects: [],
   addSceneObject: (kind, label) =>
@@ -554,7 +782,7 @@ export const useStore = create<State>()(
     }),
     {
       name: 'sds-store',
-      version: 1,
+      version: 2,
       storage: createJSONStorage(() => localStorage),
       // Persist only the bits worth restoring: scene primitives, scene
       // settings, capture config, mode, and asset *metadata* (the live
@@ -574,6 +802,8 @@ export const useStore = create<State>()(
         anomalyLabel: s.anomalyLabel,
         sampleRateHz: s.sampleRateHz,
         drops: s.drops,
+        robot: s.robot,
+        robotObstacles: s.robotObstacles,
         eiThreshold: s.eiThreshold,
         pendingAssets: s.assets.map<PersistedAsset>((a) => ({
           id: a.id,
@@ -594,3 +824,10 @@ export const useStore = create<State>()(
     },
   ),
 );
+
+if (typeof window !== 'undefined' && import.meta.env.DEV) {
+  // Dev-only handle for the preview harness so we can inspect transient
+  // store fields (`lidarSamples`, `roverPose`, ...) that aren't persisted
+  // to localStorage. Not used by app code.
+  (window as unknown as { __useStore?: typeof useStore }).__useStore = useStore;
+}
