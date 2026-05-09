@@ -311,24 +311,15 @@ function RoverController() {
     }
     // Snapshot the obstacle field at start-of-iteration so the path
     // generator and contact detector see a stable layout, even if the
-    // user drags an obstacle mid-run. Combines two sources: the
-    // procedural `robotObstacles` field (pillars/crates/cones) and
-    // the vision-mode `sceneObjects` (which the user can add and
-    // configure via the same UI detection mode uses). Each scene
-    // object is approximated as a bounding circle r ≈ scale·0.3,
-    // which matches the largest primitive radius the spawner ships.
+    // user drags an obstacle mid-run. Each scene object is
+    // approximated as a bounding circle r ≈ scale·0.32, matching the
+    // largest primitive radius the spawner ships.
     const state = useStore.getState();
-    const proceduralDiscs: ObstacleDisc[] = state.robotObstacles.map((o) => ({
-      x: o.x,
-      z: o.z,
-      r: o.r,
-    }));
-    const sceneDiscs: ObstacleDisc[] = state.sceneObjects.map((o) => ({
+    const obstacles: ObstacleDisc[] = state.sceneObjects.map((o) => ({
       x: o.position[0],
       z: o.position[2],
       r: Math.max(0.05, o.scale * 0.32),
     }));
-    const obstacles: ObstacleDisc[] = [...proceduralDiscs, ...sceneDiscs];
     pathRef.current = buildEventPath(event, obstacles, Math.random);
     startMs.current = performance.now();
     setRoverPose(pathRef.current.sample(0));
@@ -402,25 +393,16 @@ function RoverImuSampler({
       .sub(prevPos.current)
       .divideScalar(sampleDt);
 
-    // Contact-aware accel spike: when the chassis disc overlaps an
-    // obstacle, decelerate the apparent linvel sharply along the
+    // Contact-aware accel spike: when the chassis disc overlaps a
+    // scene object, decelerate the apparent linvel sharply along the
     // contact normal (penetration-depth-scaled). This produces the
     // accelerometer signature a real bumper switch would induce.
-    // The detector sees both procedural obstacles AND user-spawned
-    // scene objects, so adding a cube via `<SceneObjectsCard>` makes
-    // the rover bump it just like a placed pillar.
     const liveState = useStore.getState();
-    const liveSceneDiscs: ObstacleDisc[] = liveState.sceneObjects.map(
-      (o) => ({
-        x: o.position[0],
-        z: o.position[2],
-        r: Math.max(0.05, o.scale * 0.32),
-      }),
-    );
-    const obstacles = [
-      ...liveState.robotObstacles.map((o) => ({ x: o.x, z: o.z, r: o.r })),
-      ...liveSceneDiscs,
-    ];
+    const obstacles: ObstacleDisc[] = liveState.sceneObjects.map((o) => ({
+      x: o.position[0],
+      z: o.position[2],
+      r: Math.max(0.05, o.scale * 0.32),
+    }));
     const contact = detectContact(
       { x: curPos.x, z: curPos.z },
       CHASSIS_DISC_R,
