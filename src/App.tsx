@@ -6,8 +6,39 @@ import { InferenceOverlay } from './components/InferenceOverlay';
 import { Scene } from './components/Scene';
 import { Sidebar } from './components/Sidebar';
 import { TouchResizeHandle } from './components/TouchResizeHandle';
-import { useStore } from './store/useStore';
+import { useStore, type AppMode } from './store/useStore';
 import { useRehydrateAssets } from './lib/rehydrateAssets';
+
+/**
+ * Map a `?mode=` query value to the canonical `AppMode`. Accepts a few
+ * forgiving aliases (e.g. `robotics`, `objects`) so deep-link URLs read
+ * naturally. Returns null when the value isn't recognized — the caller
+ * leaves the persisted/default mode alone in that case.
+ */
+function parseModeQuery(raw: string | null): AppMode | null {
+  if (!raw) return null;
+  switch (raw.toLowerCase()) {
+    case 'motion':
+    case 'imu':
+    case 'accel':
+      return 'motion';
+    case 'detection':
+    case 'object':
+    case 'objects':
+    case 'object-detection':
+      return 'detection';
+    case 'anomaly':
+    case 'visual-anomaly':
+      return 'anomaly';
+    case 'robot':
+    case 'robotics':
+    case 'rover':
+    case 'arm':
+      return 'robot';
+    default:
+      return null;
+  }
+}
 
 const MAX_PREVIEW_DPR = 2;
 
@@ -21,8 +52,33 @@ export default function App() {
   useRehydrateAssets();
 
   const mode = useStore((s) => s.mode);
+  const setMode = useStore((s) => s.setMode);
   const captureSettings = useStore((s) => s.capture);
   const handTrackingEnabled = useStore((s) => s.handTrackingEnabled);
+
+  // One-time URL sync at startup: if the user landed via a deep link with
+  // `?mode=robotics` (or any of its aliases) and that's a different mode
+  // from the persisted one, switch over before first paint. Also extends
+  // to a `robotKind` sub-mode (`?robot=arm` / `?robot=rover`) for robotics
+  // links that need to land on a specific rig. We only consume the
+  // params at mount; subsequent in-app mode toggles don't push to the
+  // URL — keeps the back-button behaving the way users expect for a
+  // single-page tool.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const wantedMode = parseModeQuery(params.get('mode'));
+    if (wantedMode && wantedMode !== useStore.getState().mode) {
+      setMode(wantedMode);
+    }
+    const wantedRobot = params.get('robot');
+    if (wantedRobot === 'arm' || wantedRobot === 'rover') {
+      const setRobot = useStore.getState().setRobot;
+      setRobot({ kind: wantedRobot });
+    }
+    // Run once at mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const previewRef = useRef<HTMLCanvasElement | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
@@ -76,7 +132,7 @@ export default function App() {
         <Scene previewCanvas={previewCanvas} />
         <Hud />
         {mode === 'motion' && handTrackingEnabled && <CameraFeed />}
-        {mode !== 'motion' && (
+        {(mode === 'detection' || mode === 'anomaly') && (
           <div
             ref={overlayRef}
             className="cam-overlay resizable"
@@ -100,6 +156,29 @@ export default function App() {
               width={previewW}
               height={previewH}
               pixelRatio={previewDpr}
+            />
+            <TouchResizeHandle />
+          </div>
+        )}
+        {mode === 'robot' && (
+          <div
+            ref={overlayRef}
+            className="cam-overlay resizable"
+            style={{
+              width: previewW,
+              height: previewH,
+              transform: 'none',
+            }}
+          >
+            <span className="label">Robot POV · drag ↗</span>
+            <canvas
+              ref={(el) => {
+                previewRef.current = el;
+                setPreviewCanvas(el);
+              }}
+              width={previewPixelW}
+              height={previewPixelH}
+              style={{ transform: 'none' }}
             />
             <TouchResizeHandle />
           </div>

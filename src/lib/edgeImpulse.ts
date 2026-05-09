@@ -3,6 +3,7 @@ import type {
   BoundingBox,
   Capture,
   EdgeImpulseConfig,
+  LidarSample,
 } from '../store/useStore';
 
 const INGESTION_BASE = 'https://ingestion.edgeimpulse.com/api';
@@ -199,6 +200,279 @@ export async function uploadSample(
     body: JSON.stringify(body),
   });
 
+  const text = await res.text();
+  return { ok: res.ok, status: res.status, body: text };
+}
+
+/**
+ * Like `inferIntervalMs` but for lidar samples (which carry N-channel
+ * range arrays per timestep instead of fixed 6-channel IMU readings).
+ */
+function inferLidarIntervalMs(
+  samples: LidarSample[],
+  sampleRateHz: number,
+): number {
+  const fallback = 1000 / sampleRateHz;
+  if (samples.length < 2) return fallback;
+  const span = samples[samples.length - 1].t - samples[0].t;
+  if (!Number.isFinite(span) || span <= 0) return fallback;
+  return span / (samples.length - 1);
+}
+
+/**
+ * Build the EI data-acquisition payload for a lidar/ToF ring recording.
+ * Same shape as the IMU payload but with N range channels (`r0`..`rN-1`)
+ * in meters. The number of channels is fixed per sample (every reading
+ * has the same `bins` count); we read `samples[0].ranges.length` and
+ * trust the sampler to keep it stable.
+ *
+ * EI's classifier expects a rectangular time-series. If `samples`
+ * contains rows with mismatched bin counts (shouldn't happen — the
+ * store's `pushLidarSample` doesn't validate, but the sampler always
+ * emits `bins`-length arrays) we right-pad short rows with `maxRange`
+ * so the upload doesn't error out partway through a batch.
+ */
+export async function buildLidarDataAcquisitionPayload(
+  cfg: Pick<EdgeImpulseConfig, 'device' | 'hmacKey'>,
+  samples: LidarSample[],
+  sampleRateHz: number,
+  maxRange: number,
+): Promise<{
+  protected: { ver: 'v1'; alg: 'HS256' | 'none'; iat: number };
+  signature: string;
+  payload: {
+    device_name: string;
+    device_type: string;
+    interval_ms: number;
+    sensors: { name: string; units: string }[];
+    values: number[][];
+  };
+}> {
+  const bins = samples[0]?.ranges.length ?? 0;
+  const intervalMs = inferLidarIntervalMs(samples, sampleRateHz);
+  const useHmac = !!cfg.hmacKey;
+
+  const sensors: { name: string; units: string }[] = [];
+  for (let i = 0; i < bins; i++) {
+    sensors.push({ name: `r${i}`, units: 'm' });
+  }
+  const values = samples.map((s) => {
+    if (s.ranges.length === bins) return s.ranges;
+    const row = s.ranges.slice(0, bins);
+    while (row.length < bins) row.push(maxRange);
+    return row;
+  });
+
+  const payload = {
+    device_name: cfg.device || 'synthetic-rover',
+    device_type: 'WEB_SIMULATOR',
+    interval_ms: intervalMs,
+    sensors,
+    values,
+  };
+
+  const protectedHeader: {
+    ver: 'v1';
+    alg: 'HS256' | 'none';
+    iat: number;
+  } = {
+    ver: 'v1',
+    alg: useHmac ? 'HS256' : 'none',
+    iat: Math.floor(Date.now() / 1000),
+  };
+  const emptySig = '0'.repeat(64);
+  const body: {
+    protected: typeof protectedHeader;
+    signature: string;
+    payload: typeof payload;
+  } = {
+    protected: protectedHeader,
+    signature: emptySig,
+    payload,
+  };
+  if (useHmac) {
+    const serialized = JSON.stringify(body);
+    body.signature = await hmacSha256Hex(cfg.hmacKey, serialized);
+  }
+  return body;
+}
+
+/**
+ * Build a combined IMU + lidar payload for the rover. The chassis
+ * carries both sensors at the same nominal rate, so the runner emits
+ * one sample per ~50 ms with both modalities. Edge Impulse handles
+ * arbitrary multi-channel time-series, so we just declare 6 IMU + N
+ * lidar channels in the payload's `sensors` array and pack them per
+ * row.
+ *
+ * Sample arrays must be the same length (the rover's dual sampler
+ * pushes both per tick, so this holds in practice). When they differ,
+ * we trim to the shorter length so the upload is rectangular.
+ */
+export async function buildRoverDataAcquisitionPayload(
+  cfg: Pick<EdgeImpulseConfig, 'device' | 'hmacKey'>,
+  imu: AccelSample[],
+  lidar: LidarSample[],
+  sampleRateHz: number,
+  maxRange: number,
+): Promise<{
+  protected: { ver: 'v1'; alg: 'HS256' | 'none'; iat: number };
+  signature: string;
+  payload: {
+    device_name: string;
+    device_type: string;
+    interval_ms: number;
+    sensors: { name: string; units: string }[];
+    values: number[][];
+  };
+}> {
+  const n = Math.min(imu.length, lidar.length);
+  const trimmed = {
+    imu: imu.slice(0, n),
+    lidar: lidar.slice(0, n),
+  };
+  const bins = trimmed.lidar[0]?.ranges.length ?? 0;
+  const intervalMs = inferIntervalMs(trimmed.imu, sampleRateHz);
+  const useHmac = !!cfg.hmacKey;
+
+  const sensors: { name: string; units: string }[] = [
+    { name: 'accX', units: 'm/s2' },
+    { name: 'accY', units: 'm/s2' },
+    { name: 'accZ', units: 'm/s2' },
+    { name: 'gyrX', units: 'rad/s' },
+    { name: 'gyrY', units: 'rad/s' },
+    { name: 'gyrZ', units: 'rad/s' },
+  ];
+  for (let i = 0; i < bins; i++) sensors.push({ name: `r${i}`, units: 'm' });
+
+  const values = trimmed.imu.map((a, i) => {
+    const ranges =
+      trimmed.lidar[i].ranges.length === bins
+        ? trimmed.lidar[i].ranges
+        : (() => {
+            const r = trimmed.lidar[i].ranges.slice(0, bins);
+            while (r.length < bins) r.push(maxRange);
+            return r;
+          })();
+    return [a.ax, a.ay, a.az, a.gx, a.gy, a.gz, ...ranges];
+  });
+
+  const payload = {
+    device_name: cfg.device || 'synthetic-rover',
+    device_type: 'WEB_SIMULATOR',
+    interval_ms: intervalMs,
+    sensors,
+    values,
+  };
+  const protectedHeader: { ver: 'v1'; alg: 'HS256' | 'none'; iat: number } = {
+    ver: 'v1',
+    alg: useHmac ? 'HS256' : 'none',
+    iat: Math.floor(Date.now() / 1000),
+  };
+  const emptySig = '0'.repeat(64);
+  const body: {
+    protected: typeof protectedHeader;
+    signature: string;
+    payload: typeof payload;
+  } = {
+    protected: protectedHeader,
+    signature: emptySig,
+    payload,
+  };
+  if (useHmac) {
+    const serialized = JSON.stringify(body);
+    body.signature = await hmacSha256Hex(cfg.hmacKey, serialized);
+  }
+  return body;
+}
+
+/**
+ * Upload a combined IMU + lidar rover sample to EI. Same ingestion URL
+ * as `uploadSample`; payload built by `buildRoverDataAcquisitionPayload`.
+ */
+export async function uploadRoverSample(
+  cfg: EdgeImpulseConfig,
+  imu: AccelSample[],
+  lidar: LidarSample[],
+  sampleRateHz: number,
+  maxRange: number,
+  fileName: string,
+  metadataExtras?: IngestionMetadataExtras,
+): Promise<UploadResult> {
+  if (imu.length === 0 && lidar.length === 0) {
+    return { ok: false, status: 0, body: 'No samples to upload' };
+  }
+  if (!cfg.apiKey) return { ok: false, status: 0, body: 'Missing API key' };
+  const body = await buildRoverDataAcquisitionPayload(
+    cfg,
+    imu,
+    lidar,
+    sampleRateHz,
+    maxRange,
+  );
+  const bucket = resolveBucket(cfg.category);
+  const meta: IngestionMetadataExtras = { ...metadataExtras };
+  if (cfg.category === 'split') meta.split_bucket = bucket;
+  const url = `${INGESTION_BASE}/${bucket}/data`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': cfg.apiKey,
+      'x-file-name': fileName,
+      'x-label': cfg.label || 'unlabeled',
+      'x-disallow-duplicates': '0',
+      'x-add-date-id': '1',
+      'x-metadata': buildIngestionMetadata(meta),
+    },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  return { ok: res.ok, status: res.status, body: text };
+}
+
+/**
+ * Sibling to `uploadSample` for lidar/ToF time series. Same ingestion
+ * URL shape; the only difference is the payload builder.
+ */
+export async function uploadLidarSample(
+  cfg: EdgeImpulseConfig,
+  samples: LidarSample[],
+  sampleRateHz: number,
+  maxRange: number,
+  fileName: string,
+  metadataExtras?: IngestionMetadataExtras,
+): Promise<UploadResult> {
+  if (samples.length === 0) {
+    return { ok: false, status: 0, body: 'No samples to upload' };
+  }
+  if (!cfg.apiKey) {
+    return { ok: false, status: 0, body: 'Missing API key' };
+  }
+
+  const body = await buildLidarDataAcquisitionPayload(
+    cfg,
+    samples,
+    sampleRateHz,
+    maxRange,
+  );
+  const bucket = resolveBucket(cfg.category);
+  const meta: IngestionMetadataExtras = { ...metadataExtras };
+  if (cfg.category === 'split') meta.split_bucket = bucket;
+  const url = `${INGESTION_BASE}/${bucket}/data`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': cfg.apiKey,
+      'x-file-name': fileName,
+      'x-label': cfg.label || 'unlabeled',
+      'x-disallow-duplicates': '0',
+      'x-add-date-id': '1',
+      'x-metadata': buildIngestionMetadata(meta),
+    },
+    body: JSON.stringify(body),
+  });
   const text = await res.text();
   return { ok: res.ok, status: res.status, body: text };
 }

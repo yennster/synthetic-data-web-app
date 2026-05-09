@@ -9,11 +9,12 @@
 [![Three.js](https://img.shields.io/badge/three.js-r169-000?logo=threedotjs&logoColor=fff)](https://threejs.org)
 [![Edge Impulse](https://img.shields.io/badge/Edge%20Impulse-ingestion%20API-1a73e8)](https://www.edgeimpulse.com/)
 
-A browser-based 3D tool for generating synthetic training data for [Edge Impulse](https://www.edgeimpulse.com/) projects. Three modes in one app:
+A browser-based 3D tool for generating synthetic training data for [Edge Impulse](https://www.edgeimpulse.com/) projects. Four modes in one app:
 
 - **Motion** — pinch a virtual object with hand-tracked gestures (or use the procedural generator with no webcam) and capture realistic 6-channel IMU data (3-axis accel + 3-axis gyro, body-local).
 - **Object detection** — drop labelled objects into a 3D scene (4 environment presets, optional conveyor belt, USDZ import), point a virtual camera, capture single shots or randomized batches with auto-projected bounding boxes.
 - **Visual anomaly detection** — same capture pipeline as detection, batch-labelled (`normal` / `anomaly`).
+- **Robotics** — synthetic-rover collision detection (chassis IMU + 2D lidar/ToF ring, classified as `cruise` / `collision` / `stuck`) and an Arduino TinkerKit Braccio arm with end-effector IMU + IK-driven pick-and-place. [More →](docs/robotics.md)
 
 Run trained Edge Impulse YOLO / MobileNet / FOMO models **directly in-browser** for live inference on the virtual-camera preview.
 
@@ -59,6 +60,16 @@ Created with Claude Code.
 **Edge Impulse model inference (vision modes)**
 - Fetch a built WebAssembly deployment straight from your project, or upload `.js` + `.wasm` manually.
 - Live inference at ~5 Hz on the virtual-camera preview; bounding boxes / FOMO centroids / visual-anomaly heatmap.
+
+**Robotics mode**
+- Two synthetic robot rigs in one mode behind a kind toggle:
+  - **Rover** — differential-drive chassis with a configurable lidar / ToF ring (4–64 beams, 1–20 m range). Records combined 6-channel chassis IMU + N-channel lidar time-series labelled as `cruise` / `collision` / `stuck`. Contact detector injects a penetration-scaled impulse on impact so the accelerometer signature matches a real bumper switch.
+  - **Arm** — Arduino TinkerKit Braccio (6-DOF: M1–M6, published servo limits). Records 6-channel end-effector IMU labelled as `pick_place` / `sweep` / `wave` / `random_pose` / `draw_circle`. Pick-and-place uses analytical IK to target your scene objects; gripper open/close is animated.
+- Procedurally placed obstacle field (pillars / crates / cones) with **Reset scene** + **Randomize obstacles** controls; obstacles are draggable with the same `Shift+drag` controls as detection mode.
+- First-person POV camera (front-mounted on rover, wrist-mounted on arm) renders into the corner overlay so you can see what the robot's onboard camera would see during the trajectory.
+- URL deep links: `?mode=robotics&robot=arm` lands directly on the arm rig.
+
+[Robotics docs →](docs/robotics.md)
 
 ## Tech stack
 
