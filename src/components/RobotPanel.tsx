@@ -768,16 +768,9 @@ function ArmHomePoseCard({ disabled }: { disabled: boolean }) {
         type="button"
         onClick={() => setOpen((b) => !b)}
         aria-expanded={open}
-        className="section-toggle"
+        className="card-heading-toggle"
       >
         <span>Arm home pose</span>
-        <span
-          className="section-toggle-chevron"
-          style={{ transform: open ? 'rotate(90deg)' : 'rotate(0deg)' }}
-          aria-hidden
-        >
-          ▸
-        </span>
         {isCustom && !open && (
           <span
             style={{
@@ -785,11 +778,22 @@ function ArmHomePoseCard({ disabled }: { disabled: boolean }) {
               fontSize: 10,
               color: 'var(--accent)',
               fontWeight: 500,
+              letterSpacing: '0.08em',
             }}
           >
             custom
           </span>
         )}
+        <span
+          className="section-toggle-chevron"
+          style={{
+            transform: open ? 'rotate(90deg)' : 'rotate(0deg)',
+            marginLeft: isCustom && !open ? '0' : 'auto',
+          }}
+          aria-hidden
+        >
+          ▸
+        </span>
       </button>
       {!open ? null : (
         <>

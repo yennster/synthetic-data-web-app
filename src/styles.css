@@ -549,6 +549,51 @@ label.field, div.field {
 }
 
 /* ---------------------------------------------------------------------- *
+ * Card-heading toggle: a card-level heading that's also clickable to     *
+ * collapse / expand its body. Looks identical to a static `.card h3`     *
+ * (accent bar, uppercase, weight 700) but renders as a `<button>` so a   *
+ * keyboard / screen-reader user can toggle it via Enter/Space, and the   *
+ * chevron + optional badge sit on the trailing edge.                     *
+ * ---------------------------------------------------------------------- */
+.card-heading-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  /* Match `.card h3`. */
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--text);
+  text-transform: uppercase;
+  position: relative;
+  padding: 0 0 0 14px;
+  margin: 0;
+  line-height: 1;
+}
+.card-heading-toggle::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 13px;
+  background: var(--accent);
+  border-radius: 999px;
+}
+.card-heading-toggle:hover { background: transparent; color: var(--text); }
+.card-heading-toggle:focus-visible {
+  outline: 2px solid var(--accent-line);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+/* ---------------------------------------------------------------------- *
  * Webcam control — inline group                                           *
  *                                                                         *
  * Was a card-within-a-card. Now an inline row separated by hairlines      *
