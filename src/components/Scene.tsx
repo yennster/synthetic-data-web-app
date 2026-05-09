@@ -587,10 +587,9 @@ function PreviewCanvasMount({
  * later without re-threading.
  */
 function RoverScene() {
-  // Ref-tracked group holding rover-owned obstacles (objects added
-  // through the rover panel's Scene Obstacles card, owner='rover').
-  // Other-mode objects (vision pool + arm-owned) are filtered out
-  // so switching kinds doesn't bleed objects between scenes.
+  // Ref-tracked group holding rover-owned obstacles: manual objects
+  // added through the "Scene obstacles" card. The rover's lidar ring
+  // raycasts against this group.
   const obstaclesRef = useRef<THREE.Group>(null);
   return (
     <>

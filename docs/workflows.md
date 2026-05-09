@@ -1,6 +1,6 @@
 # Workflows
 
-Step-by-step instructions for the three modes.
+Step-by-step instructions for the four modes.
 
 ## Recording motion data (manual)
 
@@ -58,3 +58,25 @@ Alternatively, unzip the WebAssembly deployment locally and upload `edge-impulse
 3. Type a batch label (e.g. `normal` or `anomaly`).
 4. Capture frames or batches — each image gets the batch label. Bounding boxes are not attached.
 5. Save to disk and/or upload to Edge Impulse.
+
+## Capturing robotics data (Rover / Arm)
+
+1. Switch to **Robotics** mode.
+2. Choose your robot rig in the **Robot** card: **Rover** (ground vehicle) or **Arm** (Braccio arm).
+3. Set up the environment:
+   - Add obstacles or pickup targets via the **Scene obstacles** / **Pickup objects** cards.
+   - Drag objects manually with `Shift+drag` to position them.
+   - Click **Reset scene** to clear the robot's pose and home the arm.
+4. **For the Rover:**
+   - Pick an **Event** class (`cruise`, `collision`, or `stuck`). This becomes the Edge Impulse label.
+   - Select a **Modality**: **Fused (IMU+Lidar)**, **IMU only**, or **Lidar only**.
+   - (Optional) Toggle **ROS export** to include canonical ROS 2 `sensor_msgs` in your download/upload.
+5. **For the Arm:**
+   - Pick a **Trajectory** (`pick_place`, `sweep`, `wave`, `random_pose`, or `draw_circle`).
+   - For `pick_place`, click **+ Pickup target** to spawn a small object for the arm to grab.
+6. In the **Robotics generator** card, set the batch **count** and **duration** (e.g. 5 samples, 2000 ms each).
+7. Click **⚡ Generate & upload N samples** or **⚡ Generate & download N samples**.
+   - The rig performs the selected motion while recording 6-channel IMU data (and N-channel lidar for the rover) at 20 Hz.
+   - The **Robot POV** overlay shows the front-mounted (rover) or wrist-mounted (arm) camera view.
+   - For the rover, impacts with obstacles inject realistic impulses into the accelerometer trace.
+8. After uploading, click **↻ Retrain model** to start an Edge Impulse training job.

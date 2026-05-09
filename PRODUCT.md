@@ -10,7 +10,7 @@ Edge Impulse users (ML engineers, embedded / hardware developers, applied resear
 
 ## Product Purpose
 
-Generate synthetic 3D training data (accelerometer signals, object-detection frames, visual-anomaly samples) in the browser and ingest it directly into an Edge Impulse project. Success means a user can go from "I need more samples of class X under condition Y" to a labeled batch landed in their EI project without leaving the page or stitching scripts together.
+Generate synthetic 3D training data (accelerometer signals, object-detection frames, visual-anomaly samples, and robotics telemetry) in the browser and ingest it directly into an Edge Impulse project. Success means a user can go from "I need more samples of class X under condition Y" to a labeled batch landed in their EI project without leaving the page or stitching scripts together.
 
 ## Brand Personality
 

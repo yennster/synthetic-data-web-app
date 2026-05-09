@@ -4,7 +4,6 @@ import type { Group } from 'three';
 import type { NeedleThreeHydraHandle } from '@needle-tools/usd';
 import { clearAssetBlobs, deleteAssetBlob } from '../lib/assetStore';
 import type { EiModelInfo, EiResult, LoadedEiModel } from '../lib/eiModel';
-import { generateObstacles } from '../lib/rover';
 import {
   ALL_ARM_TRAJECTORIES as _ALL_ARM_TRAJECTORIES,
   type ArmTrajectory as _ArmTrajectory,
@@ -70,16 +69,6 @@ export const ALL_ROVER_UPLOAD_MODALITIES: RoverUploadModality[] = [
   'lidar',
 ];
 
-/** Procedurally-placed obstacle disc. The renderer picks a visual
- * shape (pillar / crate / cone) deterministically from `id`, so the
- * same disc list reproduces the same scene; the planner / contact
- * detector only ever look at (x, z, r). */
-export type RobotObstacle = {
-  id: string;
-  x: number;
-  z: number;
-  r: number;
-};
 
 /** Joint-space trajectory classes for the Braccio arm. Re-exported
  * from `../lib/armTrajectories` so the store stays the single source
@@ -352,11 +341,6 @@ type State = {
     /** Maximum reportable distance for the lidar — readings beyond this
      * are clamped, matching a real ToF/lidar's "no return" behavior. */
     lidarMaxRange: number;
-    /** When true, "Randomize obstacles" reruns the procedural placer
-     * before each recording iteration so the obstacle field varies
-     * across the batch. When false, the field is fixed (good for
-     * reproducible debugging). */
-    randomizeObstaclesEachRun: boolean;
     /** Which sensor modalities go into the EI payload for the rover.
      * `fused` packs IMU + lidar into one multi-channel sample (default,
      * since sensor fusion is what makes the rover dataset interesting).
@@ -417,14 +401,6 @@ type State = {
   roverEpoch: number;
   bumpRoverEpoch: () => void;
 
-  /** Live obstacle field for robotics mode. The disc descriptors here
-   * drive both the visual rendering (in `RobotObstacles`) and the
-   * lidar / planner / contact detector. Stored as ordinary state so
-   * the user can drag obstacles around and so "Randomize obstacles"
-   * just rewrites the array. */
-  robotObstacles: RobotObstacle[];
-  setRobotObstacles: (o: RobotObstacle[]) => void;
-  updateRobotObstacle: (id: string, patch: Partial<RobotObstacle>) => void;
   /** Reset the robot scene: regenerate a fresh procedurally-placed
    * obstacle field, clear pose / samples, and reset the runner state.
    * Also clears `armTargetId` so a stale target doesn't reference a
@@ -712,7 +688,6 @@ export const useStore = create<State>()(
     durationMs: 3000,
     lidarBins: 16,
     lidarMaxRange: 6,
-    randomizeObstaclesEachRun: false,
     uploadModality: 'fused',
     rosExport: false,
     armHomePose: [...BRACCIO_REST_RAD],
@@ -734,17 +709,6 @@ export const useStore = create<State>()(
   roverEpoch: 0,
   bumpRoverEpoch: () => set((s) => ({ roverEpoch: s.roverEpoch + 1 })),
 
-  robotObstacles: generateObstacles(7, 4.0, 0.6).map((o, i) => ({
-    id: `obs-${i}`,
-    ...o,
-  })),
-  setRobotObstacles: (o) => set({ robotObstacles: o }),
-  updateRobotObstacle: (id, patch) =>
-    set((s) => ({
-      robotObstacles: s.robotObstacles.map((o) =>
-        o.id === id ? { ...o, ...patch } : o,
-      ),
-    })),
   resetRobotScene: () => {
     set((state) => {
       // Drop only the current-kind's objects so the user's other-mode
@@ -991,7 +955,6 @@ export const useStore = create<State>()(
         sampleRateHz: s.sampleRateHz,
         drops: s.drops,
         robot: s.robot,
-        robotObstacles: s.robotObstacles,
         imuNoise: s.imuNoise,
         eiThreshold: s.eiThreshold,
         pendingAssets: s.assets.map<PersistedAsset>((a) => ({

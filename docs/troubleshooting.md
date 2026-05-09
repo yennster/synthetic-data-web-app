@@ -21,3 +21,9 @@
 **Model load hangs at `onRuntimeInitialized`** — use `edge-impulse-standalone.js` plus the matching `.wasm` from the WebAssembly deployment. The loader supports both MODULARIZE browser builds and newer non-MODULARIZE Emscripten outputs, but Node-only wrappers such as `run-impulse.js`, `run-classifier.js`, or `index.js` cannot run in the browser.
 
 **Model loaded but `bounding_boxes` is empty** — your model probably isn't an object-detection model. Classification heads return `classification` only; for boxes you need a YOLO/MobileNet object detector or a FOMO model. Check the line `… · obj-det` in the loaded-model summary.
+
+**Rover is spinning in circles or hitting obstacles** — the `cruise` trajectory requires a clear straight path. Try clicking **Reset scene** to get a new layout, or drag obstacles manually with `Shift+drag` to clear a path.
+
+**Braccio arm "Target unreachable"** — the analytical IK solver clamps to the physical limits of the arm. If the pickup target is too far or too close, the arm will reach as far as it can. Position your pickup targets within the arm's reach (approx. 10–40 cm from the base).
+
+**ROS 2 export files are missing** — make sure **ROS export** is toggled ON in the Sensor modality card before starting the generator. The files are bundled into the same zip as the Edge Impulse samples.
