@@ -77,9 +77,20 @@ export function RobotPanel() {
     { min: 500, max: 15000 },
   );
 
+  /** Sleep that polls the cancel flag at ~50 ms so the Stop button
+   * unwinds the runner mid-iteration instead of waiting out a full
+   * `durationMs` window. Throws `CancelledError` immediately on the
+   * next poll after the user clicks Stop. */
   const sleepCancellable = async (ms: number): Promise<void> => {
-    await new Promise<void>((r) => setTimeout(r, ms));
-    if (useStore.getState().robotCancelRequested) throw new CancelledError();
+    const deadline = performance.now() + ms;
+    while (true) {
+      if (useStore.getState().robotCancelRequested) throw new CancelledError();
+      const remaining = deadline - performance.now();
+      if (remaining <= 0) return;
+      await new Promise<void>((r) =>
+        setTimeout(r, Math.min(50, remaining)),
+      );
+    }
   };
 
   const onRunRover = async () => {
@@ -528,6 +539,7 @@ export function RobotPanel() {
               ? 'The runner picks one as the IK anchor each iteration. Drag to retarget; toggle physics to let the gripper actually push the object around.'
               : 'Add objects for the camera and lidar to see — same controls as detection mode.'
           }
+          ownerFilter="arm"
         />
       )}
 
@@ -574,6 +586,7 @@ export function RobotPanel() {
           sizeRange={{ min: 0.05, max: 1.5, step: 0.05 }}
           defaultLabel="obstacle"
           helpText="Add obstacles the rover can bump into. The lidar fan and contact detector see them all."
+          ownerFilter="rover"
         />
       )}
 

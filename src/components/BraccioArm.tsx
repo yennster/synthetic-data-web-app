@@ -306,7 +306,12 @@ function ArmController() {
     const targetId = state.armTargetId;
     let pickup = { x: 0.18, y: 0.06, z: 0.12 };
     let drop = { x: -0.18, y: 0.06, z: 0.12 };
-    const target = state.sceneObjects.find((o) => o.id === targetId);
+    // Resolve the configured target by id, but constrain to arm-owned
+    // scene objects so a rover obstacle (different owner) can't be
+    // picked up accidentally.
+    const target = state.sceneObjects.find(
+      (o) => o.id === targetId && o.owner === 'arm',
+    );
     if (target) {
       pickup = {
         x: target.position[0],

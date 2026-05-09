@@ -166,7 +166,16 @@ export type PersistedAsset = {
   animationPlaying: boolean;
 };
 
-// A spawned object in the scene, used in detection / anomaly modes.
+/** Which mode-context owns a `SceneObject`. Drives both the rendering
+ * filter (rover scene only renders rover-owned objects, arm scene only
+ * arm-owned, etc.) and the panel-side editor filter so detection-mode
+ * objects don't bleed into the robotics panels and vice-versa.
+ * Undefined / missing = the legacy "vision" pool used by detection and
+ * anomaly modes; preserves backward compat with persisted state. */
+export type SceneObjectOwner = 'rover' | 'arm';
+
+// A spawned object in the scene, used in detection / anomaly modes
+// AND in robotics mode (per-kind, gated by the `owner` field).
 export type SceneObject = {
   id: string;
   kind: ObjectKind;
@@ -181,6 +190,8 @@ export type SceneObject = {
    * rides the conveyor. When false it's a static visual at its position
    * (still draggable with Shift+drag). Defaults to true. */
   physics: boolean;
+  /** Mode-context that owns this object. See `SceneObjectOwner`. */
+  owner?: SceneObjectOwner;
 };
 
 export type EdgeImpulseConfig = {
@@ -457,13 +468,17 @@ type State = {
 
   // ---------- Scene (detection/anomaly) ----------
   sceneObjects: SceneObject[];
-  addSceneObject: (kind: ObjectKind, label?: string) => void;
+  addSceneObject: (
+    kind: ObjectKind,
+    label?: string,
+    owner?: SceneObjectOwner,
+  ) => void;
   /** Like `addSceneObject` but tuned for the Braccio arm — small
    * (~3 cm cube), placed on the table at a random arm-reachable
-   * radius. Avoids the human-scale defaults in `defaultObject`,
-   * which puts a 60 cm cube floating 1.2 m off the floor and reads
-   * absurd next to a 30 cm arm. Returns the new object's id so the
-   * caller can target it for pick-and-place. */
+   * radius. Auto-tags the object with `owner: 'arm'` so it appears
+   * only in the arm scene and the arm panel's pickup-target list.
+   * Returns the new object's id so the caller can target it for
+   * pick-and-place. */
   addArmPickupTarget: (kind?: ObjectKind, label?: string) => string;
   removeSceneObject: (id: string) => void;
   updateSceneObject: (id: string, patch: Partial<SceneObject>) => void;
@@ -711,19 +726,22 @@ export const useStore = create<State>()(
       ),
     })),
   resetRobotScene: () => {
-    const fresh = generateObstacles(7, 4.0, 0.6).map((o, i) => ({
-      id: `obs-${Date.now()}-${i}`,
-      ...o,
-    }));
-    set({
-      robotObstacles: fresh,
-      roverPose: null,
-      lidarSamples: [],
-      robotImuSamples: [],
-      armJoints: null,
-      armTargetId: null,
-      roverInContact: false,
-      robotCancelRequested: false,
+    set((state) => {
+      // Drop only the current-kind's objects so the user's other-mode
+      // setup survives a Reset (a rover scene reset shouldn't wipe
+      // arm pickup targets, and vice-versa). Vision-mode objects
+      // (no owner) are also preserved.
+      const kind = state.robot.kind;
+      return {
+        sceneObjects: state.sceneObjects.filter((o) => o.owner !== kind),
+        roverPose: null,
+        lidarSamples: [],
+        robotImuSamples: [],
+        armJoints: null,
+        armTargetId: null,
+        roverInContact: false,
+        robotCancelRequested: false,
+      };
     });
   },
 
@@ -747,10 +765,11 @@ export const useStore = create<State>()(
 
   // scene
   sceneObjects: [],
-  addSceneObject: (kind, label) =>
+  addSceneObject: (kind, label, owner) =>
     set((s) => {
       const obj = defaultObject(kind, s.sceneObjects.length);
       if (label) obj.label = label;
+      if (owner) obj.owner = owner;
       return { sceneObjects: [...s.sceneObjects, obj] };
     }),
   addArmPickupTarget: (kind = 'cube', label) => {
@@ -785,6 +804,7 @@ export const useStore = create<State>()(
       // Default to physics ON so the arm can actually knock the
       // target around — the user asked for vision-mode parity.
       physics: true,
+      owner: 'arm',
     };
     set((s) => ({ sceneObjects: [...s.sceneObjects, obj] }));
     return id;

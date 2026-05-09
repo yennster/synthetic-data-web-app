@@ -3,7 +3,12 @@ import { RigidBody, type RapierRigidBody } from '@react-three/rapier';
 import { useEffect, useRef, useState } from 'react';
 import { BELT_TRANSPORTABLES } from '../lib/beltDynamics';
 import { useDragMove } from '../lib/dragMove';
-import { useStore, type ObjectKind, type SceneObject } from '../store/useStore';
+import {
+  useStore,
+  type ObjectKind,
+  type SceneObject,
+  type SceneObjectOwner,
+} from '../store/useStore';
 
 // If a body somehow tunnels through the ground (fast Shift+drag release, CCD
 // edge cases, scale change mid-fall, etc.) it would otherwise fall forever
@@ -247,11 +252,25 @@ function SpawnedMesh({ obj }: { obj: SceneObject }) {
   );
 }
 
-export function SpawnedObjects() {
+export function SpawnedObjects({
+  ownerFilter,
+}: {
+  /** Restrict rendering to objects whose `owner` matches this value.
+   * `'vision'` matches the legacy untagged pool (objects added through
+   * the detection / anomaly panels). Omit to render every object. */
+  ownerFilter?: SceneObjectOwner | 'vision';
+} = {}) {
   const sceneObjects = useStore((s) => s.sceneObjects);
+  const filtered = ownerFilter
+    ? sceneObjects.filter((o) =>
+        ownerFilter === 'vision'
+          ? o.owner == null
+          : o.owner === ownerFilter,
+      )
+    : sceneObjects;
   return (
     <>
-      {sceneObjects.map((obj) => {
+      {filtered.map((obj) => {
         // Include scale + physics flag in the key so:
         //  - Resizing recomputes the rapier auto-collider for the new mesh.
         //  - Toggling physics swaps the entire branch (RigidBody ↔ plain mesh)

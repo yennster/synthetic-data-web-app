@@ -587,35 +587,30 @@ function PreviewCanvasMount({
  * later without re-threading.
  */
 function RoverScene() {
-  // Ref-tracked group holding all rover-scene obstacles. Currently
-  // just the user-spawned `<SpawnedObjects>` (kind/label/color/size/
-  // physics configurable via the same `<SceneObjectsCard>` detection
-  // mode uses). The lidar raycaster recurses through the subtree;
-  // the path planner reads `sceneObjects` from the store. The
-  // procedurally-placed pillar/crate/cone field was removed in a
-  // prior iteration — re-add by mounting a `<RobotObstacles>` here
-  // and combining with sceneObjects in `Rover.tsx` if it ever comes
-  // back.
+  // Ref-tracked group holding rover-owned obstacles (objects added
+  // through the rover panel's Scene Obstacles card, owner='rover').
+  // Other-mode objects (vision pool + arm-owned) are filtered out
+  // so switching kinds doesn't bleed objects between scenes.
   const obstaclesRef = useRef<THREE.Group>(null);
   return (
     <>
       <group ref={obstaclesRef}>
-        <SpawnedObjects />
+        <SpawnedObjects ownerFilter="rover" />
       </group>
       <Rover obstaclesRef={obstaclesRef} />
     </>
   );
 }
 
-/** Arm scene: the Braccio rig + the user's spawned scene objects so
- * the arm has things to pick up. SpawnedObjects already renders each
- * `sceneObject` as a draggable mesh with optional physics, so we just
- * mount it alongside the arm. */
+/** Arm scene: the Braccio rig + the user's arm-owned pickup objects.
+ * Same `ownerFilter` story — the arm scene only renders objects added
+ * through the arm panel (owner='arm'), so rover obstacles or vision-
+ * mode objects don't appear here. */
 function ArmScene() {
   return (
     <>
       <BraccioArm />
-      <SpawnedObjects />
+      <SpawnedObjects ownerFilter="arm" />
     </>
   );
 }
@@ -730,7 +725,11 @@ export function Scene({
         ) : (
           <>
             {showConveyor && <Conveyor />}
-            <SpawnedObjects />
+            {/* Detection / anomaly modes render only the legacy
+                "vision" pool (objects without an explicit owner).
+                Keeps robotics-tagged objects from leaking into the
+                vision capture frames. */}
+            <SpawnedObjects ownerFilter="vision" />
             <ImportedAssets />
           </>
         )}
