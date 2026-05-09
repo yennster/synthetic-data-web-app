@@ -34,6 +34,7 @@ export function RobotPovCamera({
 }) {
   const { gl, scene } = useThree();
   const robotKind = useStore((s) => s.robot.kind);
+  const armCameraMount = useStore((s) => s.robot.armCameraMount);
 
   const camera = useMemo(() => {
     const c = new THREE.PerspectiveCamera(FOV_DEG, 4 / 3, 0.02, 50);
@@ -71,9 +72,13 @@ export function RobotPovCamera({
     lastPreviewMs.current = now;
 
     const mountName =
-      robotKind === 'rover' ? 'rover-pov-mount' : 'arm-pov-mount';
+      robotKind === 'rover'
+        ? 'rover-pov-mount'
+        : `arm-pov-${armCameraMount}`;
     const lookName =
-      robotKind === 'rover' ? 'rover-pov-look' : 'arm-pov-look';
+      robotKind === 'rover'
+        ? 'rover-pov-look'
+        : `arm-pov-${armCameraMount}-look`;
     const mount = scene.getObjectByName(mountName);
     const look = scene.getObjectByName(lookName);
     if (!mount || !look) return;

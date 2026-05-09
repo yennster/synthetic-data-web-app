@@ -12,6 +12,7 @@ import {
   ALL_ARM_TRAJECTORIES,
   type ArmTrajectory,
 } from '../lib/armTrajectories';
+import { BRACCIO_LIMITS_RAD, BRACCIO_REST_RAD } from '../lib/braccio';
 import { saveBlob } from '../lib/capture';
 import {
   buildDataAcquisitionPayload,
@@ -567,22 +568,15 @@ export function RobotPanel() {
             {robot.armTrajectory === 'draw_circle' &&
               'End-effector traces a horizontal circle via planar IK.'}
           </div>
-          <label className="field">
-            Mount height {robot.armMountHeight.toFixed(2)} m
-            <input
-              type="range"
-              min={0}
-              max={1.0}
-              step={0.05}
-              value={robot.armMountHeight}
-              onChange={(e) =>
-                setRobot({ armMountHeight: Number(e.target.value) })
-              }
-              disabled={robotRunning}
-              title="Lift the arm onto a virtual table so the chain doesn't dip below the floor when joints bend down."
-            />
-          </label>
         </div>
+      )}
+
+      {robot.kind === 'arm' && (
+        <ArmHomePoseCard disabled={robotRunning} />
+      )}
+
+      {robot.kind === 'arm' && (
+        <ArmCameraMountCard disabled={robotRunning} />
       )}
 
       {robot.kind === 'arm' && (
@@ -777,6 +771,149 @@ export function RobotPanel() {
         )}
       </div>
     </>
+  );
+}
+
+/**
+ * Per-joint home-pose editor for the Braccio. Each slider is clamped
+ * to the matching servo's published range in `BRACCIO_LIMITS_RAD` so
+ * the user can't ask the physical arm to overextend (M2 stops at 15°
+ * and 165°, etc.). Joints 0–4 read in degrees for legibility — that's
+ * how Braccio Arduino sketches express servo angles too. The gripper
+ * (M6) is shown as a normalized 0..1 aperture since the published
+ * 10°–73° servo range maps onto a small, awkward number band that
+ * doesn't read as cleanly.
+ */
+function ArmHomePoseCard({ disabled }: { disabled: boolean }) {
+  const robot = useStore((s) => s.robot);
+  const setRobot = useStore((s) => s.setRobot);
+
+  const setJoint = (idx: number, valueRad: number) => {
+    const next = [...robot.armHomePose] as typeof robot.armHomePose;
+    next[idx] = valueRad;
+    setRobot({ armHomePose: next });
+  };
+
+  const RAD_TO_DEG = 180 / Math.PI;
+  const DEG_TO_RAD = Math.PI / 180;
+  const labels = [
+    'M1 base',
+    'M2 shoulder',
+    'M3 elbow',
+    'M4 wrist pitch',
+    'M5 wrist roll',
+  ];
+
+  return (
+    <div className="card">
+      <h3>Arm home pose</h3>
+      <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+        Servo angles the arm holds at idle and starts every trajectory
+        from. Each slider is clamped to the published Braccio limit.
+      </div>
+      {labels.map((label, i) => {
+        const [loRad, hiRad] = BRACCIO_LIMITS_RAD[i];
+        const valDeg = robot.armHomePose[i] * RAD_TO_DEG;
+        return (
+          <label key={i} className="field">
+            {label} {valDeg.toFixed(0)}°{' '}
+            <span style={{ color: 'var(--muted)', fontSize: 10 }}>
+              ({(loRad * RAD_TO_DEG).toFixed(0)}–{(hiRad * RAD_TO_DEG).toFixed(0)}°)
+            </span>
+            <input
+              type="range"
+              min={loRad * RAD_TO_DEG}
+              max={hiRad * RAD_TO_DEG}
+              step={1}
+              value={valDeg}
+              onChange={(e) =>
+                setJoint(i, Number(e.target.value) * DEG_TO_RAD)
+              }
+              disabled={disabled}
+            />
+          </label>
+        );
+      })}
+      <label className="field">
+        M6 gripper {(robot.armHomePose[5] * 100).toFixed(0)} %{' '}
+        <span style={{ color: 'var(--muted)', fontSize: 10 }}>
+          (0 = closed, 100 = open)
+        </span>
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.01}
+          value={robot.armHomePose[5]}
+          onChange={(e) => setJoint(5, Number(e.target.value))}
+          disabled={disabled}
+        />
+      </label>
+      <button
+        type="button"
+        onClick={() =>
+          setRobot({
+            armHomePose: [...BRACCIO_REST_RAD] as typeof robot.armHomePose,
+          })
+        }
+        disabled={disabled}
+        title="Reset every joint to its servo midpoint (Braccio's documented neutral pose)."
+      >
+        ↺ Reset to neutral
+      </button>
+    </div>
+  );
+}
+
+/** Camera-mount selector — picks which point on the arm the
+ * wrist-mounted POV camera is actually attached to. Each option
+ * corresponds to a `arm-pov-${name}` group + `arm-pov-${name}-look`
+ * anchor inside `BraccioArm.tsx`; the POV component does
+ * `scene.getObjectByName` on those each frame. */
+function ArmCameraMountCard({ disabled }: { disabled: boolean }) {
+  const mount = useStore((s) => s.robot.armCameraMount);
+  const setRobot = useStore((s) => s.setRobot);
+  const OPTIONS: {
+    value: typeof mount;
+    label: string;
+    hint: string;
+  }[] = [
+    { value: 'base', label: 'Base', hint: 'Top of the base column, looking up the arm.' },
+    { value: 'shoulder', label: 'Shoulder', hint: 'Eye on the shoulder joint, looking forward.' },
+    { value: 'elbow', label: 'Elbow', hint: 'Eye on the elbow joint, looking down the forearm.' },
+    { value: 'wrist', label: 'Wrist', hint: 'Wrist roll, looking past the gripper carrier.' },
+    { value: 'gripper', label: 'Gripper', hint: 'Between the fingers, looking at the grasp point.' },
+  ];
+  return (
+    <div className="card">
+      <h3>POV camera mount</h3>
+      <div
+        className="motion-pills trajectory-pills"
+        role="radiogroup"
+        aria-label="Arm camera mount"
+      >
+        {OPTIONS.map((o) => (
+          <label
+            key={o.value}
+            className={`motion-pill ${mount === o.value ? 'on' : ''}`}
+            title={o.hint}
+          >
+            <input
+              type="radio"
+              name="arm-camera-mount"
+              value={o.value}
+              checked={mount === o.value}
+              disabled={disabled}
+              onChange={() => setRobot({ armCameraMount: o.value })}
+            />
+            {o.label}
+          </label>
+        ))}
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+        {OPTIONS.find((o) => o.value === mount)?.hint}
+      </div>
+    </div>
   );
 }
 

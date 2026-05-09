@@ -45,7 +45,11 @@ const G_WORLD: [number, number, number] = [0, -9.81, 0];
 
 export function BraccioArm() {
   const joints = useStore((s) => s.armJoints);
-  const mountHeight = useStore((s) => s.robot.armMountHeight);
+  // When no trajectory is driving the arm, the rig holds the user's
+  // configured home pose. Trajectories pull the same value as their
+  // rest reference so e.g. `pick_place` returns to the user's home,
+  // not the spec-default all-90° pose.
+  const homePose = useStore((s) => s.robot.armHomePose);
 
   const baseRef = useRef<THREE.Group>(null);
   const shoulderRef = useRef<THREE.Group>(null);
@@ -59,7 +63,7 @@ export function BraccioArm() {
   }>({ left: null, right: null });
 
   useFrame(() => {
-    const j = joints ?? BRACCIO_REST_RAD;
+    const j = joints ?? homePose;
     if (baseRef.current) baseRef.current.rotation.y = j[0];
     if (shoulderRef.current) shoulderRef.current.rotation.x = j[1];
     if (elbowRef.current) elbowRef.current.rotation.x = j[2];
@@ -75,31 +79,12 @@ export function BraccioArm() {
 
   return (
     <>
-      {/* Lift the entire rig by `armMountHeight` so the chain doesn't
-          intersect the floor when joints bend below horizontal. The
-          shared `arm-pov-mount` / `arm-pov-look` named groups inside
-          inherit this offset automatically, so the wrist-mounted POV
-          camera stays correctly attached. */}
-      <group position={[0, mountHeight, 0]}>
-        {/* Cosmetic table — a thin disc rendered just below the arm
-            mount so the rig looks like it's sitting on something
-            rather than floating. Thin enough not to occlude objects
-            placed on top of it. */}
-        {mountHeight > 0.001 && (
-          <mesh
-            position={[0, -L.plateThickness / 2 - 0.001, 0]}
-            receiveShadow
-          >
-            <cylinderGeometry
-              args={[L.plateRadius * 4, L.plateRadius * 4, 0.01, 48]}
-            />
-            <meshStandardMaterial
-              color="#15171a"
-              roughness={0.85}
-              metalness={0.05}
-            />
-          </mesh>
-        )}
+      {/* Arm mounts on the floor; the user controls reach via the
+          home-pose sliders rather than a height offset. Floor
+          intersection is avoided by picking joint angles the user
+          actually wants — the published Braccio rest pose works
+          for most configurations. */}
+      <group position={[0, 0, 0]}>
         <mesh position={[0, L.plateThickness / 2, 0]} receiveShadow>
           <cylinderGeometry
             args={[L.plateRadius, L.plateRadius, L.plateThickness, 32]}
@@ -121,7 +106,22 @@ export function BraccioArm() {
             />
           </mesh>
 
+          {/* Camera-mount anchor #1: base. Sits on top of the base
+               column with the look anchor centered up the arm. */}
+          <group name="arm-pov-base" position={[0, L.base + 0.02, 0]}>
+            <group name="arm-pov-base-look" position={[0, 0.4, 0]} />
+          </group>
+
           <group position={[0, L.base, 0]} ref={shoulderRef}>
+            {/* Camera-mount anchor #2: shoulder. Eye on the shoulder
+                 joint pointing up the upper-arm link. */}
+            <group name="arm-pov-shoulder" position={[0.04, 0.04, 0.04]}>
+              <group
+                name="arm-pov-shoulder-look"
+                position={[0, L.shoulder, 0]}
+              />
+            </group>
+
             <mesh position={[0, L.shoulder / 2, 0]} castShadow>
               <boxGeometry args={[0.06, L.shoulder, 0.06]} />
               <meshStandardMaterial
@@ -132,6 +132,15 @@ export function BraccioArm() {
             </mesh>
 
             <group position={[0, L.shoulder, 0]} ref={elbowRef}>
+              {/* Camera-mount anchor #3: elbow. Eye on the elbow
+                   joint looking down the forearm toward the wrist. */}
+              <group name="arm-pov-elbow" position={[0.03, 0.03, 0.03]}>
+                <group
+                  name="arm-pov-elbow-look"
+                  position={[0, L.elbow, 0]}
+                />
+              </group>
+
               <mesh position={[0, L.elbow / 2, 0]} castShadow>
                 <boxGeometry args={[0.05, L.elbow, 0.05]} />
                 <meshStandardMaterial
@@ -162,19 +171,22 @@ export function BraccioArm() {
                   </mesh>
 
                   {/* End-effector group — anchor for the IMU sampler
-                       AND the wrist-mounted POV camera. The POV
-                       camera reads this group's world matrix each
-                       frame via `scene.getObjectByName('arm-pov-mount')`,
-                       so it stays correctly attached regardless of
-                       how the joint vector changes — much more robust
-                       than recomputing forward kinematics in the POV
-                       component (which suffered from sign errors that
-                       put the camera inside the base column). */}
+                       AND the per-mount POV camera anchors. The POV
+                       camera reads `arm-pov-${mount}` each frame
+                       (where mount ∈ {base, shoulder, elbow, wrist,
+                       gripper}), so the user can pick any of those
+                       five mount points from the panel. */}
                   <group
                     position={[0, L.wristRoll, 0]}
                     ref={endEffectorRef}
-                    name="arm-pov-mount"
                   >
+                    {/* Camera-mount anchor #4: wrist. */}
+                    <group name="arm-pov-wrist" position={[0, 0, 0]}>
+                      <group
+                        name="arm-pov-wrist-look"
+                        position={[0, L.fingerLength + 0.04, 0]}
+                      />
+                    </group>
                     <mesh position={[0, 0.01, 0]} castShadow>
                       <boxGeometry args={[L.gripperWidth + 0.04, 0.02, 0.04]} />
                       <meshStandardMaterial
@@ -235,16 +247,19 @@ export function BraccioArm() {
                         metalness={0.2}
                       />
                     </mesh>
-                    {/* Look-at anchor 8 cm "below" the gripper in
-                         the carrier's local frame (which is along the
-                         +Y axis the fingers extend on). The POV
-                         camera reads this group's world position so
-                         its lookAt always tracks where the gripper
-                         is pointing, regardless of joint pose. */}
+                    {/* Camera-mount anchor #5: gripper — between
+                         the two fingers, looking at the actual grasp
+                         point. This is the natural "eye-in-hand"
+                         pose for pick-and-place. */}
                     <group
-                      name="arm-pov-look"
-                      position={[0, L.fingerLength + 0.04, 0]}
-                    />
+                      name="arm-pov-gripper"
+                      position={[0, L.fingerLength + 0.01, 0]}
+                    >
+                      <group
+                        name="arm-pov-gripper-look"
+                        position={[0, 0.1, 0]}
+                      />
+                    </group>
                   </group>
                 </group>
               </group>
@@ -285,15 +300,9 @@ function ArmController() {
     // Pull the chosen scene object as the pickup target. Drop point is
     // a small lateral offset from the pickup so the place arc clears
     // the source. Falls back to a stock pickup/drop pair when no scene
-    // objects exist.
-    //
-    // The arm's IK is solved in the rig-local frame (origin at the
-    // mounting plate). Scene objects live in world coordinates, so we
-    // subtract the mount height before passing the target into the
-    // IK builder — otherwise the solver thinks the cube is way above
-    // the arm and the wrist droops.
+    // objects exist. Targets are in world coordinates and the arm
+    // sits at world origin, so no mount-frame conversion is needed.
     const state = useStore.getState();
-    const mountY = state.robot.armMountHeight;
     const targetId = state.armTargetId;
     let pickup = { x: 0.18, y: 0.06, z: 0.12 };
     let drop = { x: -0.18, y: 0.06, z: 0.12 };
@@ -301,12 +310,12 @@ function ArmController() {
     if (target) {
       pickup = {
         x: target.position[0],
-        y: Math.max(0.04, target.position[1] - mountY),
+        y: Math.max(0.04, target.position[1]),
         z: target.position[2],
       };
       drop = {
         x: -target.position[0],
-        y: Math.max(0.04, target.position[1] - mountY),
+        y: Math.max(0.04, target.position[1]),
         z: target.position[2],
       };
     }
@@ -314,6 +323,7 @@ function ArmController() {
       pickup,
       drop,
       rng: Math.random,
+      home: state.robot.armHomePose,
     });
     startMs.current = performance.now();
     setArmJoints(pathRef.current.sample(0));

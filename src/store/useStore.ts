@@ -359,14 +359,22 @@ type State = {
      * Useful for ROS users who want to replay the synthetic data
      * through `ros2 bag play` or feed it to a real navigation stack. */
     rosExport: boolean;
-    /** Vertical offset applied to the arm's root group, in meters.
-     * The Braccio is rendered as a chain whose bottom is the
-     * mounting plate; with `armMountHeight = 0` the plate sits on
-     * the floor and joint poses can dip below y=0 (intersecting the
-     * grid). A non-zero value lifts the arm onto a virtual table —
-     * 0.4 m is a typical lab-bench height. The pickup-target spawner
-     * uses the same offset so targets land on the same surface. */
-    armMountHeight: number;
+    /** Six-component home pose for the Braccio (M1..M6 in the same
+     * units as `BRACCIO_REST_RAD`: joints 0..4 are servo radians,
+     * joint 5 is normalized aperture in [0, 1]). The rig renders
+     * this when no trajectory is driving the arm; trajectories
+     * pull it as their "rest" reference so e.g. `pick_place` returns
+     * to the user's chosen home rather than the spec-default
+     * all-90° pose. Sliders in the arm panel clamp each value to
+     * the published `BRACCIO_LIMITS_RAD` so the user can't ask the
+     * physical arm to overextend. */
+    armHomePose: [number, number, number, number, number, number];
+    /** Which point on the arm the wrist-mounted POV camera is
+     * actually attached to. The component reads
+     * `arm-pov-${armCameraMount}` and `arm-pov-${armCameraMount}-look`
+     * scene-graph anchors each frame, so adding a new mount just
+     * means adding a pair of named groups in `BraccioArm.tsx`. */
+    armCameraMount: 'base' | 'shoulder' | 'elbow' | 'wrist' | 'gripper';
   };
   setRobot: (patch: Partial<State['robot']>) => void;
   /** True while a procedural robot run is active. */
@@ -662,7 +670,18 @@ export const useStore = create<State>()(
     randomizeObstaclesEachRun: false,
     uploadModality: 'fused',
     rosExport: false,
-    armMountHeight: 0.4,
+    armHomePose: [
+      // BRACCIO_REST_RAD verbatim — copying the values here instead of
+      // importing avoids a circular dep with `lib/braccio.ts`. Kept in
+      // sync by `braccio.test.ts`.
+      Math.PI / 2,
+      Math.PI / 2,
+      Math.PI / 2,
+      Math.PI / 2,
+      Math.PI / 2,
+      0.5,
+    ],
+    armCameraMount: 'wrist',
   },
   setRobot: (patch) => set((s) => ({ robot: { ...s.robot, ...patch } })),
   robotRunning: false,
@@ -735,15 +754,13 @@ export const useStore = create<State>()(
       return { sceneObjects: [...s.sceneObjects, obj] };
     }),
   addArmPickupTarget: (kind = 'cube', label) => {
-    // Place targets on a 12 cm radial ring around the arm base, on
-    // whatever virtual table the arm is mounted on, so they're inside
-    // the Braccio's reachable workspace (the IK clamps to a ~25 cm
-    // reach). Targets get their own counter-based angle so successive
-    // spawns don't overlap.
+    // Place targets on a 12 cm radial ring around the arm base on
+    // the floor, so they're inside the Braccio's reachable workspace
+    // (the IK clamps to a ~25 cm reach). Targets get their own
+    // counter-based angle so successive spawns don't overlap.
     const state = useStore.getState();
     const id = crypto.randomUUID();
     const idx = state.sceneObjects.length;
-    const mountY = state.robot.armMountHeight;
     // Cube is 3 cm by default — a credible "EI sticker block" the
     // published Braccio demos use. Scale field on SceneObject scales
     // the default 0.6 m cube, so 3 cm = scale 0.05.
@@ -755,10 +772,9 @@ export const useStore = create<State>()(
       label: label ?? 'pickup',
       position: [
         Math.sin(angle) * radius,
-        // Place the cube so its bottom rests on the table top
-        // (mount height + plate thickness ≈ mountY + 0.015) — half
-        // a 3 cm cube above that puts its center at mountY + 0.03.
-        mountY + 0.03,
+        // Half a 3 cm cube above the floor so its bottom rests on
+        // y=0 (same convention as the existing detection scene).
+        0.015,
         Math.cos(angle) * radius,
       ],
       rotation: [0, Math.random() * Math.PI * 2, 0],
@@ -767,8 +783,7 @@ export const useStore = create<State>()(
       metalness: 0.2,
       roughness: 0.4,
       // Default to physics ON so the arm can actually knock the
-      // target around — the user asked for vision-mode parity, and
-      // the static-only behavior was an arm-specific limitation.
+      // target around — the user asked for vision-mode parity.
       physics: true,
     };
     set((s) => ({ sceneObjects: [...s.sceneObjects, obj] }));
@@ -886,7 +901,7 @@ export const useStore = create<State>()(
     }),
     {
       name: 'sds-store',
-      version: 2,
+      version: 3,
       storage: createJSONStorage(() => localStorage),
       // Persist only the bits worth restoring: scene primitives, scene
       // settings, capture config, mode, and asset *metadata* (the live
