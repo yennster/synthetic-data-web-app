@@ -588,10 +588,20 @@ function PreviewCanvasMount({
  * later without re-threading.
  */
 function RoverScene() {
+  // Single ref-tracked group holds BOTH the procedurally placed
+  // obstacle field (`<RobotObstacles>` — pillars/crates/cones) AND
+  // any vision-mode scene objects the user spawned via the
+  // `<SceneObjectsCard>` in the rover panel. The lidar raycaster
+  // recurses through the whole subtree, so both kinds of obstacle
+  // get scanned uniformly. The path planner reads from the same
+  // two sources to build the disc list it plans against.
   const obstaclesRef = useRef<THREE.Group>(null);
   return (
     <>
-      <RobotObstacles ref={obstaclesRef} />
+      <group ref={obstaclesRef}>
+        <RobotObstacles />
+        <SpawnedObjects />
+      </group>
       <Rover obstaclesRef={obstaclesRef} />
     </>
   );

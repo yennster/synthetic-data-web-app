@@ -1,5 +1,3 @@
-import { forwardRef } from 'react';
-import * as THREE from 'three';
 import { useDragMove } from '../lib/dragMove';
 import { useStore, type RobotObstacle } from '../store/useStore';
 
@@ -32,19 +30,16 @@ function shapeForId(id: string): ObstacleShape {
   return (['pillar', 'crate', 'cone'] as const)[v];
 }
 
-export const RobotObstacles = forwardRef<THREE.Group>(function RobotObstacles(
-  _,
-  ref,
-) {
+export function RobotObstacles() {
   const obstacles = useStore((s) => s.robotObstacles);
   return (
-    <group ref={ref}>
+    <>
       {obstacles.map((o) => (
         <DraggableObstacle key={o.id} obstacle={o} />
       ))}
-    </group>
+    </>
   );
-});
+}
 
 function DraggableObstacle({ obstacle }: { obstacle: RobotObstacle }) {
   const updateRobotObstacle = useStore((s) => s.updateRobotObstacle);
