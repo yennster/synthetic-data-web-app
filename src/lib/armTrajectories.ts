@@ -73,8 +73,9 @@ export type ArmParametricPath = {
 export function buildPickPlace(
   pickup: { x: number; y: number; z: number },
   drop: { x: number; y: number; z: number },
+  home: BraccioJointVector = [...BRACCIO_REST_RAD],
 ): ArmParametricPath {
-  const rest: BraccioJointVector = [...BRACCIO_REST_RAD];
+  const rest: BraccioJointVector = [...home];
   // "Above" hovers 6 cm above the target so the arm doesn't crash
   // through whatever it's grasping.
   const above = solveBraccioIk(
@@ -234,13 +235,18 @@ export function buildArmTrajectory(
     pickup?: { x: number; y: number; z: number };
     drop?: { x: number; y: number; z: number };
     rng?: () => number;
+    /** Optional home / rest pose. Currently consumed by `pick_place`
+     * (rest keyframes use this) — other trajectories ignore it
+     * because they're either fully oscillatory (sweep, wave) or
+     * sample fresh poses (random_pose, draw_circle). */
+    home?: BraccioJointVector;
   },
 ): ArmParametricPath {
   switch (trajectory) {
     case 'pick_place': {
       const pickup = opts?.pickup ?? { x: 0.18, y: 0.05, z: 0.12 };
       const drop = opts?.drop ?? { x: -0.18, y: 0.05, z: 0.12 };
-      return buildPickPlace(pickup, drop);
+      return buildPickPlace(pickup, drop, opts?.home);
     }
     case 'sweep':
       return buildSweep();
