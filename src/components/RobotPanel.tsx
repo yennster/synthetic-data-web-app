@@ -1,10 +1,12 @@
 import {
   ALL_ROVER_EVENTS,
+  ALL_ROVER_UPLOAD_MODALITIES,
   useStore,
   type AccelSample,
   type LidarSample,
   type RobotKind,
   type RoverEvent,
+  type RoverUploadModality,
 } from '../store/useStore';
 import {
   ALL_ARM_TRAJECTORIES,
@@ -14,11 +16,14 @@ import { saveBlob } from '../lib/capture';
 import {
   buildDataAcquisitionPayload,
   buildFileName,
+  buildLidarDataAcquisitionPayload,
   buildRoverDataAcquisitionPayload,
+  uploadLidarSample,
   uploadRoverSample,
   uploadSample,
 } from '../lib/edgeImpulse';
 import { generateObstacles } from '../lib/rover';
+import { buildRoverRosJsonl } from '../lib/rosMessages';
 import { useNumberInput } from '../lib/useNumberInput';
 import { buildZip, type ZipEntry } from '../lib/zip';
 import { EiAuthCard } from './EiAuthCard';
@@ -118,11 +123,24 @@ export function RobotPanel() {
           .robotImuSamples.slice();
         clearLidarSamples();
         clearRobotImuSamples();
-        if (imu.length === 0) {
+        if (imu.length === 0 && lidar.length === 0) {
           failed += 1;
           continue;
         }
-        const fileName = buildFileName(`${event}_${i + 1}`);
+        const modality: RoverUploadModality = robot.uploadModality;
+        // For modality === 'imu', we still want enough IMU rows to be
+        // a usable sample; same for 'lidar'. The fused builder pairs
+        // them by index and trims to the shorter array, but the
+        // single-modality builders reject when their array is empty.
+        if (modality === 'imu' && imu.length === 0) {
+          failed += 1;
+          continue;
+        }
+        if (modality === 'lidar' && lidar.length === 0) {
+          failed += 1;
+          continue;
+        }
+        const fileName = buildFileName(`${event}_${modality}_${i + 1}`);
         const sampleRateHz = 20;
         const meta = {
           mode: 'robot',
@@ -130,39 +148,92 @@ export function RobotPanel() {
           event,
           event_index: i + 1,
           event_total: robot.count,
+          modality,
           lidar_bins: robot.lidarBins,
           lidar_max_range_m: robot.lidarMaxRange,
           duration_ms: robot.durationMs,
         };
         if (shouldUpload) {
           try {
-            const res = await uploadRoverSample(
-              { ...runEi, label: event },
-              imu,
-              lidar,
-              sampleRateHz,
-              robot.lidarMaxRange,
-              fileName,
-              meta,
-            );
+            let res;
+            if (modality === 'fused') {
+              res = await uploadRoverSample(
+                { ...runEi, label: event },
+                imu,
+                lidar,
+                sampleRateHz,
+                robot.lidarMaxRange,
+                fileName,
+                meta,
+              );
+            } else if (modality === 'imu') {
+              res = await uploadSample(
+                { ...runEi, label: event },
+                imu,
+                sampleRateHz,
+                fileName,
+                meta,
+              );
+            } else {
+              res = await uploadLidarSample(
+                { ...runEi, label: event },
+                lidar,
+                sampleRateHz,
+                robot.lidarMaxRange,
+                fileName,
+                meta,
+              );
+            }
             if (res.ok) uploaded += 1;
             else failed += 1;
           } catch {
             failed += 1;
           }
         } else {
-          const body = await buildRoverDataAcquisitionPayload(
-            runEi,
-            imu,
-            lidar,
-            sampleRateHz,
-            robot.lidarMaxRange,
-          );
+          let body: unknown;
+          if (modality === 'fused') {
+            body = await buildRoverDataAcquisitionPayload(
+              runEi,
+              imu,
+              lidar,
+              sampleRateHz,
+              robot.lidarMaxRange,
+            );
+          } else if (modality === 'imu') {
+            body = await buildDataAcquisitionPayload(runEi, imu, sampleRateHz);
+          } else {
+            body = await buildLidarDataAcquisitionPayload(
+              runEi,
+              lidar,
+              sampleRateHz,
+              robot.lidarMaxRange,
+            );
+          }
           zipEntries.push({
             name: fileName,
             data: JSON.stringify(body, null, 2),
           });
           captured += 1;
+        }
+        if (robot.rosExport) {
+          // Each iteration becomes one rosbag.jsonl. The runner
+          // doesn't have direct access to the per-frame pose
+          // history, so odometry is omitted; downstream consumers
+          // can dead-reckon from the IMU. (Adding a pose log
+          // would mean a new sample stream — left for a follow-up.)
+          const jsonl = buildRoverRosJsonl({
+            imu,
+            lidar,
+            lidarMaxRange: robot.lidarMaxRange,
+          });
+          const rosName = fileName.replace(/\.json$/, '.rosbag.jsonl');
+          if (shouldUpload) {
+            // No ROS endpoint to upload to — write the JSONL into
+            // a parallel zip alongside the EI uploads.
+            zipEntries.push({ name: rosName, data: jsonl });
+          } else {
+            zipEntries.push({ name: rosName, data: jsonl });
+          }
         }
         setStatus(
           'busy',
@@ -173,12 +244,24 @@ export function RobotPanel() {
       }
       const headline = cancelled ? 'Rover run stopped' : 'Rover run complete';
       if (shouldUpload) {
+        // ROS export still needs to land somewhere even when EI
+        // uploads succeed — there's no ROS ingestion endpoint, so
+        // we always zip the JSONL files locally if rosExport is on.
+        if (zipEntries.length > 0) {
+          const zipName = buildFileName(
+            `rover_${event}_rosbag`,
+          ).replace(/\.json$/, '.zip');
+          const zip = await buildZip(zipEntries);
+          await saveBlob(zipName, zip);
+        }
         setStatus(
           cancelled || failed > 0 ? 'err' : 'ok',
-          `${headline}: ${uploaded} uploaded${failed ? ` · ${failed} failed` : ''}`,
+          `${headline}: ${uploaded} uploaded${failed ? ` · ${failed} failed` : ''}${
+            zipEntries.length > 0 ? ` · ROS bundle saved` : ''
+          }`,
         );
       } else if (zipEntries.length > 0) {
-        setStatus('busy', `Packaging ${zipEntries.length} samples…`);
+        setStatus('busy', `Packaging ${zipEntries.length} files…`);
         const zipName = buildFileName(
           `rover_${event}_${zipEntries.length}`,
         ).replace(/\.json$/, '.zip');
@@ -186,7 +269,7 @@ export function RobotPanel() {
         await saveBlob(zipName, zip);
         setStatus(
           cancelled || failed > 0 ? 'err' : 'ok',
-          `${headline}: downloaded ${zipEntries.length} samples${failed ? ` · ${failed} failed` : ''}`,
+          `${headline}: downloaded ${zipEntries.length} files${failed ? ` · ${failed} failed` : ''}`,
         );
       } else {
         setStatus('err', `${headline}: no samples captured`);
@@ -420,20 +503,48 @@ export function RobotPanel() {
             {robot.roverEvent === 'stuck' &&
               'Pin a wheel against an obstacle; vibrate without translation.'}
           </div>
-          <label
-            className="field"
-            style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
-          >
-            <input
-              type="checkbox"
-              checked={robot.randomizeObstaclesEachRun}
-              onChange={(e) =>
-                setRobot({ randomizeObstaclesEachRun: e.target.checked })
+          <div className="webcam-control">
+            <div className="webcam-control-copy">
+              <div className="webcam-control-heading">
+                <span className="webcam-control-title">
+                  Randomize each iteration
+                </span>
+                <span
+                  className={`webcam-control-state ${
+                    robot.randomizeObstaclesEachRun ? 'on' : 'off'
+                  }`}
+                >
+                  {robot.randomizeObstaclesEachRun ? 'On' : 'Off'}
+                </span>
+              </div>
+              <div className="webcam-control-help">
+                {robot.randomizeObstaclesEachRun
+                  ? 'Re-roll obstacle positions before every recorded sample.'
+                  : 'Keep the obstacle field fixed across the batch.'}
+              </div>
+            </div>
+            <button
+              type="button"
+              className={`webcam-switch ${
+                robot.randomizeObstaclesEachRun ? 'on' : ''
+              }`}
+              role="switch"
+              aria-checked={robot.randomizeObstaclesEachRun}
+              aria-label={
+                robot.randomizeObstaclesEachRun
+                  ? 'Turn off per-iteration obstacle randomization'
+                  : 'Turn on per-iteration obstacle randomization'
+              }
+              onClick={() =>
+                setRobot({
+                  randomizeObstaclesEachRun: !robot.randomizeObstaclesEachRun,
+                })
               }
               disabled={robotRunning}
-            />
-            Randomize obstacles each iteration
-          </label>
+            >
+              <span className="webcam-switch-thumb" />
+            </button>
+          </div>
         </div>
       ) : (
         <div className="card">
@@ -456,20 +567,7 @@ export function RobotPanel() {
               'End-effector traces a horizontal circle via planar IK.'}
           </div>
           {robot.armTrajectory === 'pick_place' && (
-            <div className="row">
-              <button
-                type="button"
-                onClick={() => addSceneObject('cube')}
-                disabled={robotRunning}
-                title="Add a cube the arm can target as a pickup."
-              >
-                + Pickup target
-              </button>
-              <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-                {sceneObjects.length} object
-                {sceneObjects.length === 1 ? '' : 's'} in scene
-              </span>
-            </div>
+            <ArmPickupTargets disabled={robotRunning} />
           )}
         </div>
       )}
@@ -512,35 +610,106 @@ export function RobotPanel() {
       </div>
 
       {robot.kind === 'rover' && (
-        <div className="card">
-          <h3>Lidar / ToF ring</h3>
-          <label className="field">
-            Beams {robot.lidarBins}
-            <input
-              type="range"
-              min={4}
-              max={64}
-              step={1}
-              value={robot.lidarBins}
-              onChange={(e) => setRobot({ lidarBins: Number(e.target.value) })}
-              disabled={robotRunning}
-            />
-          </label>
-          <label className="field">
-            Max range {robot.lidarMaxRange.toFixed(1)} m
-            <input
-              type="range"
-              min={1}
-              max={20}
-              step={0.5}
-              value={robot.lidarMaxRange}
-              onChange={(e) =>
-                setRobot({ lidarMaxRange: Number(e.target.value) })
-              }
-              disabled={robotRunning}
-            />
-          </label>
-        </div>
+        <>
+          <div className="card">
+            <h3>Lidar / ToF ring</h3>
+            <label className="field">
+              Beams {robot.lidarBins}
+              <input
+                type="range"
+                min={4}
+                max={64}
+                step={1}
+                value={robot.lidarBins}
+                onChange={(e) => setRobot({ lidarBins: Number(e.target.value) })}
+                disabled={robotRunning}
+              />
+            </label>
+            <label className="field">
+              Max range {robot.lidarMaxRange.toFixed(1)} m
+              <input
+                type="range"
+                min={1}
+                max={20}
+                step={0.5}
+                value={robot.lidarMaxRange}
+                onChange={(e) =>
+                  setRobot({ lidarMaxRange: Number(e.target.value) })
+                }
+                disabled={robotRunning}
+              />
+            </label>
+          </div>
+          <div className="card">
+            <h3>Sensor modality</h3>
+            <div
+              className="motion-pills trajectory-pills"
+              role="radiogroup"
+              aria-label="Upload modality"
+            >
+              {ALL_ROVER_UPLOAD_MODALITIES.map((m) => (
+                <label
+                  key={m}
+                  className={`motion-pill ${robot.uploadModality === m ? 'on' : ''}`}
+                >
+                  <input
+                    type="radio"
+                    name="rover-modality"
+                    value={m}
+                    checked={robot.uploadModality === m}
+                    disabled={robotRunning}
+                    onChange={() => setRobot({ uploadModality: m })}
+                  />
+                  {m === 'fused'
+                    ? 'Fused (IMU+lidar)'
+                    : m === 'imu'
+                      ? 'IMU only'
+                      : 'Lidar only'}
+                </label>
+              ))}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+              {robot.uploadModality === 'fused' &&
+                'One sample, 6 IMU + N lidar channels. Best for sensor-fusion classifiers.'}
+              {robot.uploadModality === 'imu' &&
+                'Chassis IMU only. Useful for collision detection without lidar.'}
+              {robot.uploadModality === 'lidar' &&
+                'Lidar only. Useful for environment-classification models.'}
+            </div>
+            <div className="webcam-control">
+              <div className="webcam-control-copy">
+                <div className="webcam-control-heading">
+                  <span className="webcam-control-title">ROS export</span>
+                  <span
+                    className={`webcam-control-state ${
+                      robot.rosExport ? 'on' : 'off'
+                    }`}
+                  >
+                    {robot.rosExport ? 'On' : 'Off'}
+                  </span>
+                </div>
+                <div className="webcam-control-help">
+                  Also write each window as ROS 2 sensor-message JSONL
+                  (sensor_msgs/Imu + LaserScan). Bundles into the
+                  download zip alongside the EI payload.
+                </div>
+              </div>
+              <button
+                type="button"
+                className={`webcam-switch ${robot.rosExport ? 'on' : ''}`}
+                role="switch"
+                aria-checked={robot.rosExport}
+                aria-label={
+                  robot.rosExport ? 'Turn ROS export off' : 'Turn ROS export on'
+                }
+                onClick={() => setRobot({ rosExport: !robot.rosExport })}
+                disabled={robotRunning}
+              >
+                <span className="webcam-switch-thumb" />
+              </button>
+            </div>
+          </div>
+        </>
       )}
 
       <EiAuthCard showHmac />
@@ -579,6 +748,146 @@ export function RobotPanel() {
         )}
       </div>
     </>
+  );
+}
+
+/**
+ * Pickup-target editor for the arm's `pick_place` trajectory. Each
+ * target is a small (~3 cm) configurable cube placed inside the arm's
+ * reachable workspace. The runner randomly picks one of them per
+ * iteration as the IK anchor; users can also drag targets around in
+ * the 3D scene with the same Shift+drag controls used elsewhere, so
+ * collected samples cover every spawn pose the user wants.
+ *
+ * Avoids `addSceneObject` directly because that helper's defaults
+ * (60 cm cube floating 1.2 m up) are sized for human-scale modes —
+ * dropping that onto a 30 cm Braccio looks absurd, which was the
+ * previous behavior the user (correctly) called out.
+ */
+function ArmPickupTargets({ disabled }: { disabled: boolean }) {
+  const sceneObjects = useStore((s) => s.sceneObjects);
+  const addArmPickupTarget = useStore((s) => s.addArmPickupTarget);
+  const removeSceneObject = useStore((s) => s.removeSceneObject);
+  const updateSceneObject = useStore((s) => s.updateSceneObject);
+  const clearSceneObjects = useStore((s) => s.clearSceneObjects);
+
+  const targets = sceneObjects;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div className="row">
+        <button
+          type="button"
+          onClick={() => addArmPickupTarget('cube')}
+          disabled={disabled}
+          title="Spawn a 3 cm cube on the floor inside the arm's workspace."
+        >
+          + Add target
+        </button>
+        <button
+          type="button"
+          onClick={() => clearSceneObjects()}
+          disabled={disabled || targets.length === 0}
+          title="Remove every pickup target."
+        >
+          Clear
+        </button>
+        <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+          {targets.length} target{targets.length === 1 ? '' : 's'}
+        </span>
+      </div>
+      {targets.length > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+            maxHeight: 200,
+            overflowY: 'auto',
+            paddingRight: 2,
+          }}
+        >
+          {targets.map((t, i) => (
+            <PickupTargetRow
+              key={t.id}
+              index={i}
+              obj={t}
+              disabled={disabled}
+              onUpdate={(patch) => updateSceneObject(t.id, patch)}
+              onRemove={() => removeSceneObject(t.id)}
+            />
+          ))}
+        </div>
+      )}
+      <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+        Each iteration the runner picks a random target as the IK
+        anchor; drag a target in the 3D view to retarget it. Targets
+        are 3 cm by default — keep them inside the arm's ~25 cm reach.
+      </div>
+    </div>
+  );
+}
+
+function PickupTargetRow({
+  index,
+  obj,
+  disabled,
+  onUpdate,
+  onRemove,
+}: {
+  index: number;
+  obj: import('../store/useStore').SceneObject;
+  disabled: boolean;
+  onUpdate: (patch: Partial<import('../store/useStore').SceneObject>) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '20px 1fr auto auto auto',
+        gap: 6,
+        alignItems: 'center',
+        fontSize: 11,
+      }}
+    >
+      <span style={{ color: 'var(--muted)' }}>#{index + 1}</span>
+      <input
+        type="text"
+        value={obj.label}
+        onChange={(e) => onUpdate({ label: e.target.value })}
+        disabled={disabled}
+        title="Per-target label"
+        style={{ minWidth: 0 }}
+      />
+      <input
+        type="color"
+        value={obj.color}
+        onChange={(e) => onUpdate({ color: e.target.value })}
+        disabled={disabled}
+        title="Color"
+        style={{ width: 28, height: 22, padding: 0, border: 0 }}
+      />
+      <input
+        type="range"
+        min={0.02}
+        max={0.18}
+        step={0.005}
+        value={obj.scale}
+        onChange={(e) => onUpdate({ scale: Number(e.target.value) })}
+        disabled={disabled}
+        title={`Size — ${(obj.scale * 60).toFixed(1)} cm cube`}
+        style={{ width: 60 }}
+      />
+      <button
+        type="button"
+        onClick={onRemove}
+        disabled={disabled}
+        title="Remove this target"
+        style={{ padding: '2px 6px' }}
+      >
+        ×
+      </button>
+    </div>
   );
 }
 

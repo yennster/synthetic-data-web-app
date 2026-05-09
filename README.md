@@ -64,8 +64,11 @@ Created with Claude Code.
 **Robotics mode**
 - Two synthetic robot rigs in one mode behind a kind toggle:
   - **Rover** — differential-drive chassis with a configurable lidar / ToF ring (4–64 beams, 1–20 m range). Records combined 6-channel chassis IMU + N-channel lidar time-series labelled as `cruise` / `collision` / `stuck`. Contact detector injects a penetration-scaled impulse on impact so the accelerometer signature matches a real bumper switch.
-  - **Arm** — Arduino TinkerKit Braccio (6-DOF: M1–M6, published servo limits). Records 6-channel end-effector IMU labelled as `pick_place` / `sweep` / `wave` / `random_pose` / `draw_circle`. Pick-and-place uses analytical IK to target your scene objects; gripper open/close is animated.
-- Procedurally placed obstacle field (pillars / crates / cones) with **Reset scene** + **Randomize obstacles** controls; obstacles are draggable with the same `Shift+drag` controls as detection mode.
+  - **Arm** — Arduino TinkerKit Braccio (6-DOF: M1–M6, published servo limits). Records 6-channel end-effector IMU labelled as `pick_place` / `sweep` / `wave` / `random_pose` / `draw_circle`. Pick-and-place uses analytical IK to target arm-scale (3 cm) configurable pickup objects; gripper open/close is animated.
+- **Sensor modality picker** for the rover: upload **Fused (IMU+lidar)**, **IMU only**, or **Lidar only** to compare model accuracy or train one tower at a time.
+- **ROS 2 export**: toggle on to also write canonical `sensor_msgs/Imu` + `sensor_msgs/LaserScan` JSONL bundles alongside the EI payload — ready to replay through any ROS 2 pipeline.
+- **Synthetic IMU noise model** (MathWorks `imuSensor`-style: Allan-variance noise density, bias instability, scale-factor error, ADC quantization, saturation) applied to motion / rover / arm IMU paths. Defaults match an LSM6DSO at ±4 g / ±2000 dps.
+- Procedurally placed obstacle field (pillars / crates / cones) with **Reset scene** + **Randomize obstacles** controls; obstacles and pickup targets are draggable with the same `Shift+drag` controls as detection mode.
 - First-person POV camera (front-mounted on rover, wrist-mounted on arm) renders into the corner overlay so you can see what the robot's onboard camera would see during the trajectory.
 - URL deep links: `?mode=robotics&robot=arm` lands directly on the arm rig.
 

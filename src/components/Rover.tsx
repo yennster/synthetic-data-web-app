@@ -2,6 +2,11 @@ import { useFrame } from '@react-three/fiber';
 import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { computeImuReading } from '../lib/imu';
+import {
+  applyImuNoise,
+  makeImuNoiseState,
+  type ImuNoiseState,
+} from '../lib/imuNoise';
 import { scanLidar } from '../lib/lidar';
 import {
   buildEventPath,
@@ -122,8 +127,10 @@ function RoverBody() {
         <meshBasicMaterial color="#5eead4" />
       </mesh>
       {/* Forward POV camera lens — visual marker for the front-facing
-          camera mount; the actual camera is parented to this group via
-          the RoverPovCamera component below. */}
+          camera mount. The actual camera is positioned via
+          `scene.getObjectByName('rover-pov-mount')`. The named group
+          below is the camera's parent, oriented to look along +Z
+          (the rover's forward heading) once we apply the rover's yaw. */}
       <mesh
         position={[0, chassisY + CHASSIS.h / 2, CHASSIS.d / 2 + 0.02]}
         castShadow
@@ -137,6 +144,17 @@ function RoverBody() {
           emissiveIntensity={0.6}
         />
       </mesh>
+      <group
+        name="rover-pov-mount"
+        position={[0, chassisY + CHASSIS.h / 2 + 0.06, CHASSIS.d / 2 + 0.02]}
+      />
+      {/* Look-at anchor sitting 1 m ahead of the rover at chassis
+          height — the POV camera uses `getWorldPosition` on this
+          group to point itself the right way. */}
+      <group
+        name="rover-pov-look"
+        position={[0, chassisY + CHASSIS.h / 2, CHASSIS.d / 2 + 1.0]}
+      />
       {[-1, 1].map((side) => (
         <mesh
           key={side}
@@ -337,6 +355,10 @@ function RoverImuSampler({
   const prevPos = useRef(new THREE.Vector3());
   const prevQuat = useRef(new THREE.Quaternion());
   const prevLinvel = useRef(new THREE.Vector3());
+  // Per-rover IMU noise state — bias drift accumulators + per-axis
+  // scale-factor errors. Initialized once; the bias random walk
+  // mutates in place each tick (see `applyImuNoise`).
+  const noiseState = useRef<ImuNoiseState | null>(null);
 
   useFrame((_, dt) => {
     recordAccum.current += dt;
@@ -425,9 +447,31 @@ function RoverImuSampler({
     prevQuat.current.copy(curQuat);
     prevLinvel.current.copy(linvel);
 
+    // Apply MathWorks-style sensor noise to the clean reading. The
+    // bias drift accumulators inside `noiseState` advance in place
+    // so the recorded trace exhibits realistic Allan-variance bias
+    // wandering across the window, not just per-sample white noise.
+    const noiseCfg = useStore.getState().imuNoise;
+    if (!noiseState.current) noiseState.current = makeImuNoiseState(noiseCfg);
+    const noisy = applyImuNoise(
+      [reading.ax, reading.ay, reading.az],
+      [reading.gx, reading.gy, reading.gz],
+      noiseState.current,
+      noiseCfg,
+      sampleDt,
+    );
+
     const { robotRunning, pushRobotImuSample } = useStore.getState();
     if (robotRunning) {
-      pushRobotImuSample({ t: performance.now(), ...reading });
+      pushRobotImuSample({
+        t: performance.now(),
+        ax: noisy.accel[0],
+        ay: noisy.accel[1],
+        az: noisy.accel[2],
+        gx: noisy.gyro[0],
+        gy: noisy.gyro[1],
+        gz: noisy.gyro[2],
+      });
     }
   });
 
