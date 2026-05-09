@@ -27,6 +27,7 @@ import { buildRoverRosJsonl } from '../lib/rosMessages';
 import { useNumberInput } from '../lib/useNumberInput';
 import { buildZip, type ZipEntry } from '../lib/zip';
 import { EiAuthCard } from './EiAuthCard';
+import { SceneObjectsCard } from './SceneObjectsCard';
 
 const ROBOT_KINDS: { value: RobotKind; label: string; hint: string }[] = [
   { value: 'rover', label: 'Rover', hint: 'Chassis IMU + lidar / ToF ring' },
@@ -566,10 +567,38 @@ export function RobotPanel() {
             {robot.armTrajectory === 'draw_circle' &&
               'End-effector traces a horizontal circle via planar IK.'}
           </div>
-          {robot.armTrajectory === 'pick_place' && (
-            <ArmPickupTargets disabled={robotRunning} />
-          )}
+          <label className="field">
+            Mount height {robot.armMountHeight.toFixed(2)} m
+            <input
+              type="range"
+              min={0}
+              max={1.0}
+              step={0.05}
+              value={robot.armMountHeight}
+              onChange={(e) =>
+                setRobot({ armMountHeight: Number(e.target.value) })
+              }
+              disabled={robotRunning}
+              title="Lift the arm onto a virtual table so the chain doesn't dip below the floor when joints bend down."
+            />
+          </label>
         </div>
+      )}
+
+      {robot.kind === 'arm' && (
+        <SceneObjectsCard
+          title="Pickup objects"
+          addCustom={(kind, label) =>
+            useStore.getState().addArmPickupTarget(kind, label)
+          }
+          sizeRange={{ min: 0.02, max: 0.2, step: 0.005 }}
+          defaultLabel="pickup"
+          helpText={
+            robot.armTrajectory === 'pick_place'
+              ? 'The runner picks one as the IK anchor each iteration. Drag to retarget; toggle physics to let the gripper actually push the object around.'
+              : 'Add objects for the camera and lidar to see — same controls as detection mode.'
+          }
+        />
       )}
 
       <div className="card">
@@ -748,146 +777,6 @@ export function RobotPanel() {
         )}
       </div>
     </>
-  );
-}
-
-/**
- * Pickup-target editor for the arm's `pick_place` trajectory. Each
- * target is a small (~3 cm) configurable cube placed inside the arm's
- * reachable workspace. The runner randomly picks one of them per
- * iteration as the IK anchor; users can also drag targets around in
- * the 3D scene with the same Shift+drag controls used elsewhere, so
- * collected samples cover every spawn pose the user wants.
- *
- * Avoids `addSceneObject` directly because that helper's defaults
- * (60 cm cube floating 1.2 m up) are sized for human-scale modes —
- * dropping that onto a 30 cm Braccio looks absurd, which was the
- * previous behavior the user (correctly) called out.
- */
-function ArmPickupTargets({ disabled }: { disabled: boolean }) {
-  const sceneObjects = useStore((s) => s.sceneObjects);
-  const addArmPickupTarget = useStore((s) => s.addArmPickupTarget);
-  const removeSceneObject = useStore((s) => s.removeSceneObject);
-  const updateSceneObject = useStore((s) => s.updateSceneObject);
-  const clearSceneObjects = useStore((s) => s.clearSceneObjects);
-
-  const targets = sceneObjects;
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <div className="row">
-        <button
-          type="button"
-          onClick={() => addArmPickupTarget('cube')}
-          disabled={disabled}
-          title="Spawn a 3 cm cube on the floor inside the arm's workspace."
-        >
-          + Add target
-        </button>
-        <button
-          type="button"
-          onClick={() => clearSceneObjects()}
-          disabled={disabled || targets.length === 0}
-          title="Remove every pickup target."
-        >
-          Clear
-        </button>
-        <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-          {targets.length} target{targets.length === 1 ? '' : 's'}
-        </span>
-      </div>
-      {targets.length > 0 && (
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 6,
-            maxHeight: 200,
-            overflowY: 'auto',
-            paddingRight: 2,
-          }}
-        >
-          {targets.map((t, i) => (
-            <PickupTargetRow
-              key={t.id}
-              index={i}
-              obj={t}
-              disabled={disabled}
-              onUpdate={(patch) => updateSceneObject(t.id, patch)}
-              onRemove={() => removeSceneObject(t.id)}
-            />
-          ))}
-        </div>
-      )}
-      <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-        Each iteration the runner picks a random target as the IK
-        anchor; drag a target in the 3D view to retarget it. Targets
-        are 3 cm by default — keep them inside the arm's ~25 cm reach.
-      </div>
-    </div>
-  );
-}
-
-function PickupTargetRow({
-  index,
-  obj,
-  disabled,
-  onUpdate,
-  onRemove,
-}: {
-  index: number;
-  obj: import('../store/useStore').SceneObject;
-  disabled: boolean;
-  onUpdate: (patch: Partial<import('../store/useStore').SceneObject>) => void;
-  onRemove: () => void;
-}) {
-  return (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: '20px 1fr auto auto auto',
-        gap: 6,
-        alignItems: 'center',
-        fontSize: 11,
-      }}
-    >
-      <span style={{ color: 'var(--muted)' }}>#{index + 1}</span>
-      <input
-        type="text"
-        value={obj.label}
-        onChange={(e) => onUpdate({ label: e.target.value })}
-        disabled={disabled}
-        title="Per-target label"
-        style={{ minWidth: 0 }}
-      />
-      <input
-        type="color"
-        value={obj.color}
-        onChange={(e) => onUpdate({ color: e.target.value })}
-        disabled={disabled}
-        title="Color"
-        style={{ width: 28, height: 22, padding: 0, border: 0 }}
-      />
-      <input
-        type="range"
-        min={0.02}
-        max={0.18}
-        step={0.005}
-        value={obj.scale}
-        onChange={(e) => onUpdate({ scale: Number(e.target.value) })}
-        disabled={disabled}
-        title={`Size — ${(obj.scale * 60).toFixed(1)} cm cube`}
-        style={{ width: 60 }}
-      />
-      <button
-        type="button"
-        onClick={onRemove}
-        disabled={disabled}
-        title="Remove this target"
-        style={{ padding: '2px 6px' }}
-      >
-        ×
-      </button>
-    </div>
   );
 }
 
