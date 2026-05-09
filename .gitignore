@@ -29,6 +29,9 @@ logs/
 .claude/launch.json
 .claude/settings.local.json
 
+# Codex
+.codex/*
+
 # Env
 .env
 .env.local

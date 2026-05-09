@@ -753,6 +753,10 @@ export const useStore = create<State>()(
       // (no owner) are also preserved.
       const kind = state.robot.kind;
       return {
+        robot:
+          kind === 'arm'
+            ? { ...state.robot, armHomePose: [...BRACCIO_REST_RAD] }
+            : state.robot,
         sceneObjects: state.sceneObjects.filter((o) => o.owner !== kind),
         roverPose: null,
         lidarSamples: [],

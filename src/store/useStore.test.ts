@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useStore } from './useStore';
+import { BRACCIO_REST_RAD } from '../lib/braccio';
 
 // Polyfill crypto.randomUUID for happy-dom (which has crypto but not randomUUID).
 if (!globalThis.crypto?.randomUUID) {
@@ -208,6 +209,24 @@ describe('motion recording', () => {
     useStore.getState().stopRecording();
     useStore.getState().pushSample({ t: 3, ax: 0.7, ay: 0.8, az: 0.9, gx: 0, gy: 0, gz: 0 });
     expect(useStore.getState().samples).toHaveLength(1); // didn't grow
+  });
+});
+
+describe('robot scene reset', () => {
+  it('restores the default arm home pose when resetting the arm scene', () => {
+    useStore.getState().setRobot({
+      kind: 'arm',
+      armHomePose: [0, 0, 0, 0, 0, 0],
+    });
+    useStore.getState().addSceneObject('cube', 'pickup', 'arm');
+    useStore.getState().addSceneObject('cone', 'obstacle', 'rover');
+
+    useStore.getState().resetRobotScene();
+
+    expect(useStore.getState().robot.armHomePose).toEqual(BRACCIO_REST_RAD);
+    expect(useStore.getState().sceneObjects.map((o) => o.owner)).toEqual([
+      'rover',
+    ]);
   });
 });
 
