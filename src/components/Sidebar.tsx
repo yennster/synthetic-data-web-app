@@ -14,7 +14,7 @@ const MODES: { value: AppMode; label: string; hint: string }[] = [
   { value: 'motion', label: 'Motion', hint: 'Accelerometer' },
   { value: 'detection', label: 'Object detection', hint: 'Images + bboxes' },
   { value: 'anomaly', label: 'Visual anomaly', hint: 'Images, batch label' },
-  { value: 'robot', label: 'Robotics', hint: 'Rover lidar / Arm IMU' },
+  { value: 'robot', label: 'Robotics', hint: 'Rover & Arm telemetry' },
 ];
 
 /* Right-edge drawer dismiss thresholds. The drawer slides in from the

@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   buildEventPath,
   detectContact,
-  generateObstacles,
   type ObstacleDisc,
 } from './rover';
 
@@ -143,32 +142,5 @@ describe('contact detection', () => {
     expect(deep).not.toBeNull();
     if (!shallow || !deep) throw new Error('null');
     expect(deep.penetration).toBeGreaterThan(shallow.penetration);
-  });
-});
-
-describe('obstacle generation', () => {
-  it('respects the requested count and minimum spacing', () => {
-    const rng = seededRng(11);
-    const obs = generateObstacles(8, 5, 0.5, rng);
-    expect(obs.length).toBeLessThanOrEqual(8);
-    for (let i = 0; i < obs.length; i++) {
-      for (let j = i + 1; j < obs.length; j++) {
-        const d = Math.sqrt(
-          (obs[i].x - obs[j].x) ** 2 + (obs[i].z - obs[j].z) ** 2,
-        );
-        // The placer guarantees `d > r_i + r_j + minSpacing`.
-        expect(d).toBeGreaterThan(obs[i].r + obs[j].r + 0.5 - 1e-3);
-      }
-    }
-  });
-
-  it('keeps a clear zone around the rover spawn at origin', () => {
-    const rng = seededRng(99);
-    const obs = generateObstacles(10, 5, 0.5, rng);
-    for (const o of obs) {
-      // The placer enforces an inner-radius clear zone of 1.0 m.
-      const d = Math.sqrt(o.x * o.x + o.z * o.z);
-      expect(d).toBeGreaterThanOrEqual(1.0 - 1e-6);
-    }
   });
 });

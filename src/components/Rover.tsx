@@ -395,7 +395,7 @@ function RoverImuSampler({
       .sub(prevPos.current)
       .divideScalar(sampleDt);
 
-    // Contact-aware accel spike: when the chassis disc overlaps a
+    // contact-aware accel spike: when the chassis disc overlaps a
     // scene object, decelerate the apparent linvel sharply along the
     // contact normal (penetration-depth-scaled). This produces the
     // accelerometer signature a real bumper switch would induce.
@@ -412,6 +412,7 @@ function RoverImuSampler({
       CHASSIS_DISC_R,
       obstacles,
     );
+
     const setRoverInContact = useStore.getState().setRoverInContact;
     setRoverInContact(!!contact);
     if (contact) {

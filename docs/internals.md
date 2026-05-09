@@ -19,15 +19,25 @@ src/
 │   ├── EiAuthCard.tsx            // Shared API-key / category card
 │   ├── MotionPanel.tsx           // Motion-mode controls
 │   ├── VisionPanel.tsx           // Detection / Anomaly controls
+│   ├── RobotPanel.tsx            // Robotics-mode controls
 │   ├── Conveyor.tsx              // Animated conveyor belt prop (incl. wall colliders)
 │   ├── SpawnedObjects.tsx        // Multi-object spawn renderer (physics on/off)
 │   ├── ImportedAssets.tsx        // USDZ asset renderer with transforms + bbox tags
+│   ├── Rover.tsx                 // Rover rig + lidar fan + IMU sampler
+│   ├── BraccioArm.tsx            // Braccio rig + IK controller + IMU sampler
+│   ├── RobotPovCamera.tsx        // First-person preview overlay (rover/arm)
 │   ├── VirtualCamera.tsx         // Capture camera, frustum gizmo, batch logic, live inference
 │   └── InferenceOverlay.tsx      // HiDPI 2D bbox/centroid overlay on the preview canvas
 ├── lib/
 │   ├── handTracking.ts           // HandLandmarker + pinch math
 │   ├── usdz.ts                   // OpenUSD WASM loader wrapper, dispose helper
 │   ├── beltDynamics.ts           // Shared belt geometry + transportable-bodies set
+│   ├── rover.ts                  // Path generators + contact detector
+│   ├── lidar.ts                  // Raycaster wrapper for the ToF / lidar ring
+│   ├── braccio.ts                // Braccio joint limits + link lengths
+│   ├── braccioIk.ts              // Analytical IK solver + lerp helper
+│   ├── armTrajectories.ts        // Parametric joint-space trajectory generators
+│   ├── imuNoise.ts               // LSM6DSO-calibrated synthetic noise model
 │   ├── dragMove.ts               // Shift+drag pointer-event handlers (XZ plane)
 │   ├── capture.ts                // Off-screen render, bbox projection, download helper
 │   ├── edgeImpulse.ts            // Ingestion API + Studio API (list projects, fetch deployment)
@@ -90,16 +100,32 @@ Result: tight axis-aligned 2D boxes in pixel coordinates with top-left origin �
 | Kinematic follow smoothing | `Scene.tsx` `FOLLOW_LERP` | 0.35 |
 | Restitution (bounciness) | `Scene.tsx` `RigidBody` | 0.45 |
 | Friction | `Scene.tsx` `Ground` | 0.8 |
-| Sample rate | UI / `useStore.ts` | 100 Hz |
+| Sample rate (motion) | UI / `useStore.ts` | 100 Hz |
+| Sample rate (robotics) | `docs/robotics.md` | 20 Hz |
 | Capture resolution | UI | 640 × 480 |
 | Camera-jitter radius (batch) | `VirtualCamera.tsx` `r` | 0.6 m |
 | Light-intensity jitter range | `VirtualCamera.tsx` | ±0.8 |
 | Conveyor belt size | `beltDynamics.ts` | 1.6 × 8 m |
 | Conveyor sideways-damping factor | `Conveyor.tsx` `lv.x * 0.4` | 0.4 |
+| Lidar bins | UI / `useStore.ts` | 16 |
+| Lidar max range | UI / `useStore.ts` | 20 m |
+| Braccio rest pose | `braccio.ts` | all joints at 0 rad (aperture 0) |
 
 ## Edge Impulse payload formats
 
-**Motion mode** (`/api/{training,testing}/data`):
+**Motion mode / Robotics mode (Arm)** (`/api/{training,testing}/data`):
+
+Standard 6-channel IMU JSON format (accel + gyro).
+
+**Robotics mode (Rover)** (`/api/{training,testing}/data`):
+
+Depending on **Modality**, the `sensors` array contains:
+- **Fused**: `accX/Y/Z`, `gyrX/Y/Z`, plus `r0` through `rN-1` for lidar range bins.
+- **IMU only**: 6 IMU channels.
+- **Lidar only**: N range channels.
+
+**Detection / Anomaly mode** (`/api/{training,testing}/files`, multipart):
+
 
 ```json
 {

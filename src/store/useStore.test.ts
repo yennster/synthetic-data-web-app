@@ -224,9 +224,8 @@ describe('robot scene reset', () => {
     useStore.getState().resetRobotScene();
 
     expect(useStore.getState().robot.armHomePose).toEqual(BRACCIO_REST_RAD);
-    expect(useStore.getState().sceneObjects.map((o) => o.owner)).toEqual([
-      'rover',
-    ]);
+    expect(useStore.getState().sceneObjects).toHaveLength(1);
+    expect(useStore.getState().sceneObjects[0].owner).toBe('rover');
   });
 });
 

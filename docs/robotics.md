@@ -14,8 +14,6 @@ Both rigs share a small first-person POV preview canvas (the corner overlay)
 so you can see the scene the robot's onboard camera would see, matching how
 real Arduino rover / arm setups typically include a forward-facing module.
 
-## Use cases
-
 The robot mode is geared toward two well-known TinyML datasets:
 
 - **Rover collision detection.** Train a tiny model to classify the chassis
@@ -96,15 +94,10 @@ the physical arm.
 
 ## Scene controls
 
-- **Reset scene** — regenerate the obstacle field, clear the rover pose
-  and any in-flight recording.
-- **Randomize obstacles** — re-roll obstacle positions only; keeps the
-  rover and recording state.
-- **Randomize obstacles each iteration** (rover only) — re-roll the
-  obstacle field at the start of every recording iteration so the batch
-  contains spatial variety.
-- **Drag obstacles / scene objects** — the same Shift+drag controls as
-  detection / anomaly modes work on every robot-scene mesh:
+- **Reset scene** — clear the rover pose, reset the arm to its home
+  pose, and clear any in-flight recording.
+- **Drag scene objects** — the same Shift+drag controls as detection /
+  anomaly modes work on every robot-scene mesh:
   - `Shift+drag` — camera-aligned plane (free XYZ via orbit)
   - `Shift+(Alt|Option|Ctrl|Cmd)+drag` — depth mode along camera gaze
   - `Shift+drag + wheel` — push/pull along camera gaze (mouse-only)
@@ -202,7 +195,6 @@ a download.
 ```
 src/lib/
   rover.ts              event-aware path generators + contact detector
-                        + obstacle placer
   lidar.ts              raycaster wrapper for the ToF / lidar ring
   braccio.ts            published Braccio joint limits + link lengths
   braccioIk.ts          analytical IK solver + lerp helper
