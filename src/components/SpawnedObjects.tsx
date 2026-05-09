@@ -109,6 +109,21 @@ function SpawnedMesh({ obj }: { obj: SceneObject }) {
     };
   }, []);
 
+  // Last position we wrote to the store, in body-frame coords. Used by
+  // the settle-sync below to avoid restating the same position every
+  // frame, and by the position-change effect to recognize its own
+  // writes (so it doesn't teleport the body to where it already is).
+  const lastSyncedPos = useRef<[number, number, number]>([
+    obj.position[0],
+    obj.position[1],
+    obj.position[2],
+  ]);
+
+  // Throttle the settle-sync to 0.25 s so a falling body produces a
+  // few intermediate writes (intermediate cushioning against scale-
+  // toggle remounts during the fall) but doesn't storm the store.
+  const lastSyncMs = useRef(0);
+
   useFrame(() => {
     const body = bodyRef.current;
     if (!body || isDragging) return;
@@ -120,25 +135,66 @@ function SpawnedMesh({ obj }: { obj: SceneObject }) {
       );
       body.setLinvel({ x: 0, y: 0, z: 0 }, true);
       body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+      return;
     }
+    // Sync the body's current pose back to the store so the next
+    // remount (scale change, physics toggle, kind change) respawns
+    // the new body at its current location instead of the stale
+    // initial spawn. Two-gate filter keeps writes cheap:
+    //   1. throttle to ~4 Hz
+    //   2. position must have changed ≥1 cm since the last write
+    // The matching `[obj.position]` effect below recognizes these
+    // writes (body already at the target) and skips its teleport,
+    // so the loop terminates.
+    const now = performance.now();
+    if (now - lastSyncMs.current < 250) return;
+    const dx = t.x - lastSyncedPos.current[0];
+    const dy = t.y - lastSyncedPos.current[1];
+    const dz = t.z - lastSyncedPos.current[2];
+    if (dx * dx + dy * dy + dz * dz < 1e-4) return;
+    lastSyncMs.current = now;
+    lastSyncedPos.current = [t.x, t.y, t.z];
+    updateSceneObject(obj.id, { position: [t.x, t.y, t.z] });
   });
 
-  // When obj.position changes (e.g. user drags), teleport the body. We only
-  // act on subsequent changes — the initial mount uses the RigidBody position
-  // prop, which sets the body up at the right place automatically.
+  // When `obj.position` changes (drag, programmatic teleport, …),
+  // snap the body to the new pose. Skips no-op writes that came from
+  // our own settle-sync above — if the body is already at the target
+  // position (within 5 cm), we leave it alone instead of re-zeroing
+  // velocities.
   useEffect(() => {
     if (isInitialMount.current) {
       isInitialMount.current = false;
+      lastSyncedPos.current = [
+        obj.position[0],
+        obj.position[1],
+        obj.position[2],
+      ];
       return;
     }
     const body = bodyRef.current;
     if (!body) return;
+    const t = body.translation();
+    const dx = obj.position[0] - t.x;
+    const dy = obj.position[1] - t.y;
+    const dz = obj.position[2] - t.z;
+    if (dx * dx + dy * dy + dz * dz < 0.0025) {
+      // Body already at target — this `obj.position` change came from
+      // our own settle-sync. Update the watermark and bail.
+      lastSyncedPos.current = [t.x, t.y, t.z];
+      return;
+    }
     body.setTranslation(
       { x: obj.position[0], y: obj.position[1], z: obj.position[2] },
       true,
     );
     body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    lastSyncedPos.current = [
+      obj.position[0],
+      obj.position[1],
+      obj.position[2],
+    ];
   }, [obj.position]);
 
   const dragHandlers = useDragMove({
