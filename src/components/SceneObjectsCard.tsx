@@ -3,6 +3,7 @@ import {
   useStore,
   type ObjectKind,
   type SceneObject,
+  type SceneObjectOwner,
 } from '../store/useStore';
 import { NumberField } from '../lib/useNumberInput';
 
@@ -34,6 +35,7 @@ export function SceneObjectsCard({
   defaultLabel = '',
   helpText,
   hidden = false,
+  ownerFilter,
 }: {
   title?: string;
   addCustom?: ((kind: ObjectKind, label?: string) => string) | null;
@@ -41,6 +43,13 @@ export function SceneObjectsCard({
   defaultLabel?: string;
   helpText?: string;
   hidden?: boolean;
+  /** When set, the card only shows / clears objects with this owner.
+   * `'vision'` matches the legacy untagged pool. Omit to operate on
+   * the full list (the default detection-mode behavior). New objects
+   * created through `addSceneObject` automatically inherit this owner
+   * tag too — keeps the panel-side editor coherent with the
+   * scene-side filter. */
+  ownerFilter?: SceneObjectOwner | 'vision';
 }) {
   const sceneObjects = useStore((s) => s.sceneObjects);
   const addSceneObject = useStore((s) => s.addSceneObject);
@@ -53,19 +62,41 @@ export function SceneObjectsCard({
 
   if (hidden) return null;
 
+  const filtered = ownerFilter
+    ? sceneObjects.filter((o) =>
+        ownerFilter === 'vision'
+          ? o.owner == null
+          : o.owner === ownerFilter,
+      )
+    : sceneObjects;
+
   const onAdd = () => {
     const lbl = newLabel || newKind;
     if (addCustom) {
       addCustom(newKind, lbl);
     } else {
-      addSceneObject(newKind, lbl);
+      addSceneObject(
+        newKind,
+        lbl,
+        ownerFilter === 'vision' || !ownerFilter ? undefined : ownerFilter,
+      );
     }
+  };
+
+  const onClear = () => {
+    if (!ownerFilter) {
+      clearSceneObjects();
+      return;
+    }
+    // Per-owner clear: drop just the matching subset; preserve the
+    // user's other-mode setup.
+    for (const o of filtered) removeSceneObject(o.id);
   };
 
   return (
     <div className="card">
       <h3>
-        {title} ({sceneObjects.length})
+        {title} ({filtered.length})
       </h3>
       {helpText && (
         <div style={{ fontSize: 11, color: 'var(--muted)' }}>{helpText}</div>
@@ -89,14 +120,11 @@ export function SceneObjectsCard({
       </div>
       <div className="row">
         <button onClick={onAdd}>+ Add</button>
-        <button
-          onClick={clearSceneObjects}
-          disabled={sceneObjects.length === 0}
-        >
+        <button onClick={onClear} disabled={filtered.length === 0}>
           Clear all
         </button>
       </div>
-      {sceneObjects.length > 0 && (
+      {filtered.length > 0 && (
         <div
           style={{
             maxHeight: 200,
@@ -107,7 +135,7 @@ export function SceneObjectsCard({
             marginTop: 4,
           }}
         >
-          {sceneObjects.map((o) => (
+          {filtered.map((o) => (
             <SceneObjectRow
               key={o.id}
               obj={o}

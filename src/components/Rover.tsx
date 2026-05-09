@@ -315,11 +315,13 @@ function RoverController() {
     // approximated as a bounding circle r ≈ scale·0.32, matching the
     // largest primitive radius the spawner ships.
     const state = useStore.getState();
-    const obstacles: ObstacleDisc[] = state.sceneObjects.map((o) => ({
-      x: o.position[0],
-      z: o.position[2],
-      r: Math.max(0.05, o.scale * 0.32),
-    }));
+    const obstacles: ObstacleDisc[] = state.sceneObjects
+      .filter((o) => o.owner === 'rover')
+      .map((o) => ({
+        x: o.position[0],
+        z: o.position[2],
+        r: Math.max(0.05, o.scale * 0.32),
+      }));
     pathRef.current = buildEventPath(event, obstacles, Math.random);
     startMs.current = performance.now();
     setRoverPose(pathRef.current.sample(0));
@@ -398,11 +400,13 @@ function RoverImuSampler({
     // contact normal (penetration-depth-scaled). This produces the
     // accelerometer signature a real bumper switch would induce.
     const liveState = useStore.getState();
-    const obstacles: ObstacleDisc[] = liveState.sceneObjects.map((o) => ({
-      x: o.position[0],
-      z: o.position[2],
-      r: Math.max(0.05, o.scale * 0.32),
-    }));
+    const obstacles: ObstacleDisc[] = liveState.sceneObjects
+      .filter((o) => o.owner === 'rover')
+      .map((o) => ({
+        x: o.position[0],
+        z: o.position[2],
+        r: Math.max(0.05, o.scale * 0.32),
+      }));
     const contact = detectContact(
       { x: curPos.x, z: curPos.z },
       CHASSIS_DISC_R,
