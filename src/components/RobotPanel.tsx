@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   ALL_ROVER_EVENTS,
   ALL_ROVER_UPLOAD_MODALITIES,
@@ -633,6 +634,15 @@ export function RobotPanel() {
       </div>
 
       {robot.kind === 'rover' && (
+        <SceneObjectsCard
+          title="Scene obstacles"
+          sizeRange={{ min: 0.05, max: 1.5, step: 0.05 }}
+          defaultLabel="obstacle"
+          helpText="Add custom obstacles the rover can bump into. Same controls as detection mode — kind, label, color, size, physics, drag with Shift+drag. The lidar fan and contact detector see these alongside the procedural pillars/crates/cones."
+        />
+      )}
+
+      {robot.kind === 'rover' && (
         <>
           <div className="card">
             <h3>Lidar / ToF ring</h3>
@@ -787,6 +797,11 @@ export function RobotPanel() {
 function ArmHomePoseCard({ disabled }: { disabled: boolean }) {
   const robot = useStore((s) => s.robot);
   const setRobot = useStore((s) => s.setRobot);
+  // Collapsed by default — six sliders eat a lot of sidebar space
+  // and most users will adjust home pose once and forget. Same
+  // collapsible pattern as the "Custom textures" card on the
+  // detection panel.
+  const [open, setOpen] = useState(false);
 
   const setJoint = (idx: number, valueRad: number) => {
     const next = [...robot.armHomePose] as typeof robot.armHomePose;
@@ -803,10 +818,46 @@ function ArmHomePoseCard({ disabled }: { disabled: boolean }) {
     'M4 wrist pitch',
     'M5 wrist roll',
   ];
+  // True when any joint differs from the spec-default rest pose, so
+  // the collapsed header can flag "you have a custom home pose".
+  const isCustom = robot.armHomePose.some(
+    (v, i) =>
+      Math.abs(
+        v - (i < 5 ? Math.PI / 2 : 0.5),
+      ) > 0.01,
+  );
 
   return (
     <div className="card">
-      <h3>Arm home pose</h3>
+      <button
+        type="button"
+        onClick={() => setOpen((b) => !b)}
+        aria-expanded={open}
+        className="section-toggle"
+      >
+        <span>Arm home pose</span>
+        <span
+          className="section-toggle-chevron"
+          style={{ transform: open ? 'rotate(90deg)' : 'rotate(0deg)' }}
+          aria-hidden
+        >
+          ▸
+        </span>
+        {isCustom && !open && (
+          <span
+            style={{
+              marginLeft: 'auto',
+              fontSize: 10,
+              color: 'var(--accent)',
+              fontWeight: 500,
+            }}
+          >
+            custom
+          </span>
+        )}
+      </button>
+      {!open ? null : (
+        <>
       <div style={{ fontSize: 11, color: 'var(--muted)' }}>
         Servo angles the arm holds at idle and starts every trajectory
         from. Each slider is clamped to the published Braccio limit.
@@ -861,6 +912,8 @@ function ArmHomePoseCard({ disabled }: { disabled: boolean }) {
       >
         ↺ Reset to neutral
       </button>
+        </>
+      )}
     </div>
   );
 }
