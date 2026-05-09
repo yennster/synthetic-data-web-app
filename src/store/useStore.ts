@@ -13,6 +13,7 @@ import {
   DEFAULT_IMU_NOISE,
   type ImuNoiseConfig,
 } from '../lib/imuNoise';
+import { BRACCIO_REST_RAD } from '../lib/braccio';
 
 export type ObjectKind =
   | 'cube'
@@ -375,10 +376,9 @@ type State = {
      * joint 5 is normalized aperture in [0, 1]). The rig renders
      * this when no trajectory is driving the arm; trajectories
      * pull it as their "rest" reference so e.g. `pick_place` returns
-     * to the user's chosen home rather than the spec-default
-     * all-90° pose. Sliders in the arm panel clamp each value to
-     * the published `BRACCIO_LIMITS_RAD` so the user can't ask the
-     * physical arm to overextend. */
+     * to the user's chosen home. Sliders in the arm panel clamp each
+     * value to the published `BRACCIO_LIMITS_RAD` so the user can't
+     * ask the physical arm to overextend. */
     armHomePose: [number, number, number, number, number, number];
     /** Which point on the arm the wrist-mounted POV camera is
      * actually attached to. The component reads
@@ -619,6 +619,36 @@ const defaultObject = (kind: ObjectKind, idx: number): SceneObject => {
   };
 };
 
+const OLD_BRACCIO_REST_RAD: [
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+] = [
+  Math.PI / 2,
+  Math.PI / 2,
+  Math.PI / 2,
+  Math.PI / 2,
+  Math.PI / 2,
+  0.5,
+];
+
+function isPose(
+  pose: unknown,
+  expected: [number, number, number, number, number, number],
+): boolean {
+  return (
+    Array.isArray(pose) &&
+    pose.length === expected.length &&
+    pose.every(
+      (v, i) =>
+        typeof v === 'number' && Math.abs(v - expected[i]) < 1e-9,
+    )
+  );
+}
+
 export const useStore = create<State>()(
   persist(
     (set) => ({
@@ -685,17 +715,7 @@ export const useStore = create<State>()(
     randomizeObstaclesEachRun: false,
     uploadModality: 'fused',
     rosExport: false,
-    armHomePose: [
-      // BRACCIO_REST_RAD verbatim — copying the values here instead of
-      // importing avoids a circular dep with `lib/braccio.ts`. Kept in
-      // sync by `braccio.test.ts`.
-      Math.PI / 2,
-      Math.PI / 2,
-      Math.PI / 2,
-      Math.PI / 2,
-      Math.PI / 2,
-      0.5,
-    ],
+    armHomePose: [...BRACCIO_REST_RAD],
     armCameraMount: 'wrist',
   },
   setRobot: (patch) => set((s) => ({ robot: { ...s.robot, ...patch } })),
@@ -921,8 +941,33 @@ export const useStore = create<State>()(
     }),
     {
       name: 'sds-store',
-      version: 3,
+      version: 4,
       storage: createJSONStorage(() => localStorage),
+      migrate: (persistedState, version) => {
+        if (
+          version >= 4 ||
+          !persistedState ||
+          typeof persistedState !== 'object'
+        ) {
+          return persistedState;
+        }
+        const state = persistedState as Partial<State>;
+        const robot = state.robot;
+        if (
+          !robot ||
+          (robot.armHomePose &&
+            !isPose(robot.armHomePose, OLD_BRACCIO_REST_RAD))
+        ) {
+          return persistedState;
+        }
+        return {
+          ...state,
+          robot: {
+            ...robot,
+            armHomePose: [...BRACCIO_REST_RAD],
+          },
+        };
+      },
       // Persist only the bits worth restoring: scene primitives, scene
       // settings, capture config, mode, and asset *metadata* (the live
       // three.js Group + needle handle aren't JSON-friendly, so we map

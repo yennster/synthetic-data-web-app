@@ -769,10 +769,7 @@ function ArmHomePoseCard({ disabled }: { disabled: boolean }) {
   // True when any joint differs from the spec-default rest pose, so
   // the collapsed header can flag "you have a custom home pose".
   const isCustom = robot.armHomePose.some(
-    (v, i) =>
-      Math.abs(
-        v - (i < 5 ? Math.PI / 2 : 0.5),
-      ) > 0.01,
+    (v, i) => Math.abs(v - BRACCIO_REST_RAD[i]) > 0.01,
   );
 
   return (
@@ -860,9 +857,9 @@ function ArmHomePoseCard({ disabled }: { disabled: boolean }) {
           })
         }
         disabled={disabled}
-        title="Reset every joint to its servo midpoint (Braccio's documented neutral pose)."
+        title="Reset every joint to the default Braccio home pose."
       >
-        ↺ Reset to neutral
+        ↺ Reset to home
       </button>
         </>
       )}
