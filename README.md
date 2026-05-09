@@ -28,6 +28,10 @@ Created with Claude Code.
 
 *Motion mode: pinch the cube with your hand to grab it, throw it onto the ground, record the accelerometer trace.*
 
+![Synthetic Data Studio · Robotics mode](docs/screenshot-robotics.png)
+
+*Robotics mode: rover scene with lidar / ToF beams, obstacle objects, onboard POV preview, and the robotics generator controls.*
+
 ## Features
 
 **Shared**

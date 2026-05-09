@@ -8,7 +8,20 @@ import {
 } from './braccio';
 import { lerpJoints, solveBraccioIk } from './braccioIk';
 
+const DEG = Math.PI / 180;
+
 describe('Braccio joint limits', () => {
+  it('uses the configured default home pose', () => {
+    expect(BRACCIO_REST_RAD).toEqual([
+      70 * DEG,
+      15 * DEG,
+      50 * DEG,
+      90 * DEG,
+      180 * DEG,
+      1,
+    ]);
+  });
+
   it('rest pose lies inside every published servo limit', () => {
     for (let i = 0; i < 5; i++) {
       const [lo, hi] = BRACCIO_LIMITS_RAD[i];

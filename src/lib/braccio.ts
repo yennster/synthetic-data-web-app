@@ -14,10 +14,9 @@
  *   M6  Gripper aperture       10°–73°  (10° = closed, 73° = open)
  *
  * Internally we represent every joint angle in radians, with the Braccio's
- * "neutral" pose (every servo at 90° except the gripper at its mid
- * aperture) as the rest pose. The gripper is mapped to a normalized
- * 0..1 aperture for visual rendering — 0 = fully closed (servo angle
- * 10°), 1 = fully open (servo angle 73°).
+ * home pose set to a stable presentation/capture stance. The gripper is
+ * mapped to a normalized 0..1 aperture for visual rendering — 0 = fully
+ * closed (servo angle 10°), 1 = fully open (servo angle 73°).
  *
  * Link lengths are taken from Arduino's published Braccio CAD; values
  * here are in meters and approximate enough for synthesizing IMU
@@ -40,17 +39,16 @@ export const BRACCIO_LIMITS_RAD: ReadonlyArray<readonly [number, number]> = [
   [10 * DEG, 73 * DEG], // M6 gripper
 ];
 
-/** Rest pose: every servo at its neutral 90° except the gripper at half
- * aperture. Joints 0..4 are servo-radians; joint 5 is normalized
+/** Rest/home pose. Joints 0..4 are servo-radians; joint 5 is normalized
  * aperture (0..1). The rig component swaps in this rest pose whenever
  * `armJoints` in the store is null. */
 export const BRACCIO_REST_RAD: [number, number, number, number, number, number] = [
+  70 * DEG,
+  15 * DEG,
+  50 * DEG,
   90 * DEG,
-  90 * DEG,
-  90 * DEG,
-  90 * DEG,
-  90 * DEG,
-  0.5,
+  180 * DEG,
+  1,
 ];
 
 /** Link lengths in meters. Approximate — see file header. */
