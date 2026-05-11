@@ -26,6 +26,4 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   </React.StrictMode>,
 );
 
-initPostContentHeight({
-  log: (height) => console.log('posting', height),
-});
+initPostContentHeight();
