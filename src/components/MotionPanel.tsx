@@ -215,8 +215,15 @@ export function MotionPanel() {
    * back to its cleanup block instead of finishing the iteration.
    */
   const sleepCancellable = async (ms: number): Promise<void> => {
-    await new Promise<void>((r) => setTimeout(r, ms));
-    if (useStore.getState().dropsCancelRequested) throw new CancelledError();
+    const deadline = performance.now() + ms;
+    while (true) {
+      if (useStore.getState().dropsCancelRequested) throw new CancelledError();
+      const remaining = deadline - performance.now();
+      if (remaining <= 0) return;
+      await new Promise<void>((r) =>
+        setTimeout(r, Math.min(50, remaining)),
+      );
+    }
   };
 
   /**
@@ -537,8 +544,6 @@ export function MotionPanel() {
     } catch (e) {
       if (e instanceof CancelledError) {
         cancelled = true;
-        // Drain whatever finished before the cancel checkpoint into a zip
-        // so the user keeps partial work when not uploading directly.
         if (!shouldUpload && zipEntries.length > 0) {
           try {
             const entries =
@@ -557,18 +562,28 @@ export function MotionPanel() {
             ).replace(/\.json$/, '.zip');
             const zip = await buildZip(entries);
             await saveBlob(zipName, zip);
-          } catch {
-            /* ignore zip failure on cancel */
-          }
-        }
-        setStatus(
-          'err',
-          shouldUpload
-            ? `Procedural motions stopped: ${uploaded} uploaded${
+            setStatus(
+              'err',
+              `Procedural motions stopped: downloaded ${entries.length} files${
                 failed ? ` · ${failed} failed` : ''
-              }`
-            : `Procedural motions stopped: ${zipEntries.length} samples saved`,
-        );
+              }`,
+            );
+          } catch (saveError) {
+            setStatus(
+              'err',
+              `Procedural motions stopped, but saving partial data failed: ${(saveError as Error).message}`,
+            );
+          }
+        } else {
+          setStatus(
+            'err',
+            shouldUpload
+              ? `Procedural motions stopped: ${uploaded} uploaded${
+                  failed ? ` · ${failed} failed` : ''
+                }`
+              : 'Procedural motions stopped: no samples captured',
+          );
+        }
       } else {
         setStatus('err', `Motions error: ${(e as Error).message}`);
       }
