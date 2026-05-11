@@ -6,6 +6,8 @@ import {
   buildArmTrajectory,
   type ArmParametricPath,
 } from '../lib/armTrajectories';
+import { floorSafePickupTipY } from '../lib/armPickupGeometry';
+import { assessArmPickupGrasp } from '../lib/armPickupOutcome';
 import { BraccioSim } from '../lib/mujoco/BraccioSim';
 import { sampleImu, type NoiseStateRef } from '../lib/mujoco/imuSensor';
 import { loadMujocoModule } from '../lib/mujoco/runtime';
@@ -45,6 +47,15 @@ const DEFAULT_PICKUP_HALF_EXTENTS: [number, number, number] = [
   PICKUP_PROXY_HALF_EXTENT,
   PICKUP_PROXY_HALF_EXTENT,
 ];
+const PICKUP_GRASP_CHECK_START_T = 0.38;
+const PICKUP_GRASP_CHECK_END_T = 0.62;
+
+type PickupGraspGuard = {
+  targetId: string;
+  startCenter: [number, number, number];
+  halfExtents: [number, number, number];
+  rejected: boolean;
+};
 
 /** Async hook that resolves to a `BraccioSim` instance, returning null
  * until the WASM module loads. The sim is disposed on unmount so
@@ -462,11 +473,13 @@ function ArmController({ sim }: { sim: BraccioSim | null }) {
   const robotRunning = useStore((s) => s.robotRunning);
 
   const pathRef = useRef<ArmParametricPath | null>(null);
+  const pickupGuardRef = useRef<PickupGraspGuard | null>(null);
   const startMs = useRef(0);
 
   useEffect(() => {
     if (!sim || !robotRunning) {
       pathRef.current = null;
+      pickupGuardRef.current = null;
       return;
     }
     let state = useStore.getState();
@@ -512,19 +525,26 @@ function ArmController({ sim }: { sim: BraccioSim | null }) {
     // so the fingers collide with the same approximate volume the user sees.
     sim.placeTarget(cubePos);
 
-    // IK aims at the gripper *tip* (bottom of the fingers). For the
-    // parallel-jaw gripper to actually wrap the cube, the tip needs
-    // to sit at the cube's bottom face so the fingers extend up the
-    // cube's full height before closing laterally. Subtract the cube
-    // half-extent (0.015) from the center y, clamped to a small
-    // positive margin so the IK doesn't degenerate when the cube
-    // sits exactly on the floor.
+    // IK aims at the gripper *tip* (bottom of the fingers). For a
+    // floor-resting object, the visual / MuJoCo finger pads extend
+    // slightly below the simplified IK tip, so clamp the requested
+    // tip height to that physical pad clearance instead of letting a
+    // mathematically-valid target drive the gripper through the floor.
     //
     // Symmetry: the drop target uses (-x, +z) for a mirrored
     // place-down arc.
-    const tipY = Math.max(0.002, cubePos[1] - targetHalfExtents[1]);
+    const tipY = floorSafePickupTipY(cubePos[1], targetHalfExtents[1]);
     const pickup = { x: cubePos[0], y: tipY, z: cubePos[2] };
     const drop = { x: -cubePos[0], y: tipY, z: cubePos[2] };
+    pickupGuardRef.current =
+      trajectory === 'pick_place' && targetId
+        ? {
+            targetId,
+            startCenter: [...cubePos],
+            halfExtents: [...targetHalfExtents],
+            rejected: false,
+          }
+        : null;
     pathRef.current = buildArmTrajectory(trajectory, {
       pickup,
       drop,
@@ -542,7 +562,27 @@ function ArmController({ sim }: { sim: BraccioSim | null }) {
     if (!path || !robotRunning || !sim) return;
     const elapsed = performance.now() - startMs.current;
     const t = Math.max(0, Math.min(1, elapsed / Math.max(1, durationMs)));
-    sim.setJointTargets(path.sample(t));
+    const guard = pickupGuardRef.current;
+    if (
+      guard &&
+      !guard.rejected &&
+      t >= PICKUP_GRASP_CHECK_START_T &&
+      t <= PICKUP_GRASP_CHECK_END_T
+    ) {
+      const assessment = assessArmPickupGrasp(
+        sim.readTargetPose(),
+        guard.startCenter,
+        guard.halfExtents,
+      );
+      useStore.getState().observeArmPickupGrasp(guard.targetId, assessment);
+      if (!assessment.graspable) guard.rejected = true;
+    }
+    const joints = path.sample(t);
+    sim.setJointTargets(
+      guard?.rejected
+        ? [joints[0], joints[1], joints[2], joints[3], joints[4], 1]
+        : joints,
+    );
   });
 
   return null;

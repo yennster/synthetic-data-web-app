@@ -5,13 +5,11 @@ import { useStore } from '../store/useStore';
  * panels so the user enters API key + category once, alongside the
  * upload/inference flows that consume them.
  *
- * The HMAC field is only relevant in motion mode: Edge Impulse's HMAC
- * mechanism is part of the JSON "data acquisition format" used by the
- * `/api/<category>/data` endpoint (time-series sensor data), where the
- * signature is embedded in the protected envelope around the payload.
- * Image and file uploads go through `/api/<category>/files` instead, which
- * authenticates only via the API key — there's no HMAC header on that
- * endpoint, so we hide the field to avoid implying it's used.
+ * The HMAC field is only relevant for time-series JSON acquisition
+ * payloads: Edge Impulse's HMAC mechanism signs the protected envelope
+ * around the sensor payload before it is uploaded as a `.json` file.
+ * Image uploads don't use this acquisition envelope, so we hide the
+ * field there to avoid implying it's used.
  */
 export function EiAuthCard({ showHmac = false }: { showHmac?: boolean }) {
   const ei = useStore((s) => s.ei);

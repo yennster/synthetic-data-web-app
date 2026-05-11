@@ -9,10 +9,13 @@ import { saveBlob } from '../lib/capture';
 import {
   buildDataAcquisitionPayload,
   buildFileName,
+  buildInfoLabelsEntry,
+  buildInfoLabelsFile,
   listEiProjects,
   retrainEiModel,
   uploadSample,
   waitForEiJob,
+  type EdgeImpulseInfoLabelsEntry,
 } from '../lib/edgeImpulse';
 import { randomPreReleaseMs } from '../lib/proceduralMotion';
 import { useNumberInput } from '../lib/useNumberInput';
@@ -414,6 +417,7 @@ export function MotionPanel() {
     let failed = 0;
     let cancelled = false;
     const zipEntries: ZipEntry[] = [];
+    const infoLabelsEntries: EdgeImpulseInfoLabelsEntry[] = [];
     try {
       // Allow a frame for CameraFeed to unmount and stop writing pinchTarget.
       await sleepCancellable(80);
@@ -442,6 +446,16 @@ export function MotionPanel() {
         }
         motionParams.duration_ms = drops.durationMs;
         const fileName = buildFileName(`${motion}_${i + 1}`);
+        const meta = {
+          mode: 'motion',
+          shape: objectKind,
+          sample_rate_hz: sampleRateHz,
+          generator: 'procedural',
+          motion,
+          motion_index: i + 1,
+          motion_total: drops.count,
+          ...motionParams,
+        };
         if (shouldUpload) {
           try {
             const res = await uploadSample(
@@ -449,16 +463,7 @@ export function MotionPanel() {
               sampleSnapshot,
               sampleRateHz,
               fileName,
-              {
-                mode: 'motion',
-                shape: objectKind,
-                sample_rate_hz: sampleRateHz,
-                generator: 'procedural',
-                motion,
-                motion_index: i + 1,
-                motion_total: drops.count,
-                ...motionParams,
-              },
+              meta,
             );
             if (res.ok) uploaded += 1;
             else failed += 1;
@@ -475,6 +480,14 @@ export function MotionPanel() {
             name: fileName,
             data: JSON.stringify(body, null, 2),
           });
+          infoLabelsEntries.push(
+            buildInfoLabelsEntry({
+              path: fileName,
+              category: runEi.category,
+              label: motion,
+              metadataExtras: meta,
+            }),
+          );
           captured += 1;
         }
         setStatus(
@@ -493,15 +506,25 @@ export function MotionPanel() {
           }`,
         );
       } else if (zipEntries.length > 0) {
-        setStatus('busy', `Packaging ${zipEntries.length} motion samples…`);
+        const entries =
+          infoLabelsEntries.length > 0
+            ? [
+                ...zipEntries,
+                {
+                  name: 'info.labels',
+                  data: buildInfoLabelsFile(infoLabelsEntries),
+                },
+              ]
+            : zipEntries;
+        setStatus('busy', `Packaging ${entries.length} motion files…`);
         const zipName = buildFileName(
-          `motions_${zipEntries.length}`,
+          `motions_${infoLabelsEntries.length || zipEntries.length}`,
         ).replace(/\.json$/, '.zip');
-        const zip = await buildZip(zipEntries);
+        const zip = await buildZip(entries);
         await saveBlob(zipName, zip);
         setStatus(
           cancelled || failed > 0 ? 'err' : 'ok',
-          `${headline}: downloaded ${zipEntries.length} samples${
+          `${headline}: downloaded ${entries.length} files${
             failed ? ` · ${failed} failed` : ''
           }`,
         );
@@ -518,11 +541,21 @@ export function MotionPanel() {
         // so the user keeps partial work when not uploading directly.
         if (!shouldUpload && zipEntries.length > 0) {
           try {
-            setStatus('busy', `Packaging ${zipEntries.length} motion samples…`);
+            const entries =
+              infoLabelsEntries.length > 0
+                ? [
+                    ...zipEntries,
+                    {
+                      name: 'info.labels',
+                      data: buildInfoLabelsFile(infoLabelsEntries),
+                    },
+                  ]
+                : zipEntries;
+            setStatus('busy', `Packaging ${entries.length} motion files…`);
             const zipName = buildFileName(
-              `motions_${zipEntries.length}`,
+              `motions_${infoLabelsEntries.length || zipEntries.length}`,
             ).replace(/\.json$/, '.zip');
-            const zip = await buildZip(zipEntries);
+            const zip = await buildZip(entries);
             await saveBlob(zipName, zip);
           } catch {
             /* ignore zip failure on cancel */

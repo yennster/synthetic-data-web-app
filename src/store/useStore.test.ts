@@ -335,6 +335,10 @@ describe('robot scene reset', () => {
     expect(useStore.getState().armPickupObservation).toEqual({
       targetId: 'target-a',
       maxLiftM: 0,
+      maxTiltDeg: 0,
+      maxHorizontalDriftM: 0,
+      graspableAtClose: null,
+      failureReason: null,
       success: false,
     });
 
@@ -350,6 +354,27 @@ describe('robot scene reset', () => {
     s.observeArmPickupLift('target-a', 0.001);
     expect(useStore.getState().armPickupObservation?.maxLiftM).toBeCloseTo(
       ARM_PICKUP_SUCCESS_LIFT_M + 0.005,
+    );
+  });
+
+  it('keeps pickup outcome failed after an ungraspable close pose', () => {
+    const s = useStore.getState();
+    s.resetArmPickupObservation('target-a');
+    s.observeArmPickupGrasp('target-a', {
+      graspable: false,
+      reason: 'target_tipped',
+      tiltDeg: 80,
+      horizontalDriftM: 0.002,
+      driftToleranceM: 0.03,
+    });
+    s.observeArmPickupLift('target-a', ARM_PICKUP_SUCCESS_LIFT_M + 0.01);
+
+    expect(useStore.getState().armPickupObservation?.success).toBe(false);
+    expect(useStore.getState().armPickupObservation?.graspableAtClose).toBe(
+      false,
+    );
+    expect(useStore.getState().armPickupObservation?.failureReason).toBe(
+      'target_tipped',
     );
   });
 

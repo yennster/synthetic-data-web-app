@@ -14,7 +14,9 @@ import {
 } from '../lib/imuNoise';
 import {
   createArmPickupObservation,
+  updateArmPickupGraspAssessment,
   updateArmPickupObservation,
+  type ArmPickupGraspAssessment,
   type ArmPickupObservation,
 } from '../lib/armPickupOutcome';
 import { BRACCIO_REST_RAD } from '../lib/braccio';
@@ -466,6 +468,10 @@ type State = {
   armPickupObservation: ArmPickupObservation | null;
   resetArmPickupObservation: (targetId: string | null) => void;
   observeArmPickupLift: (targetId: string, liftM: number) => void;
+  observeArmPickupGrasp: (
+    targetId: string,
+    assessment: ArmPickupGraspAssessment,
+  ) => void;
 
   /** True when the rover's contact detector reports overlap with at
    * least one obstacle this frame. The IMU sampler reads this to
@@ -824,6 +830,17 @@ export const useStore = create<State>()(
         state.armPickupObservation,
         targetId,
         liftM,
+      );
+      return next === state.armPickupObservation
+        ? state
+        : { armPickupObservation: next };
+    }),
+  observeArmPickupGrasp: (targetId, assessment) =>
+    set((state) => {
+      const next = updateArmPickupGraspAssessment(
+        state.armPickupObservation,
+        targetId,
+        assessment,
       );
       return next === state.armPickupObservation
         ? state

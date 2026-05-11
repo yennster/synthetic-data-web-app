@@ -24,11 +24,14 @@ import { saveBlob } from '../lib/capture';
 import {
   buildDataAcquisitionPayload,
   buildFileName,
+  buildInfoLabelsEntry,
+  buildInfoLabelsFile,
   buildLidarDataAcquisitionPayload,
   buildRoverDataAcquisitionPayload,
   uploadLidarSample,
   uploadRoverSample,
   uploadSample,
+  type EdgeImpulseInfoLabelsEntry,
 } from '../lib/edgeImpulse';
 import { buildArmRosJsonl, buildRoverRosJsonl } from '../lib/rosMessages';
 import { useNumberInput } from '../lib/useNumberInput';
@@ -192,6 +195,7 @@ export function RobotPanel() {
     let failed = 0;
     let cancelled = false;
     const zipEntries: ZipEntry[] = [];
+    const infoLabelsEntries: EdgeImpulseInfoLabelsEntry[] = [];
 
     try {
       await sleepCancellable(60);
@@ -302,6 +306,14 @@ export function RobotPanel() {
             name: fileName,
             data: JSON.stringify(body, null, 2),
           });
+          infoLabelsEntries.push(
+            buildInfoLabelsEntry({
+              path: fileName,
+              category: runEi.category,
+              label: event,
+              metadataExtras: meta,
+            }),
+          );
           captured += 1;
         }
         if (robot.rosExport) {
@@ -350,15 +362,25 @@ export function RobotPanel() {
           }`,
         );
       } else if (zipEntries.length > 0) {
-        setStatus('busy', `Packaging ${zipEntries.length} files…`);
+        const entries =
+          infoLabelsEntries.length > 0
+            ? [
+                ...zipEntries,
+                {
+                  name: 'info.labels',
+                  data: buildInfoLabelsFile(infoLabelsEntries),
+                },
+              ]
+            : zipEntries;
+        setStatus('busy', `Packaging ${entries.length} files…`);
         const zipName = buildFileName(
-          `rover_${event}_${zipEntries.length}`,
+          `rover_${event}_${infoLabelsEntries.length || zipEntries.length}`,
         ).replace(/\.json$/, '.zip');
-        const zip = await buildZip(zipEntries);
+        const zip = await buildZip(entries);
         await saveBlob(zipName, zip);
         setStatus(
           cancelled || failed > 0 ? 'err' : 'ok',
-          `${headline}: downloaded ${zipEntries.length} files${failed ? ` · ${failed} failed` : ''}`,
+          `${headline}: downloaded ${entries.length} files${failed ? ` · ${failed} failed` : ''}`,
         );
       } else {
         setStatus('err', `${headline}: no samples captured`);
@@ -393,6 +415,7 @@ export function RobotPanel() {
     let failed = 0;
     let cancelled = false;
     const zipEntries: ZipEntry[] = [];
+    const infoLabelsEntries: EdgeImpulseInfoLabelsEntry[] = [];
     try {
       await sleepCancellable(60);
       for (let i = 0; i < robot.count; i++) {
@@ -475,6 +498,14 @@ export function RobotPanel() {
             name: fileName,
             data: JSON.stringify(body, null, 2),
           });
+          infoLabelsEntries.push(
+            buildInfoLabelsEntry({
+              path: fileName,
+              category: runEi.category,
+              label: trajectory,
+              metadataExtras: meta,
+            }),
+          );
           captured += 1;
         }
         if (robot.rosExport) {
@@ -511,15 +542,25 @@ export function RobotPanel() {
           `${headline}: ${uploaded} uploaded${failed ? ` · ${failed} failed` : ''}`,
         );
       } else if (zipEntries.length > 0) {
-        setStatus('busy', `Packaging ${zipEntries.length} samples…`);
+        const entries =
+          infoLabelsEntries.length > 0
+            ? [
+                ...zipEntries,
+                {
+                  name: 'info.labels',
+                  data: buildInfoLabelsFile(infoLabelsEntries),
+                },
+              ]
+            : zipEntries;
+        setStatus('busy', `Packaging ${entries.length} files…`);
         const zipName = buildFileName(
-          `arm_${trajectory}_${zipEntries.length}`,
+          `arm_${trajectory}_${infoLabelsEntries.length || zipEntries.length}`,
         ).replace(/\.json$/, '.zip');
-        const zip = await buildZip(zipEntries);
+        const zip = await buildZip(entries);
         await saveBlob(zipName, zip);
         setStatus(
           cancelled || failed > 0 ? 'err' : 'ok',
-          `${headline}: downloaded ${zipEntries.length} samples${failed ? ` · ${failed} failed` : ''}`,
+          `${headline}: downloaded ${entries.length} files${failed ? ` · ${failed} failed` : ''}`,
         );
       } else {
         setStatus('err', `${headline}: no samples captured`);
