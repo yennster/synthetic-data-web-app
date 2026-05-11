@@ -82,13 +82,18 @@ export function applyFilmGrain(
 }
 
 /**
- * Lateral chromatic aberration — shift the R channel `maxShift` pixels
- * one way and the B channel the same distance the other way, leaving
- * G in place. Mimics what cheap lenses do at the corners.
+ * Radial chromatic aberration — shift R outward and B inward along
+ * the vector from the image center, with the shift magnitude scaling
+ * with the squared distance from center. This is how real lenses
+ * fail: zero CA at the optical center, max CA at the corners.
  *
- * `intensity` ∈ [0, 1]; 0 is a no-op, 1 shifts by ~4 px each direction.
- * The actual per-call shift is randomized within [0, maxShift] so a
- * batch shows variation.
+ * `intensity` ∈ [0, 1]; 0 is a no-op, 1 shifts the corner channels
+ * by ~5 px. Each call randomizes the corner-shift within [0, max]
+ * so a batch shows variation rather than a flat filter.
+ *
+ * Bounding boxes stay valid against the result — the geometry never
+ * moves, we're only resampling RGB channels at slightly offset
+ * positions per pixel.
  */
 export function applyChromaticAberration(
   rgba: Uint8ClampedArray,
@@ -98,24 +103,41 @@ export function applyChromaticAberration(
   rng: Rng,
 ): Uint8ClampedArray {
   if (intensity <= 0) return rgba;
-  const maxShift = Math.max(1, Math.round(intensity * 4));
-  // Random per call so each capture in a batch shows a different
-  // amount of CA — flat shift looks like a filter, varied shift
-  // looks like a real (cheap) lens.
-  const shift = Math.max(1, Math.round(rng() * maxShift));
-
-  const original = new Uint8ClampedArray(rgba); // snapshot so we sample undisturbed pixels
+  const maxCornerShift = intensity * 5;
+  // Vary the corner shift per call so batches don't all look like the
+  // same filter pass — bare minimum 1px so the effect is visible.
+  const cornerShift = Math.max(1, rng() * maxCornerShift);
+  const cx = (width - 1) / 2;
+  const cy = (height - 1) / 2;
+  // Normalize against the corner distance so `cornerShift` is the
+  // pixel offset applied at the image corners specifically. r² gives
+  // a softer ramp than linear r — closer to the cos⁴-style falloff
+  // physical lenses exhibit.
+  const maxRSq = cx * cx + cy * cy;
+  const original = new Uint8ClampedArray(rgba);
   for (let y = 0; y < height; y++) {
+    const dy = y - cy;
     for (let x = 0; x < width; x++) {
+      const dx = x - cx;
+      const rSq = dx * dx + dy * dy;
+      const t = rSq / maxRSq;
+      const px = cornerShift * t; // shift magnitude in pixels at this radius
+      // Direction: outward unit vector from center. Avoid div-by-zero
+      // at the dead-center pixel (t==0 → no shift anyway).
+      const r = Math.sqrt(rSq);
+      const ux = r > 0 ? dx / r : 0;
+      const uy = r > 0 ? dy / r : 0;
+      const rShiftX = Math.round(ux * px);
+      const rShiftY = Math.round(uy * px);
+      const bShiftX = -rShiftX;
+      const bShiftY = -rShiftY;
       const dst = (y * width + x) * 4;
-      // Sample R from x+shift and B from x-shift, clamped to bounds
-      // so edge pixels don't wrap.
-      const rx = Math.min(width - 1, x + shift);
-      const bx = Math.max(0, x - shift);
-      const rIdx = (y * width + rx) * 4;
-      const bIdx = (y * width + bx) * 4 + 2;
-      rgba[dst] = original[rIdx];
-      rgba[dst + 2] = original[bIdx];
+      const rxs = Math.min(width - 1, Math.max(0, x + rShiftX));
+      const rys = Math.min(height - 1, Math.max(0, y + rShiftY));
+      const bxs = Math.min(width - 1, Math.max(0, x + bShiftX));
+      const bys = Math.min(height - 1, Math.max(0, y + bShiftY));
+      rgba[dst] = original[(rys * width + rxs) * 4];
+      rgba[dst + 2] = original[(bys * width + bxs) * 4 + 2];
       // G + A untouched
     }
   }
@@ -304,13 +326,7 @@ async function applyRandomToBlob(
   const bitmap = await createImageBitmap(blob);
   const w = bitmap.width;
   const h = bitmap.height;
-  const canvas: OffscreenCanvas | HTMLCanvasElement =
-    typeof OffscreenCanvas !== 'undefined'
-      ? new OffscreenCanvas(w, h)
-      : Object.assign(document.createElement('canvas'), {
-          width: w,
-          height: h,
-        });
+  const canvas = makeCanvas(w, h);
   const ctx = canvas.getContext('2d') as
     | OffscreenCanvasRenderingContext2D
     | CanvasRenderingContext2D
@@ -321,15 +337,56 @@ async function applyRandomToBlob(
   const imageData = ctx.getImageData(0, 0, w, h);
   applyRandomRealism(imageData.data, w, h, intensity, rng);
   ctx.putImageData(imageData, 0, 0);
-  // `convertToBlob` on OffscreenCanvas, `toBlob` on HTMLCanvasElement
-  // — branch over the union so TypeScript is happy on both paths.
+
+  // JPEG round-trip: encode the post-pass canvas to JPEG (lossy DCT,
+  // 8×8 block artifacts, mild color banding), decode it back, then
+  // re-encode as PNG so downstream code (`saveBlob`, EI upload) keeps
+  // the same content-type contract. Quality scales with intensity —
+  // high realism intensity means more aggressive compression artifacts.
+  // 0.92→0.65 maps the slider range onto "fine phone-camera JPEG" →
+  // "obvious WhatsApp-screenshot artifacts". This is the only step
+  // that actually introduces real camera-pipeline compression noise,
+  // which models trained on web photos learn to be invariant to.
+  const jpegQuality = 0.92 - intensity * 0.27;
+  const jpegBlob = await canvasToBlob(canvas, 'image/jpeg', jpegQuality);
+  if (!jpegBlob) return canvasToPng(canvas).then((b) => b ?? blob);
+  const jpegBitmap = await createImageBitmap(jpegBlob);
+  const finalCanvas = makeCanvas(w, h);
+  const finalCtx = finalCanvas.getContext('2d') as
+    | OffscreenCanvasRenderingContext2D
+    | CanvasRenderingContext2D
+    | null;
+  if (!finalCtx) return jpegBlob;
+  finalCtx.drawImage(jpegBitmap as unknown as CanvasImageSource, 0, 0);
+  jpegBitmap.close();
+  const pngBlob = await canvasToPng(finalCanvas);
+  return pngBlob ?? blob;
+}
+
+/** Build an OffscreenCanvas where available, fall back to an in-DOM
+ * canvas for jsdom / older paths. Internal helper for `applyRandomToBlob`. */
+function makeCanvas(w: number, h: number): OffscreenCanvas | HTMLCanvasElement {
+  if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(w, h);
+  return Object.assign(document.createElement('canvas'), { width: w, height: h });
+}
+
+/** Encode any canvas (Offscreen or HTML) to a blob with the given MIME
+ * type + quality. Returns null on failure so the caller can fall back. */
+function canvasToBlob(
+  canvas: OffscreenCanvas | HTMLCanvasElement,
+  type: string,
+  quality?: number,
+): Promise<Blob | null> {
   if ('convertToBlob' in canvas) {
-    return canvas.convertToBlob({ type: 'image/png' });
+    return canvas.convertToBlob({ type, quality }).catch(() => null);
   }
-  return new Promise<Blob>((resolve, reject) => {
-    (canvas as HTMLCanvasElement).toBlob(
-      (b) => (b ? resolve(b) : reject(new Error('toBlob failed'))),
-      'image/png',
-    );
+  return new Promise((resolve) => {
+    (canvas as HTMLCanvasElement).toBlob((b) => resolve(b), type, quality);
   });
+}
+
+function canvasToPng(
+  canvas: OffscreenCanvas | HTMLCanvasElement,
+): Promise<Blob | null> {
+  return canvasToBlob(canvas, 'image/png');
 }
