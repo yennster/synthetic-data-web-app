@@ -36,7 +36,7 @@ If you'd rather skip the camera entirely, use the **procedural motion generator*
 
 ![Synthetic Data Studio — Object detection mode](../docs/screenshots/screenshot-detection.png)
 
-You can spawn objects (cube, sphere, cylinder, cone, torus, capsule, phone slab, soda can — or import your own [USDZ assets](https://openusd.org/release/spec_usdz.html)), give them labels, drop them on a backdrop, point the virtual camera at them, and capture. Single shots or randomized batches. Bounding boxes are auto-projected from each labelled mesh's world-space and auto-uploaded to your Edge Impulse project, no user bounding box labeling required.
+You can spawn objects (cube, sphere, cylinder, torus, capsule, phone slab, soda can — or import your own [USDZ assets](https://openusd.org/release/spec_usdz.html)), give them labels, drop them on a backdrop, point the virtual camera at them, and capture. Single shots or randomized batches. Bounding boxes are auto-projected from each labelled mesh's world-space and auto-uploaded to your Edge Impulse project, no user bounding box labeling required.
 
 ### Robotics mode — rover and arm time-series
 

@@ -253,7 +253,7 @@ async function seedScene(page, target) {
       ],
       [
         'cylinder',
-        'traffic cone',
+        'pillar',
         'rover',
         {
           position: [0.45, 0.3, -1.05],
