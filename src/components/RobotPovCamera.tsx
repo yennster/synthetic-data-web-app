@@ -1,6 +1,12 @@
 import { useFrame, useThree } from '@react-three/fiber';
 import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
+import {
+  createReadbackBlitState,
+  ensureReadbackBlitState,
+  putFlippedReadback,
+  resetReadbackBlitState,
+} from '../lib/readbackBlit';
 import { useStore } from '../store/useStore';
 
 /**
@@ -48,7 +54,9 @@ export function RobotPovCamera({
     });
     return t;
   }, []);
-  const pixelBuf = useRef<Uint8Array | null>(null);
+  const readback = useRef(createReadbackBlitState());
+  const previewCtx = useRef<CanvasRenderingContext2D | null>(null);
+  const previewCtxCanvas = useRef<HTMLCanvasElement | null>(null);
   const lastPreviewMs = useRef(0);
 
   useEffect(() => {
@@ -62,7 +70,7 @@ export function RobotPovCamera({
     const w = Math.max(1, previewCanvas.width);
     const h = Math.max(1, previewCanvas.height);
     previewTarget.setSize(w, h);
-    pixelBuf.current = new Uint8Array(w * h * 4);
+    resetReadbackBlitState(readback.current);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
   }, [previewCanvas, previewTarget, camera]);
@@ -81,7 +89,7 @@ export function RobotPovCamera({
     const canvasH = Math.max(1, previewCanvas.height);
     if (previewTarget.width !== canvasW || previewTarget.height !== canvasH) {
       previewTarget.setSize(canvasW, canvasH);
-      pixelBuf.current = new Uint8Array(canvasW * canvasH * 4);
+      resetReadbackBlitState(readback.current);
       camera.aspect = canvasW / canvasH;
       camera.updateProjectionMatrix();
     }
@@ -113,24 +121,21 @@ export function RobotPovCamera({
 
     const w = previewTarget.width;
     const h = previewTarget.height;
-    const buf = pixelBuf.current ?? new Uint8Array(w * h * 4);
-    pixelBuf.current = buf;
-    gl.readRenderTargetPixels(previewTarget, 0, 0, w, h, buf);
-
-    const ctx = previewCanvas.getContext('2d');
-    if (!ctx) return;
-    const flipped = new Uint8ClampedArray(buf.length);
-    for (let y = 0; y < h; y++) {
-      const src = (h - 1 - y) * w * 4;
-      const dst = y * w * 4;
-      flipped.set(buf.subarray(src, src + w * 4), dst);
+    if (previewCtxCanvas.current !== previewCanvas) {
+      previewCtxCanvas.current = previewCanvas;
+      previewCtx.current = previewCanvas.getContext('2d');
+      resetReadbackBlitState(readback.current);
     }
-    const img = new ImageData(flipped, w, h);
+    const ctx = previewCtx.current;
+    if (!ctx) return;
     if (previewCanvas.width !== w || previewCanvas.height !== h) {
       previewCanvas.width = w;
       previewCanvas.height = h;
+      resetReadbackBlitState(readback.current);
     }
-    ctx.putImageData(img, 0, 0);
+    const pixels = ensureReadbackBlitState(readback.current, ctx, w, h);
+    gl.readRenderTargetPixels(previewTarget, 0, 0, w, h, pixels);
+    putFlippedReadback(ctx, readback.current);
   });
 
   return null;

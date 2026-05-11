@@ -19,7 +19,8 @@ import {
 } from '../lib/edgeImpulse';
 import { randomPreReleaseMs } from '../lib/proceduralMotion';
 import { useNumberInput } from '../lib/useNumberInput';
-import { buildZip, type ZipEntry } from '../lib/zip';
+import type { ZipEntry } from '../lib/zip';
+import { buildZipOffThread } from '../lib/zipWorkerClient';
 import { EiAuthCard } from './EiAuthCard';
 import { ImuNoiseToggle } from './ImuNoiseToggle';
 
@@ -527,7 +528,7 @@ export function MotionPanel() {
         const zipName = buildFileName(
           `motions_${infoLabelsEntries.length || zipEntries.length}`,
         ).replace(/\.json$/, '.zip');
-        const zip = await buildZip(entries);
+        const zip = await buildZipOffThread(entries);
         await saveBlob(zipName, zip);
         setStatus(
           cancelled || failed > 0 ? 'err' : 'ok',
@@ -560,7 +561,7 @@ export function MotionPanel() {
             const zipName = buildFileName(
               `motions_${infoLabelsEntries.length || zipEntries.length}`,
             ).replace(/\.json$/, '.zip');
-            const zip = await buildZip(entries);
+            const zip = await buildZipOffThread(entries);
             await saveBlob(zipName, zip);
             setStatus(
               'err',

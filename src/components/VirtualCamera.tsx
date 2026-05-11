@@ -9,7 +9,12 @@ import {
   saveBlob,
 } from '../lib/capture';
 import { BELT_TRANSPORTABLES, isOnBelt } from '../lib/beltDynamics';
-import { buildZip } from '../lib/zip';
+import {
+  createReadbackBlitState,
+  ensureReadbackBlitState,
+  putFlippedReadback,
+} from '../lib/readbackBlit';
+import { buildZipOffThread } from '../lib/zipWorkerClient';
 import { canvasToFeatures } from '../lib/eiModel';
 
 /**
@@ -70,8 +75,10 @@ export function VirtualCamera({
     });
     return t;
   }, []);
-  // Pixel buffer for readback — reused across frames.
-  const pixelBuf = useRef<Uint8Array | null>(null);
+  // Pixel + ImageData buffers for readback — reused across frames.
+  const readback = useRef(createReadbackBlitState());
+  const previewCtx = useRef<CanvasRenderingContext2D | null>(null);
+  const previewCtxCanvas = useRef<HTMLCanvasElement | null>(null);
   const lastPreviewMs = useRef(0);
   const lastInferenceMs = useRef(0);
   const inferenceSignal = useStore((s) => s.inferenceSignal);
@@ -149,7 +156,11 @@ export function VirtualCamera({
 
   function renderPreview() {
     if (!previewCanvas) return;
-    const ctx = previewCanvas.getContext('2d');
+    if (previewCtxCanvas.current !== previewCanvas) {
+      previewCtxCanvas.current = previewCanvas;
+      previewCtx.current = previewCanvas.getContext('2d');
+    }
+    const ctx = previewCtx.current;
     if (!ctx) return;
 
     // Match the render target's size to the preview canvas (in CSS pixels).
@@ -157,11 +168,8 @@ export function VirtualCamera({
     const h = previewCanvas.height;
     if (previewTarget.width !== w || previewTarget.height !== h) {
       previewTarget.setSize(w, h);
-      pixelBuf.current = null;
     }
-    if (!pixelBuf.current || pixelBuf.current.length !== w * h * 4) {
-      pixelBuf.current = new Uint8Array(w * h * 4);
-    }
+    const pixels = ensureReadbackBlitState(readback.current, ctx, w, h);
 
     // Render the scene with the helper hidden so its frustum lines don't
     // crisscross the preview.
@@ -182,21 +190,8 @@ export function VirtualCamera({
     // Read back into a CPU buffer and blit to the 2D preview canvas.
     // WebGL textures are origin bottom-left, so we flip vertically when
     // putting into the canvas.
-    const buf = pixelBuf.current;
-    gl.readRenderTargetPixels(previewTarget, 0, 0, w, h, buf);
-
-    const img = ctx.createImageData(w, h);
-    // Flip rows: source row y → dest row (h-1-y)
-    const rowBytes = w * 4;
-    for (let y = 0; y < h; y++) {
-      const srcStart = y * rowBytes;
-      const dstStart = (h - 1 - y) * rowBytes;
-      img.data.set(
-        buf.subarray(srcStart, srcStart + rowBytes),
-        dstStart,
-      );
-    }
-    ctx.putImageData(img, 0, 0);
+    gl.readRenderTargetPixels(previewTarget, 0, 0, w, h, pixels);
+    putFlippedReadback(ctx, readback.current);
   }
 
   // Single-shot capture
@@ -280,7 +275,7 @@ export function VirtualCamera({
               [buildBoundingBoxLabelsFile([captureRecord])],
               { type: 'application/json' },
             );
-            const zipBlob = await buildZip([
+            const zipBlob = await buildZipOffThread([
               { name: filename, data: blob },
               { name: 'bounding_boxes.labels', data: labelsBlob },
             ]);
@@ -443,7 +438,7 @@ export function VirtualCamera({
             }),
           });
         }
-        const zipBlob = await buildZip(entries);
+        const zipBlob = await buildZipOffThread(entries);
         try {
           await saveBlob(zipName, zipBlob);
         } catch (e) {
