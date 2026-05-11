@@ -16,6 +16,25 @@ The **Capture from real life** card (in the Detection / Anomaly / Robotics sideb
 2. **On Mac (macOS 12+)**: run Apple's [`HelloPhotogrammetry`](https://developer.apple.com/documentation/realitykit/creating-a-photogrammetry-command-line-app) command-line sample on a folder of photos to produce a USDZ headlessly.
 3. AirDrop / copy the resulting `.usdz` over and drop it into the **Import (.usdz)** card. From there it has scale / position / yaw / label / physics controls just like any other imported asset.
 
+## Robotics imports
+
+Robotics mode keeps imported robot assets separate from the detection /
+anomaly scene pool:
+
+- **Imported pickups** are Braccio pick-and-place targets. The original
+  USDZ visual follows the simulated MuJoCo body, while the physical grasp
+  proxy is a box derived from the asset's scaled bounds. The importer
+  normalizes assets so their footprint sits on the floor; use the scale
+  controls to make the object small enough for the Braccio gripper.
+- **Imported obstacles** are rover obstacles. Their scaled footprint is
+  approximated as a MuJoCo collision obstacle and the visible mesh is
+  included in the rover lidar raycast group.
+
+For pick-and-place samples, the app records whether the imported pickup
+was successfully lifted. If the object falls over, drifts away, or cannot
+reasonably fit the grasp, the sample metadata marks the pickup as failed
+instead of counting it as a successful placement.
+
 ## Converting `.usd` / `.usda` / `.usdc` to `.usdz`
 
 If you have a non-zipped USD file, you can package it with the OpenUSD CLI tools:

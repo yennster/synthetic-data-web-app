@@ -20,6 +20,10 @@ src/
 │   ├── MotionPanel.tsx           // Motion-mode controls
 │   ├── VisionPanel.tsx           // Detection / Anomaly controls
 │   ├── RobotPanel.tsx            // Robotics-mode controls
+│   ├── SceneObjectsCard.tsx      // Object / robot-scene object controls
+│   ├── ImportedAssetsCard.tsx    // USDZ import rows and transform controls
+│   ├── ObjectCaptureCard.tsx     // Real-world USDZ capture guidance
+│   ├── ImuNoiseToggle.tsx        // Shared IMU noise enable / disable control
 │   ├── Conveyor.tsx              // Animated conveyor belt prop (incl. wall colliders)
 │   ├── SpawnedObjects.tsx        // Multi-object spawn renderer (physics on/off)
 │   ├── ImportedAssets.tsx        // USDZ asset renderer with transforms + bbox tags
@@ -37,6 +41,9 @@ src/
 │   ├── braccio.ts                // Braccio joint limits + link lengths
 │   ├── braccioIk.ts              // Analytical IK solver + lerp helper
 │   ├── armTrajectories.ts        // Parametric joint-space trajectory generators
+│   ├── armPickupGeometry.ts      // Floor-safe gripper target helpers
+│   ├── armPickupOutcome.ts       // Pick-and-place success / failure metadata
+│   ├── importedAssetBounds.ts    // USDZ bounds normalization + scaled extents
 │   ├── imuNoise.ts               // LSM6DSO-calibrated synthetic noise model
 │   ├── mujoco/                   // MuJoCo (WebAssembly) physics + sensor pipeline
 │   │   ├── runtime.ts            //   Lazy WASM loader (singleton, ?url-resolved binary)
@@ -50,7 +57,8 @@ src/
 │   │   └── MotionSim.ts          //   Motion-mode wrapper: grab/release via weld eq
 │   ├── dragMove.ts               // Shift+drag pointer-event handlers (XZ plane)
 │   ├── capture.ts                // Off-screen render, bbox projection, download helper
-│   ├── edgeImpulse.ts            // Ingestion API + Studio API (list projects, fetch deployment)
+│   ├── edgeImpulse.ts            // Ingestion API, metadata sidecars, Studio API
+│   ├── rosMessages.ts            // ROS 2 JSONL message builders
 │   ├── eiModel.ts                // EI WebAssembly model loader + classifier wrapper
 │   ├── embed.ts                  // URL-param readers (apiKey / category / theme), iframe height
 │   ├── useTheme.ts               // Theme state hook + setter (persisted in localStorage)
@@ -67,7 +75,7 @@ Every scene that records IMU data — motion mode, the Braccio arm, the rover �
 | Mode    | Wrapper      | Body topology                                                |
 |---------|--------------|--------------------------------------------------------------|
 | Motion  | `MotionSim`  | Free-joint manipulated body + mocap "hand" + weld equality. The shape (cube/sphere/phone/…) is baked into a per-kind MJCF that gets recompiled on `loadShape()`. |
-| Arm     | `BraccioSim` | 5 revolute joints + 2 mirrored slide fingers + free-joint pickup target. Position actuators on every joint; the pickup target is moved with `placeTarget()` and grasped via friction. |
+| Arm     | `BraccioSim` | 5 revolute joints + 2 mirrored slide fingers + free-joint pickup box. Position actuators on every joint; the pickup target is rebuilt to primitive or USDZ-derived bounds, moved with `placeTarget()`, and grasped via friction. |
 | Rover   | `RoverSim`   | Planar chassis (x slide, z slide, yaw hinge) + N static obstacle bodies. `rebuildWithObstacles()` recompiles the model when the scene's rover obstacles change. |
 
 The WASM binary is ~8.6 MB and only loads when one of these scenes mounts (lazy `import()` in `lib/mujoco/runtime.ts`). Vite's `?url` import + an Emscripten `locateFile` hook resolve the `.wasm` next to the JS module.
@@ -110,7 +118,11 @@ The manipulated body is a real free-joint body in MuJoCo. A mocap body called `h
 
 ### Arm: real grasping
 
-The Braccio MJCF contains a free-joint cube body (`target`) and high-friction gripper finger geoms. At the start of a `pick_place` run, `BraccioSim.placeTarget(pos)` writes the cube to the user's selected scene position with zero velocity. The trajectory's IK keyframes close the gripper at the right time and the fingers physically trap the cube via Coulomb friction. `SpawnedObjects` in `Scene.tsx` filters the active target id so the visual scene doesn't draw two cubes (the kinematic three.js mesh and MuJoCo's owned mesh would otherwise overlap).
+The Braccio MJCF contains a free-joint pickup box body (`target`) and high-friction gripper finger geoms. Default primitive pickups use a 3 cm cube proxy. Imported USDZ pickups are measured from their normalized bounds, then `BraccioSim.setTargetHalfExtents()` rebuilds the MuJoCo target box to match the imported asset's scaled size before `BraccioSim.placeTarget(pos)` writes it to the user's selected scene position with zero velocity.
+
+The trajectory's IK keyframes close the gripper at the right time and the fingers physically trap the target via Coulomb friction. `BraccioArm` observes the target during the close / lift window; targets that tip beyond 40 degrees or drift outside the footprint tolerance are marked ungraspable and the commanded gripper stays open. `floorSafePickupTipY()` also keeps the ideal gripper tip high enough that the rendered / MuJoCo finger pads cannot pass through the floor when reaching for floor-resting objects.
+
+`SpawnedObjects` and `ImportedAssets` in `Scene.tsx` filter the active target id so the visual scene doesn't draw two copies. `BraccioArm` draws the active target at MuJoCo's settled pose instead.
 
 ### Rover: MuJoCo-native collisions
 
@@ -148,26 +160,19 @@ Result: tight axis-aligned 2D boxes in pixel coordinates with top-left origin �
 | Conveyor belt size | `beltDynamics.ts` | 1.6 × 8 m |
 | Conveyor sideways-damping factor | `Conveyor.tsx` `lv.x * 0.4` | 0.4 |
 | Lidar bins | UI / `useStore.ts` | 16 |
-| Lidar max range | UI / `useStore.ts` | 20 m |
-| Braccio rest pose | `braccio.ts` | all joints at 0 rad (aperture 0) |
+| Lidar max range | UI / `useStore.ts` | 6 m default, 1-20 m UI range |
+| Braccio rest pose | `braccio.ts` | M1 70°, M2 15°, M3 50°, M4 90°, M5 180°, M6 aperture 1 |
+| Braccio floor-safe tip | `armPickupGeometry.ts` | 0.023 m min tip height |
+| Pickup success lift threshold | `armPickupOutcome.ts` | 0.02 m |
+| Pickup max allowed tilt | `armPickupOutcome.ts` | 40° |
 | MuJoCo timestep | per-MJCF `<option timestep>` | 2 ms (arm) · 5 ms (rover, motion) |
 | Step catch-up cap | each `*Sim.step()` | 25 steps / frame (~50–125 ms wall-clock) |
 
 ## Edge Impulse payload formats
 
-**Motion mode / Robotics mode (Arm)** (`/api/{training,testing}/data`):
+**Motion mode / Robotics mode (time-series JSON through `/api/{training,testing}/files`):**
 
-Standard 6-channel IMU JSON format (accel + gyro).
-
-**Robotics mode (Rover)** (`/api/{training,testing}/data`):
-
-Depending on **Modality**, the `sensors` array contains:
-- **Fused**: `accX/Y/Z`, `gyrX/Y/Z`, plus `r0` through `rN-1` for lidar range bins.
-- **IMU only**: 6 IMU channels.
-- **Lidar only**: N range channels.
-
-**Detection / Anomaly mode** (`/api/{training,testing}/files`, multipart):
-
+Motion, arm, and rover samples are first built in the Edge Impulse data-acquisition JSON format. For direct upload, that JSON is attached as multipart form field `data` at the Ingestion API `/files` endpoint. This lets the same request carry `x-label`, `x-metadata`, duplicate handling, and optional split-bucket routing in the standard file-ingestion path.
 
 ```json
 {
@@ -189,6 +194,15 @@ Depending on **Modality**, the `sensors` array contains:
   }
 }
 ```
+
+HMAC signing, when an HMAC key is present, signs this JSON envelope before the JSON is attached to the multipart upload. The browser does not set `Content-Type` manually for these uploads, so the `FormData` boundary remains valid.
+
+For robotics rover samples, the `sensors` array depends on **Modality**:
+- **Fused**: `accX/Y/Z`, `gyrX/Y/Z`, plus `r0` through `rN-1` for lidar range bins.
+- **IMU only**: 6 IMU channels.
+- **Lidar only**: N range channels.
+
+When time-series samples are downloaded locally instead of uploaded, the zip contains the per-sample JSON files plus `info.labels`. That sidecar mirrors the direct-upload label and metadata so Edge Impulse's uploader can attach them when the folder or zip is imported.
 
 **Detection / Anomaly mode** (`/api/{training,testing}/files`, multipart):
 
@@ -212,11 +226,15 @@ When you save a single detection-mode capture to disk, it downloads as a `.zip` 
 
 ## Auto-attached EI metadata
 
-Every uploaded sample carries an `x-metadata` JSON header (per the [EI metadata API](https://docs.edgeimpulse.com/studio/projects/data-acquisition/metadata)) tagging it with:
+Every direct-uploaded sample carries an `x-metadata` JSON header (per the [EI metadata API](https://docs.edgeimpulse.com/studio/projects/data-acquisition/metadata)). Every downloaded time-series zip carries the same metadata in `info.labels`, because local JSON files do not have request headers when they are later uploaded through Studio.
+
+Common metadata includes:
 
 - `source: Synthetic Data Studio`
 - The page URL
-- The object kind
-- Motion class (motion mode) or scene contents (vision mode: shapes present, USDZ asset filenames + labels, environment preset, conveyor state, image dimensions, capture timestamp)
+- Mode / robot kind / trajectory or event class
+- Iteration index, total batch size, duration, upload modality, split bucket, and sensor settings where applicable
+- Scene contents for vision captures: shapes present, USDZ asset filenames + labels, environment preset, conveyor state, image dimensions, capture timestamp
+- Arm `pick_place` outcome fields: `pickup_attempted`, `pickup_success`, max lift, threshold, graspability, failure reason, max tilt, and horizontal drift
 
 Lets you filter the EI data view by where samples came from and how they were generated — no UI fields, fully automatic.

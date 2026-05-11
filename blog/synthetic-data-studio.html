@@ -121,9 +121,9 @@
 
   <p>So I wanted to know: how much of the synthetic-data story can we collapse back into the same web browser where the rest of Edge Impulse already lives? What if there was a "good enough" version of the renderer that ran on whatever GPU the user already has — including the integrated one in their laptop — with no install, no permissions beyond a webcam toggle, and no context switch?</p>
 
-  <p><a href="https://synthetic.jennyspeelman.dev/"><strong>Synthetic Data Studio</strong></a> is a browser-based 3D tool for generating synthetic training data for Edge Impulse projects. No Unity, no Blender, no Python, no Omniverse — just a web app running Three.js and Rapier. Open it, pick a mode, paste your project API key, and start ingesting samples via the <a href="https://docs.edgeimpulse.com/reference/data-ingestion/ingestion-api">Edge Impulse Ingestion API</a>.</p>
+  <p><a href="https://synthetic.jennyspeelman.dev/"><strong>Synthetic Data Studio</strong></a> is a browser-based 3D tool for generating synthetic training data for Edge Impulse projects. No Unity, no Blender, no Python, no Omniverse — just a web app running Three.js, MuJoCo, and Rapier where each fits best. Open it, pick a mode, paste your project API key, and start ingesting samples via the <a href="https://docs.edgeimpulse.com/apis/ingestion">Edge Impulse Ingestion API</a>.</p>
 
-  <p>The project was entirely built with <a href="https://www.anthropic.com/claude-code">Claude Code</a> over a few days. More on that below.</p>
+  <p>The first version was built with <a href="https://www.anthropic.com/claude-code">Claude Code</a> over a few days. More on that below.</p>
 
   <blockquote>
   <p><strong>Try it now:</strong> open the <a href="https://synthetic.jennyspeelman.dev/">live demo at synthetic.jennyspeelman.dev</a>, or clone the repo at <a href="https://github.com/yennster/synthetic-data-studio">github.com/yennster/synthetic-data-studio</a> and run it locally.</p>
@@ -131,9 +131,9 @@
 
   <p>If you do not have an Edge Impulse account yet, <a href="https://studio.edgeimpulse.com/signup">sign up for free at edgeimpulse.com</a> — the Studio's upload + retrain features need a project API key, and the free tier is more than enough to follow along.</p>
 
-  <h2>Three data types, one app</h2>
+  <h2>Four data types, one app</h2>
 
-  <p>The Synthetic Data Studio gives you three workflows that share a scene, an asset pipeline, and Edge Impulse API authentication. You pick the mode at the top of the sidebar — everything else reshapes around what you're doing.</p>
+  <p>The Synthetic Data Studio gives you four workflows that share a scene, an asset pipeline, and Edge Impulse API authentication. You pick the mode at the top of the sidebar — everything else reshapes around what you're doing.</p>
 
   <h3>Motion mode — IMU traces from a virtual object</h3>
 
@@ -154,6 +154,10 @@
 
   <p>You can spawn objects (cube, sphere, cylinder, cone, torus, capsule, phone slab, soda can — or import your own <a href="https://openusd.org/release/spec_usdz.html">USDZ assets</a>), give them labels, drop them on a backdrop, point the virtual camera at them, and capture. Single shots or randomized batches. Bounding boxes are auto-projected from each labelled mesh's world-space and auto-uploaded to your Edge Impulse project, no user bounding box labeling required.</p>
 
+  <h3>Robotics mode — rover and arm time-series</h3>
+
+  <p>Robotics mode adds two MuJoCo-backed rigs: a differential-drive rover with chassis IMU plus configurable lidar / ToF range bins, and an Arduino TinkerKit Braccio arm with end-effector IMU and pick-and-place trajectories. Rover samples are labelled as <code>cruise</code>, <code>collision</code>, or <code>stuck</code>; arm samples are labelled by trajectory. Imported USDZ assets can be rover obstacles or Braccio pickup targets, and pick-and-place metadata records whether the object was actually lifted successfully.</p>
+
   <h3>Inference, in the browser</h3>
 
   <figure>
@@ -164,13 +168,14 @@
 
   <h2>Auto-attached EI metadata</h2>
 
-  <p>Every sample uploaded from the Synthetic Data Studio carries an <a href="https://docs.edgeimpulse.com/studio/projects/data-acquisition/metadata"><code>x-metadata</code></a> JSON header tagging it with:</p>
+  <p>Every sample uploaded directly from the Synthetic Data Studio carries an <a href="https://docs.edgeimpulse.com/studio/projects/data-acquisition/metadata"><code>x-metadata</code></a> JSON header, and downloaded time-series zips include an <code>info.labels</code> sidecar so the same labels and metadata survive a later Studio upload. The metadata tags samples with:</p>
 
   <ul>
   <li><code>source: "Synthetic Data Studio"</code></li>
   <li><code>source_url</code>: the page URL the sample was generated on</li>
   <li><code>shape</code>: object kind for default primitives (motion mode) or <code>shapes</code> (vision mode, comma-separated)</li>
   <li><code>motion</code>: motion class for procedural runs</li>
+  <li><code>robot_kind</code>, <code>event</code>, <code>trajectory</code>, <code>modality</code>, <code>lidar_bins</code>, and pickup outcome fields for robotics runs</li>
   <li><code>env_preset</code>, <code>conveyor</code>, <code>width</code>, <code>height</code>, <code>capture_ts</code>: scene context (vision mode)</li>
   <li><code>asset_files</code> + <code>asset_labels</code>: filenames + labels of imported USDZ assets present at capture time</li>
   <li><code>split_bucket</code>: which side of the 80:20 split a sample landed on (when split mode is enabled)</li>
@@ -180,7 +185,7 @@
 
   <h2>Vibe-coding the project</h2>
 
-  <p>A note on how this was built: I have never used Three.js, I have never shipped a Rapier physics integration before, and I've never built a USDZ importer. None of that mattered. I described what I wanted, Claude Code wrote the first draft, I tested it, and I asked it to fix what did not work. The entire project was built by talking to a coding assistant in plain English.</p>
+  <p>A note on how the first version was built: I have never used Three.js, I have never shipped a Rapier physics integration before, and I'd never built a USDZ importer. None of that mattered. I described what I wanted, Claude Code wrote the first draft, I tested it, and I asked it to fix what did not work. The project has kept evolving through the same conversational coding workflow.</p>
 
   <p>If you want to try this approach on your own Edge Impulse project, <strong>we just published a series of guides</strong> that walk through using AI coding assistants - Claude Code, Gemini CLI, GitHub Copilot, and more - with the Edge Impulse SDKs and APIs:</p>
 

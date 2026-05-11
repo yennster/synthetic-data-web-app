@@ -12,7 +12,9 @@
 
 **Edge Impulse 401 / 403** — API key missing or invalid. Double-check **Dashboard → Keys** in your project.
 
-**Edge Impulse "invalid signature"** (motion only) — Either fill in the HMAC key from your project, or leave it blank to send unsigned (`alg: "none"`). HMAC is **only** for the JSON data-acquisition format used by motion uploads; image / file uploads (vision modes) authenticate with the API key alone, so there's no HMAC field there.
+**Edge Impulse "invalid signature"** (motion / robotics time-series) — Either fill in the HMAC key from your project, or leave it blank to send unsigned (`alg: "none"`). HMAC signs the JSON data-acquisition envelope before it is attached to the multipart `/files` upload. Image uploads authenticate with the API key alone, so vision modes do not show an HMAC field.
+
+**Edge Impulse metadata is missing in Studio** — Re-upload samples generated with the current app. Direct uploads attach metadata as the `x-metadata` header; downloaded time-series zips attach the same metadata in `info.labels`. If you upload individual JSON files from inside the zip without the sidecar, Studio cannot recover the metadata. In Studio, metadata is shown on the selected sample's details, not as a default column in the dataset table.
 
 **"No WebAssembly deployment built yet"** when fetching a model — go to the Edge Impulse Studio: **Deployment → WebAssembly → Build**. Once the build completes the studio caches it and the app's Fetch & load button will work.
 
@@ -24,6 +26,8 @@
 
 **Rover is spinning in circles or hitting obstacles** — the `cruise` trajectory requires a clear straight path. Try clicking **Reset scene** to get a new layout, or drag obstacles manually with `Shift+drag` to clear a path.
 
-**Braccio arm "Target unreachable"** — the analytical IK solver clamps to the physical limits of the arm. If the pickup target is too far or too close, the arm will reach as far as it can. Position your pickup targets within the arm's reach (approx. 10–40 cm from the base).
+**Braccio arm "Target unreachable"** — the analytical IK solver clamps to the physical limits of the arm. If the pickup target is too far or too close, the arm will reach as far as it can. Use **Randomize pickups** or position floor pickup targets near the reachable annulus in front of the base (roughly 11–22 cm radial distance for floor pick-and-place).
 
-**ROS 2 export files are missing** — make sure **ROS export** is toggled ON in the Sensor modality card before starting the generator. The files are bundled into the same zip as the Edge Impulse samples.
+**Arm pickup is marked failed** — this is intentional when the target tipped over, drifted away, or could not plausibly fit the gripper during the close / lift window. The simulator keeps the gripper from grabbing impossible targets and records the failure in metadata (`pickup_success=false`, plus a failure reason when known).
+
+**ROS 2 export files are missing** — make sure **ROS export** is toggled ON in the Sensor modality card before starting the generator. The files are bundled into the same zip as the Edge Impulse samples. Rover exports include IMU + LaserScan JSONL; arm exports include IMU + JointState JSONL.
