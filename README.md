@@ -59,6 +59,7 @@ Built with AI coding assistants.
 - Virtual capture camera (XYZ + target + FOV) with frustum gizmo.
 - Single-shot capture downloads as a zip with the PNG + matching `bounding_boxes.labels` sidecar; batch capture randomizes camera / lighting / object positions and zips the whole batch.
 - Direct upload to EI with bounding boxes attached; one-click retrain.
+- **Realism post-process** — optional per-capture pixel pass that adds film grain, chromatic aberration, vignette, and color jitter to narrow the sim-to-real gap. Geometry never moves, so bounding boxes stay byte-perfect against the modified PNG. Random pass runs client-side; Diffusion mode is reserved for a future server-side img2img endpoint.
 - Scene state persists across reloads (primitives, USDZ assets, camera settings).
 
 **Edge Impulse model inference (vision + robot POV)**
@@ -76,6 +77,7 @@ Built with AI coding assistants.
 - First-person POV camera (front-mounted on rover, wrist-mounted on arm) renders into the corner overlay so you can see what the robot's onboard camera would see during the trajectory.
 - **Object detection capture**: toggle on to layer image capture (with auto-projected 2D bounding boxes) on top of the sensor recording. The runner probes the linked EI project's data type up-front and asks you to confirm — matching data uploads, conflicting data downloads as a local zip with `bounding_boxes.labels`. Configurable N images per iteration (mid-motion) or one image at rest. Lidar / ToF beams are auto-hidden from the captured PNGs.
 - **Live model inference on the POV preview**: when object detection is on, load an Edge Impulse WebAssembly deployment and run it against the rover / arm POV at 5 Hz to see what the onboard model would detect.
+- **Realism post-process** also available here — applies to the POV image captures when object detection is on.
 
 - URL deep links: `?mode=robotics&robot=arm` lands directly on the arm rig.
 

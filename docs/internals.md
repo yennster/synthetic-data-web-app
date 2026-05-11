@@ -23,6 +23,8 @@ src/
 │   ├── SceneObjectsCard.tsx      // Object / robot-scene object controls
 │   ├── ImportedAssetsCard.tsx    // USDZ import rows and transform controls
 │   ├── ObjectCaptureCard.tsx     // Real-world USDZ capture guidance
+│   ├── CollapsibleCard.tsx       // Shared collapsible-card chrome (chevron + badge)
+│   ├── RealismCard.tsx           // Off / Random / Diffusion realism picker + intensity
 │   ├── ImuNoiseToggle.tsx        // Shared IMU noise enable / disable control
 │   ├── Conveyor.tsx              // Animated conveyor belt prop (incl. wall colliders)
 │   ├── SpawnedObjects.tsx        // Multi-object spawn renderer (physics on/off)
@@ -57,6 +59,8 @@ src/
 │   │   └── MotionSim.ts          //   Motion-mode wrapper: grab/release via weld eq
 │   ├── dragMove.ts               // Shift+drag pointer-event handlers (XZ plane)
 │   ├── capture.ts                // Off-screen render, bbox projection, download helper
+│   ├── robotCapture.ts           // Awaitable bridge for in-canvas POV-camera frames
+│   ├── realism.ts                // Sim-to-real pixel transforms (grain, CA, vignette, jitter)
 │   ├── edgeImpulse.ts            // Ingestion API, metadata sidecars, Studio API
 │   ├── rosMessages.ts            // ROS 2 JSONL message builders
 │   ├── eiModel.ts                // EI WebAssembly model loader + classifier wrapper

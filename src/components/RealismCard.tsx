@@ -35,7 +35,6 @@ export function RealismCard() {
   return (
     <CollapsibleCard
       heading="Realism"
-      defaultOpen={active}
       badge={active ? `${realism.mode} · ${(realism.intensity * 100).toFixed(0)}%` : undefined}
     >
       <div

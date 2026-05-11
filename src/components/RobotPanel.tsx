@@ -1535,9 +1535,10 @@ export function RobotPanel() {
         )}
       </div>
 
-      {/* Realism only applies to image captures, so the card piggybacks
-          on the same `objectDetection` gate as the inference card. */}
-      {robot.objectDetection && <RealismCard />}
+      {/* Realism is always available in robotics for parity with the
+          vision panels. It only modifies image captures, so it's a
+          no-op for sensor-only runs. */}
+      <RealismCard />
 
       <EiAuthCard showHmac />
 

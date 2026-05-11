@@ -24,18 +24,27 @@ function slug(s) {
 }
 
 /**
- * Find a card by its <h3> heading. The fast path matches the exact
- * heading string; the fallback matches by prefix so dynamic counts
- * like "Scene obstacles (4)" still resolve to "Scene obstacles".
+ * Find a card by its heading. Matches against:
+ *   - a static `<h3>` (used by the Sidebar Mode card and the
+ *     webcam-control "Object detection" card)
+ *   - a `.card-heading-toggle <span>` (used by every CollapsibleCard)
+ * Exact match first, then prefix so dynamic counts like
+ * "Scene obstacles (4)" still resolve to "Scene obstacles".
+ *
+ * If the card is a CollapsibleCard in the collapsed state, the toggle
+ * is clicked open before the screenshot so the docs show the card's
+ * full contents, not just the heading bar.
  */
 async function shotCardByHeading(page, heading, outPath) {
   const handle = await page.evaluateHandle((h) => {
     const cards = [...document.querySelectorAll('.card')];
+    const headingText = (c) =>
+      c.querySelector('.card-heading-toggle span')?.textContent?.trim() ??
+      c.querySelector('h3')?.textContent?.trim() ??
+      '';
     return (
-      cards.find((c) => c.querySelector('h3')?.textContent?.trim() === h) ??
-      cards.find((c) =>
-        c.querySelector('h3')?.textContent?.trim().startsWith(h),
-      ) ??
+      cards.find((c) => headingText(c) === h) ??
+      cards.find((c) => headingText(c).startsWith(h)) ??
       null
     );
   }, heading);
@@ -44,6 +53,15 @@ async function shotCardByHeading(page, heading, outPath) {
     console.warn(`[script] no card found for heading "${heading}"`);
     return false;
   }
+  // Expand the card body if it's a CollapsibleCard sitting closed —
+  // otherwise the screenshot is just a single-line heading bar.
+  await page.evaluate((card) => {
+    const toggle = card.querySelector('button.card-heading-toggle');
+    if (toggle && toggle.getAttribute('aria-expanded') === 'false') {
+      toggle.click();
+    }
+  }, el);
+  await sleep(250);
   await el.scrollIntoView();
   await sleep(200);
   await el.screenshot({ path: outPath, type: 'png' });
@@ -145,6 +163,7 @@ const CARDS = {
     'Import (.usdz)',
     'Capture from real life',
     'Virtual camera',
+    'Realism',
     'Capture',
     'Edge Impulse · auth',
     'Inference (Edge Impulse model)',
@@ -157,6 +176,7 @@ const CARDS = {
     'Import (.usdz)',
     'Capture from real life',
     'Virtual camera',
+    'Realism',
     'Capture',
     'Edge Impulse · auth',
     'Inference (Edge Impulse model)',
@@ -172,6 +192,7 @@ const CARDS = {
     'Lidar / ToF ring',
     'Sensor modality',
     'Object detection',
+    'Realism',
     'Edge Impulse · auth',
     'Inference (Edge Impulse model)',
     'Generate',
@@ -185,6 +206,7 @@ const CARDS = {
     'Imported pickups',
     'Recording',
     'Object detection',
+    'Realism',
     'Edge Impulse · auth',
     'Inference (Edge Impulse model)',
     'Generate',
