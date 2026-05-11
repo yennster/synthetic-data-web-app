@@ -54,23 +54,28 @@ function shapeGeom(kind: ObjectKind): { geom: string; mass: number } {
         mass: 0.12,
       };
     case 'cone':
-      // MuJoCo has no built-in cone geom; approximate as a steep capsule.
-      // The IMU signature is dominated by mass + inertia, not silhouette,
-      // so the approximation is fine for synthetic-data purposes.
-      // Quat aligns the capsule's long axis with three.js coneGeometry's
-      // local-Y axis so the collider matches the visual.
+      // MuJoCo has no built-in cone geom; approximate as a cylinder
+      // sized to the cone's bounding cylinder so when the body tips
+      // onto its side the cone visual doesn't dip past the collider
+      // and clip through the floor. A capsule with the same radius
+      // would have hemispherical caps that read as "bouncy" against
+      // a flat plane, so cylinder is the better collision proxy.
+      // Three.js coneGeometry(0.5, 1.0) lives on local-Y, which means
+      // the cylinder needs a 90° X-rotation quat to align.
       return {
-        geom: `<geom name="g_body" type="capsule" size="0.3 0.4" quat="0.7071 0.7071 0 0" mass="0.12" rgba="0.96 0.62 0.04 1" friction="0.6 0.05 0.005"/>`,
+        geom: `<geom name="g_body" type="cylinder" size="0.5 0.5" quat="0.7071 0.7071 0 0" mass="0.12" rgba="0.96 0.62 0.04 1" friction="0.6 0.05 0.005"/>`,
         mass: 0.12,
       };
     case 'torus':
-      // No torus primitive either; approximate with a flat cylinder.
-      // Real-world torus inertia is hollow; close enough for IMU.
-      // three.js TorusGeometry lives in the XY plane (axis along local-Z),
-      // which already matches MuJoCo's default cylinder orientation — so
-      // unlike the other cylinder-backed shapes, no quat is needed here.
+      // No torus primitive either; approximate with a flat cylinder
+      // sized to the torus's outer envelope. Radius 0.55 = major 0.4
+      // + tube 0.15 so when the torus tips onto its side the visual
+      // edge still rests on the collider, not through the floor.
+      // three.js TorusGeometry lives in the XY plane (axis along
+      // local-Z), which matches MuJoCo's default cylinder
+      // orientation — so no quat is needed here.
       return {
-        geom: `<geom name="g_body" type="cylinder" size="0.4 0.15" mass="0.12" rgba="0.96 0.62 0.04 1" friction="0.6 0.05 0.005"/>`,
+        geom: `<geom name="g_body" type="cylinder" size="0.55 0.15" mass="0.12" rgba="0.96 0.62 0.04 1" friction="0.6 0.05 0.005"/>`,
         mass: 0.12,
       };
     case 'soda_can':
