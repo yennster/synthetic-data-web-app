@@ -15,7 +15,7 @@
  *   - Body: image bytes (image/png), no multipart wrapping
  *
  * Response on success: image bytes (image/png) with the same dimensions
- * Response on error: 502 with a one-line JSON `{ error: string }`.
+ * Response on error: 4xx/5xx with a one-line JSON `{ error: string }`.
  *
  * Env:
  *   - HF_TOKEN — optional Hugging Face access token. Without it the
@@ -28,6 +28,8 @@
  *     once a paid HF plan is wired up.
  */
 
+import type { IncomingMessage, ServerResponse } from 'node:http';
+
 const DEFAULT_MODEL = 'timbrooks/instruct-pix2pix';
 // SDXL refiner / FLUX img2img would land here once we're on a paid
 // tier. The instruction prompt is tuned for the default pix2pix model.
@@ -38,11 +40,14 @@ const INSTRUCTION =
 
 export const config = { runtime: 'nodejs' };
 
-export default async function handler(req: Request): Promise<Response> {
+export default async function handler(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
   if (req.method !== 'POST') {
-    return json(405, { error: 'POST only' });
+    return json(res, 405, { error: 'POST only' });
   }
-  const intensityHeader = req.headers.get('x-realism-intensity');
+  const intensityHeader = headerOf(req, 'x-realism-intensity');
   const intensity = clamp(Number(intensityHeader ?? '0.5'), 0.05, 1);
   // pix2pix's `image_guidance_scale` controls how closely the output
   // sticks to the input image — high means "almost no change", low
@@ -50,14 +55,14 @@ export default async function handler(req: Request): Promise<Response> {
   // range so a higher slider means MORE realism drift (less guidance).
   const imageGuidance = 2.0 - intensity * 0.8;
 
-  let imageBytes: ArrayBuffer;
+  let imageBytes: Buffer;
   try {
-    imageBytes = await req.arrayBuffer();
+    imageBytes = await readBody(req);
   } catch (e) {
-    return json(400, { error: `bad image body: ${(e as Error).message}` });
+    return json(res, 400, { error: `bad image body: ${(e as Error).message}` });
   }
-  if (imageBytes.byteLength === 0) {
-    return json(400, { error: 'empty image body' });
+  if (imageBytes.length === 0) {
+    return json(res, 400, { error: 'empty image body' });
   }
 
   const model = process.env.HF_REALISM_MODEL ?? DEFAULT_MODEL;
@@ -66,17 +71,17 @@ export default async function handler(req: Request): Promise<Response> {
   // HF accepts a multipart-style payload via JSON: `inputs` is a base64
   // string of the source image, `parameters` carries the prompt and
   // pipeline-specific controls.
-  const b64 = Buffer.from(imageBytes).toString('base64');
   const body = JSON.stringify({
-    inputs: b64,
+    inputs: imageBytes.toString('base64'),
     parameters: {
       prompt: INSTRUCTION,
       image_guidance_scale: imageGuidance,
       num_inference_steps: 20,
     },
     options: {
-      // Don't block waiting for cold-start past our own timeout —
-      // the client falls back to Random if we error out.
+      // Block waiting for cold-start so we don't bounce back with a
+      // 503 the first call after a quiet period. The client has its
+      // own timeout and falls back to Random on any error.
       wait_for_model: true,
       use_cache: false,
     },
@@ -91,13 +96,13 @@ export default async function handler(req: Request): Promise<Response> {
   try {
     upstream = await fetch(upstreamUrl, { method: 'POST', headers, body });
   } catch (e) {
-    return json(502, { error: `hf network: ${(e as Error).message}` });
+    return json(res, 502, { error: `hf network: ${(e as Error).message}` });
   }
   if (!upstream.ok) {
     // Pass the upstream message back so the browser console shows the
     // actual reason (rate limit, model not found, auth required).
     const text = await upstream.text().catch(() => '');
-    return json(upstream.status === 503 ? 503 : 502, {
+    return json(res, upstream.status === 503 ? 503 : 502, {
       error: `hf ${upstream.status}: ${text.slice(0, 200)}`,
     });
   }
@@ -107,18 +112,34 @@ export default async function handler(req: Request): Promise<Response> {
     // when wait_for_model: true. Treat as a failure so the client
     // falls back instead of trying to render JSON as a PNG.
     const text = await upstream.text().catch(() => '');
-    return json(502, {
+    return json(res, 502, {
       error: `hf non-image response: ${text.slice(0, 200)}`,
     });
   }
-  const out = await upstream.arrayBuffer();
-  return new Response(out, {
-    status: 200,
-    headers: {
-      'Content-Type': 'image/png',
-      'Cache-Control': 'no-store',
-    },
+  const out = Buffer.from(await upstream.arrayBuffer());
+  res.statusCode = 200;
+  res.setHeader('Content-Type', 'image/png');
+  res.setHeader('Cache-Control', 'no-store');
+  res.end(out);
+}
+
+/** Read the whole body into a Buffer. Vercel's Node runtime gives us
+ * a regular IncomingMessage stream — collect chunks the standard way. */
+function readBody(req: IncomingMessage): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk: Buffer) => chunks.push(chunk));
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
   });
+}
+
+/** Pull a header value as a string. Node's IncomingMessage headers
+ * are normalized to lowercase keys; values can be string or string[]. */
+function headerOf(req: IncomingMessage, name: string): string | undefined {
+  const v = req.headers[name.toLowerCase()];
+  if (Array.isArray(v)) return v[0];
+  return v;
 }
 
 function clamp(n: number, lo: number, hi: number): number {
@@ -126,9 +147,8 @@ function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
 }
 
-function json(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
+function json(res: ServerResponse, status: number, body: unknown): void {
+  res.statusCode = status;
+  res.setHeader('Content-Type', 'application/json');
+  res.end(JSON.stringify(body));
 }
