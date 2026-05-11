@@ -588,16 +588,31 @@ label.field, div.field {
   color: var(--text);
   text-transform: uppercase;
   position: relative;
-  padding: 0 0 0 14px;
+  /* Absorb the `.card` top breathing room into the button so the
+     entire strip above the heading text is part of the click target
+     — otherwise the button is only 13px tall and you had to land
+     directly on the text. The `:has()` rule below zeroes out the
+     card's own padding-top so the visual layout is unchanged. */
+  padding: 24px 0 6px 14px;
   margin: 0;
   line-height: 1;
+}
+/* Cards whose first child is a CollapsibleCard heading button defer
+   their top breathing room to the button (above). Bottom is unchanged. */
+.card:has(> .card-heading-toggle) {
+  padding-top: 0;
+  /* The button also owns 6px of bottom click bleed, so trim the
+     gap-to-body the same amount. */
+  gap: 8px;
 }
 .card-heading-toggle::before {
   content: "";
   position: absolute;
   left: 0;
-  top: 50%;
-  transform: translateY(-50%);
+  /* Anchor the accent bar to the text baseline (button bottom),
+     not the button center, so the 24px of click padding above
+     doesn't drag the bar away from the text. */
+  bottom: 6px;
   width: 3px;
   height: 13px;
   background: var(--accent);
@@ -621,11 +636,13 @@ label.field, div.field {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
-  /* No vertical padding so a webcam-control card in its OFF state
-     matches the height of a collapsed `.card-heading-toggle` row —
-     they both sit on the same 13px-line-height baseline below the
-     card's 24px top padding. */
-  padding: 0;
+  /* Bottom padding mirrors the 6px click bleed inside
+     `.card-heading-toggle` so an OFF webcam-control card matches the
+     height of a collapsed CollapsibleCard heading. Top stays at 0 —
+     the parent `.card` already provides the 24px breathing room.
+     4px (not 6) because the switch is 14px-with-borders -> 16px
+     measured, slightly taller than the 13px heading text. */
+  padding: 0 0 4px;
   border: 0;
   background: transparent;
   border-radius: 0;
