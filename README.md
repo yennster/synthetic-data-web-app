@@ -59,7 +59,9 @@ Built with AI coding assistants.
 - Virtual capture camera (XYZ + target + FOV) with frustum gizmo.
 - Single-shot capture downloads as a zip with the PNG + matching `bounding_boxes.labels` sidecar; batch capture randomizes camera / lighting / object positions and zips the whole batch.
 - Direct upload to EI with bounding boxes attached; one-click retrain.
-- **Realism post-process** — optional per-capture pixel pass that adds film grain, chromatic aberration, vignette, and color jitter to narrow the sim-to-real gap. Geometry never moves, so bounding boxes stay byte-perfect against the modified PNG. Random pass runs client-side; Diffusion mode is reserved for a future server-side img2img endpoint.
+- **Realism post-process** — optional per-capture pass that narrows the sim-to-real gap. Two modes:
+  - **Random** runs client-side: film grain + chromatic aberration + vignette + color jitter on the raw PNG. Geometry never moves, so bounding boxes stay byte-perfect.
+  - **Diffusion** routes the first 3 images of each capture / batch through a Vercel Function (`api/realism-diffusion.ts`) that calls Hugging Face Inference for real img2img (`timbrooks/instruct-pix2pix` by default; override with `HF_REALISM_MODEL`). Any image past the budget — and any image where the HF call errors or rate-limits — falls back to the Random pass. Set `HF_TOKEN` in Vercel env vars for higher quota. Bounding boxes may drift slightly under diffusion; use for visual prototyping, not detection ground truth.
 - Scene state persists across reloads (primitives, USDZ assets, camera settings).
 
 **Edge Impulse model inference (vision + robot POV)**

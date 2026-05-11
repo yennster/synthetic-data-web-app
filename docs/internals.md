@@ -70,6 +70,14 @@ src/
 │   └── zipReader.ts              // Browser zip reader (STORE + DEFLATE via DecompressionStream)
 └── store/
     └── useStore.ts               // Zustand store (single source of truth)
+
+api/
+└── realism-diffusion.ts          // Vercel Function — proxies a single img2img call
+                                  // to Hugging Face Inference (default model
+                                  // timbrooks/instruct-pix2pix). Keeps HF_TOKEN
+                                  // server-side; called by realism.ts for the first
+                                  // 3 images of each batch, then falls back to
+                                  // the local Random pixel pass.
 ```
 
 ## Physics + sensors: one pipeline (MuJoCo WASM)
