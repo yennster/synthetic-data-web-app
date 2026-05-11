@@ -1,9 +1,22 @@
-import { useRef, useState, type CSSProperties } from 'react';
+import {
+  lazy,
+  Suspense,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react';
 import { useStore, type AppMode } from '../store/useStore';
-import { MotionPanel } from './MotionPanel';
-import { RobotPanel } from './RobotPanel';
 import { ThemeToggle } from './ThemeToggle';
-import { VisionPanel } from './VisionPanel';
+
+const MotionPanel = lazy(() =>
+  import('./MotionPanel').then((mod) => ({ default: mod.MotionPanel })),
+);
+const RobotPanel = lazy(() =>
+  import('./RobotPanel').then((mod) => ({ default: mod.RobotPanel })),
+);
+const VisionPanel = lazy(() =>
+  import('./VisionPanel').then((mod) => ({ default: mod.VisionPanel })),
+);
 
 /* The Edge Impulse · auth card used to live between Mode and the panels.
  * It moved into MotionPanel and VisionPanel so it sits next to the
@@ -161,13 +174,17 @@ export function Sidebar({
         </div>
       </div>
 
-      {mode === 'motion' ? (
-        <MotionPanel />
-      ) : mode === 'robot' ? (
-        <RobotPanel />
-      ) : (
-        <VisionPanel />
-      )}
+      <Suspense
+        fallback={<div className="card panel-loading">Loading controls...</div>}
+      >
+        {mode === 'motion' ? (
+          <MotionPanel />
+        ) : mode === 'robot' ? (
+          <RobotPanel />
+        ) : (
+          <VisionPanel />
+        )}
+      </Suspense>
 
       {status.msg && (
         <div className={`status ${status.kind}`}>{status.msg}</div>

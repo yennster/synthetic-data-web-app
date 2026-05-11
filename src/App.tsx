@@ -1,14 +1,21 @@
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Analytics } from '@vercel/analytics/react';
-import { CameraFeed } from './components/CameraFeed';
 import { Hud } from './components/Hud';
 import { InferenceOverlay } from './components/InferenceOverlay';
-import { Scene } from './components/Scene';
 import { Sidebar } from './components/Sidebar';
 import { TouchResizeHandle } from './components/TouchResizeHandle';
 import { useStore, type AppMode } from './store/useStore';
 import { useRehydrateAssets } from './lib/rehydrateAssets';
 import { useTheme } from './lib/useTheme';
+
+const Scene = lazy(() =>
+  import('./components/Scene').then((mod) => ({ default: mod.Scene })),
+);
+const CameraFeed = lazy(() =>
+  import('./components/CameraFeed').then((mod) => ({
+    default: mod.CameraFeed,
+  })),
+);
 
 /**
  * Keep the scene environment in lockstep with the dark/light theme for
@@ -169,9 +176,17 @@ export default function App() {
   return (
     <div className="app">
       <div className="scene">
-        <Scene previewCanvas={previewCanvas} />
+        <Suspense
+          fallback={<div className="scene-loading">Loading scene...</div>}
+        >
+          <Scene previewCanvas={previewCanvas} />
+        </Suspense>
         <Hud />
-        {mode === 'motion' && handTrackingEnabled && <CameraFeed />}
+        {mode === 'motion' && handTrackingEnabled && (
+          <Suspense fallback={null}>
+            <CameraFeed />
+          </Suspense>
+        )}
         {(mode === 'detection' || mode === 'anomaly') && (
           <div
             ref={overlayRef}
