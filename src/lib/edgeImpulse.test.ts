@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildDataAcquisitionPayload,
   buildFileName,
+  buildInfoLabelsEntry,
+  buildInfoLabelsFile,
   buildIngestionMetadata,
   inferIntervalMs,
   resolveBucket,
@@ -18,6 +20,14 @@ const baseCfg: EdgeImpulseConfig = {
   label: 'idle',
   device: 'unit-test',
 };
+
+async function readMultipartJsonPayload(init: {
+  body: FormData;
+}): Promise<any> {
+  const file = init.body.get('data') as Blob | null;
+  expect(file).toBeInstanceOf(Blob);
+  return JSON.parse(await file!.text());
+}
 
 describe('buildFileName', () => {
   it('sanitises the label and adds an ISO timestamp + .json extension', () => {
@@ -103,6 +113,35 @@ describe('buildIngestionMetadata', () => {
     expect(meta.empty).toBeUndefined();
     expect(meta.nope).toBeUndefined();
     expect(meta.nada).toBeUndefined();
+  });
+});
+
+describe('buildInfoLabelsFile', () => {
+  it('writes Edge Impulse info.labels entries with label and metadata', () => {
+    const entry = buildInfoLabelsEntry({
+      path: 'pick_place_1.json',
+      category: 'training',
+      label: 'pick_place',
+      metadataExtras: {
+        mode: 'robot',
+        pickup_success: false,
+        pickup_failure_reason: 'target_tipped',
+      },
+    });
+    const info = JSON.parse(buildInfoLabelsFile([entry]));
+    expect(info.version).toBe(1);
+    expect(info.files).toHaveLength(1);
+    expect(info.files[0]).toMatchObject({
+      path: 'pick_place_1.json',
+      category: 'training',
+      label: { type: 'label', label: 'pick_place' },
+      metadata: {
+        source: 'Synthetic Data Studio',
+        mode: 'robot',
+        pickup_success: 'false',
+        pickup_failure_reason: 'target_tipped',
+      },
+    });
   });
 });
 
@@ -240,8 +279,10 @@ describe('uploadSample', () => {
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toContain('/api/training/data');
-    const body = JSON.parse(init.body);
+    expect(url).toContain('/api/training/files');
+    expect(init.body).toBeInstanceOf(FormData);
+    expect(init.headers['Content-Type']).toBeUndefined();
+    const body = await readMultipartJsonPayload(init);
     expect(body.protected.alg).toBe('none');
     // Empty signature is 64 zeros.
     expect(body.signature).toBe('0'.repeat(64));
@@ -288,7 +329,7 @@ describe('uploadSample', () => {
       'foo.json',
     );
     const [, init] = fetchMock.mock.calls[0];
-    const body = JSON.parse(init.body);
+    const body = await readMultipartJsonPayload(init);
     expect(body.protected.alg).toBe('HS256');
     expect(body.signature).toMatch(/^[a-f0-9]{64}$/); // 64 hex chars
     expect(body.signature).not.toBe('0'.repeat(64));
@@ -303,7 +344,7 @@ describe('uploadSample', () => {
       'foo.json',
     );
     const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toContain('/api/training/data');
+    expect(url).toContain('/api/training/files');
     const meta = JSON.parse(init.headers['x-metadata']);
     expect(meta.split_bucket).toBe('training');
     vi.unstubAllGlobals();
@@ -318,13 +359,13 @@ describe('uploadSample', () => {
       'foo.json',
     );
     const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toContain('/api/testing/data');
+    expect(url).toContain('/api/testing/files');
     const meta = JSON.parse(init.headers['x-metadata']);
     expect(meta.split_bucket).toBe('testing');
     vi.restoreAllMocks();
   });
 
-  it('routes to /api/testing/data when category is testing', async () => {
+  it('routes to /api/testing/files when category is testing', async () => {
     await uploadSample(
       { ...baseCfg, category: 'testing' },
       [{ t: 0, ax: 0, ay: 0, az: 9.81, gx: 0, gy: 0, gz: 0 }],
@@ -332,7 +373,7 @@ describe('uploadSample', () => {
       'foo.json',
     );
     const [url] = fetchMock.mock.calls[0];
-    expect(url).toContain('/api/testing/data');
+    expect(url).toContain('/api/testing/files');
   });
 });
 

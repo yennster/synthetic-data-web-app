@@ -33,6 +33,13 @@ export type IngestionMetadataExtras = Record<
   string | number | boolean | undefined | null
 >;
 
+export type EdgeImpulseInfoLabelsEntry = {
+  path: string;
+  category: EdgeImpulseConfig['category'];
+  label: { type: 'label'; label: string } | { type: 'unlabeled' };
+  metadata?: Record<string, string>;
+};
+
 /**
  * Build the JSON string for Edge Impulse's `x-metadata` ingestion header.
  * Always tags samples with the studio's name + the page URL they were
@@ -51,6 +58,31 @@ export function buildIngestionMetadata(extras?: IngestionMetadataExtras): string
     }
   }
   return JSON.stringify(meta);
+}
+
+export function buildInfoLabelsEntry(opts: {
+  path: string;
+  category: EdgeImpulseConfig['category'];
+  label?: string;
+  metadataExtras?: IngestionMetadataExtras;
+}): EdgeImpulseInfoLabelsEntry {
+  const metadata = JSON.parse(
+    buildIngestionMetadata(opts.metadataExtras),
+  ) as Record<string, string>;
+  return {
+    path: opts.path,
+    category: opts.category,
+    label: opts.label
+      ? { type: 'label', label: opts.label }
+      : { type: 'unlabeled' },
+    metadata,
+  };
+}
+
+export function buildInfoLabelsFile(
+  entries: EdgeImpulseInfoLabelsEntry[],
+): string {
+  return JSON.stringify({ version: 1, files: entries }, null, 2);
 }
 
 // Build the unsigned (alg: "none") Edge Impulse data acquisition format.
@@ -182,22 +214,35 @@ export async function uploadSample(
   }
 
   const body = await buildDataAcquisitionPayload(cfg, samples, sampleRateHz);
+  return uploadDataAcquisitionJson(cfg, body, fileName, metadataExtras);
+}
+
+async function uploadDataAcquisitionJson(
+  cfg: EdgeImpulseConfig,
+  body: unknown,
+  fileName: string,
+  metadataExtras?: IngestionMetadataExtras,
+): Promise<UploadResult> {
   const bucket = resolveBucket(cfg.category);
   const meta: IngestionMetadataExtras = { ...metadataExtras };
   if (cfg.category === 'split') meta.split_bucket = bucket;
-  const url = `${INGESTION_BASE}/${bucket}/data`;
+  const form = new FormData();
+  form.append(
+    'data',
+    new Blob([JSON.stringify(body)], { type: 'application/json' }),
+    fileName,
+  );
+  const url = `${INGESTION_BASE}/${bucket}/files`;
   const res = await fetch(url, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
       'x-api-key': cfg.apiKey,
-      'x-file-name': fileName,
       'x-label': cfg.label || 'unlabeled',
       'x-disallow-duplicates': '0',
       'x-add-date-id': '1',
       'x-metadata': buildIngestionMetadata(meta),
     },
-    body: JSON.stringify(body),
+    body: form,
   });
 
   const text = await res.text();
@@ -410,25 +455,7 @@ export async function uploadRoverSample(
     sampleRateHz,
     maxRange,
   );
-  const bucket = resolveBucket(cfg.category);
-  const meta: IngestionMetadataExtras = { ...metadataExtras };
-  if (cfg.category === 'split') meta.split_bucket = bucket;
-  const url = `${INGESTION_BASE}/${bucket}/data`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': cfg.apiKey,
-      'x-file-name': fileName,
-      'x-label': cfg.label || 'unlabeled',
-      'x-disallow-duplicates': '0',
-      'x-add-date-id': '1',
-      'x-metadata': buildIngestionMetadata(meta),
-    },
-    body: JSON.stringify(body),
-  });
-  const text = await res.text();
-  return { ok: res.ok, status: res.status, body: text };
+  return uploadDataAcquisitionJson(cfg, body, fileName, metadataExtras);
 }
 
 /**
@@ -456,25 +483,7 @@ export async function uploadLidarSample(
     sampleRateHz,
     maxRange,
   );
-  const bucket = resolveBucket(cfg.category);
-  const meta: IngestionMetadataExtras = { ...metadataExtras };
-  if (cfg.category === 'split') meta.split_bucket = bucket;
-  const url = `${INGESTION_BASE}/${bucket}/data`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': cfg.apiKey,
-      'x-file-name': fileName,
-      'x-label': cfg.label || 'unlabeled',
-      'x-disallow-duplicates': '0',
-      'x-add-date-id': '1',
-      'x-metadata': buildIngestionMetadata(meta),
-    },
-    body: JSON.stringify(body),
-  });
-  const text = await res.text();
-  return { ok: res.ok, status: res.status, body: text };
+  return uploadDataAcquisitionJson(cfg, body, fileName, metadataExtras);
 }
 
 export function buildFileName(label: string): string {
