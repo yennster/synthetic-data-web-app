@@ -243,6 +243,28 @@ export type BoundingBox = {
   height: number;
 };
 
+/**
+ * Post-capture "realism" pass that runs over every captured PNG before
+ * it lands in EI or the local zip. `off` is the raw render. `random`
+ * applies a stack of cheap CPU-side pixel transforms (film grain,
+ * chromatic aberration, vignette, color jitter, JPEG re-encode) to
+ * narrow the sim-to-real gap. `diffusion` is reserved for a future
+ * server-side endpoint hitting img2img / ControlNet — wiring lives
+ * here so the UI doesn't need to be reshaped when it lands.
+ *
+ * Bounding boxes are structural and don't move during the random pass,
+ * so the EI labels stay valid regardless of the chosen mode.
+ */
+export type RealismMode = 'off' | 'random' | 'diffusion';
+
+export type RealismConfig = {
+  mode: RealismMode;
+  /** Master intensity for the random pass (0..1). Each pixel transform
+   * scales its own magnitude by this factor so a single slider tunes
+   * everything from "barely noticeable" to "obvious filter". */
+  intensity: number;
+};
+
 export type Capture = {
   id: string;
   filename: string;
@@ -651,6 +673,11 @@ type State = {
    * underlying inertial reading. */
   imuNoise: ImuNoiseConfig;
   setImuNoise: (patch: Partial<ImuNoiseConfig>) => void;
+
+  /** Realism post-process applied to every captured PNG before EI
+   * upload / local zip. See `RealismConfig` and `lib/realism.ts`. */
+  realism: RealismConfig;
+  setRealism: (patch: Partial<RealismConfig>) => void;
 
   // ---------- Edge Impulse ----------
   ei: EdgeImpulseConfig;
@@ -1075,6 +1102,12 @@ export const useStore = create<State>()(
   setImuNoise: (patch) =>
     set((s) => ({ imuNoise: { ...s.imuNoise, ...patch } })),
 
+  // Realism post-process. Defaults off so the existing pipeline is
+  // bit-for-bit unchanged unless the user opts in.
+  realism: { mode: 'off' as RealismMode, intensity: 0.5 },
+  setRealism: (patch) =>
+    set((s) => ({ realism: { ...s.realism, ...patch } })),
+
   // EI
   ei: {
     apiKey: '',
@@ -1110,7 +1143,7 @@ export const useStore = create<State>()(
     }),
     {
       name: 'sds-store',
-      version: 7,
+      version: 8,
       storage: createJSONStorage(() => localStorage),
       migrate: (persistedState, version) => {
         if (
@@ -1178,6 +1211,14 @@ export const useStore = create<State>()(
             },
           };
         }
+        // v7 → v8: introduce the realism post-process config. Default
+        // is off so an upgraded user sees no change unless they opt in.
+        if (version < 8) {
+          state = {
+            ...state,
+            realism: state.realism ?? { mode: 'off', intensity: 0.5 },
+          };
+        }
         return state;
       },
       // Persist only the bits worth restoring: scene primitives, scene
@@ -1200,6 +1241,7 @@ export const useStore = create<State>()(
         drops: s.drops,
         robot: s.robot,
         imuNoise: s.imuNoise,
+        realism: s.realism,
         eiThreshold: s.eiThreshold,
         pendingAssets: s.assets.map<PersistedAsset>((a) => ({
           id: a.id,

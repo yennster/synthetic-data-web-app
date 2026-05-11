@@ -17,6 +17,7 @@ import { EiAuthCard } from './EiAuthCard';
 import { EiInferenceCard } from './EiInferenceCard';
 import { ImportedAssetsCard } from './ImportedAssetsCard';
 import { ObjectCaptureCard } from './ObjectCaptureCard';
+import { RealismCard } from './RealismCard';
 import { SceneObjectsCard } from './SceneObjectsCard';
 
 export function VisionPanel() {
@@ -88,6 +89,7 @@ export function VisionPanel() {
     setStatus('busy', `Uploading 0/${captures.length}…`);
     const includeBoxes = mode === 'detection';
     const defaultLabel = mode === 'anomaly' ? anomalyLabel : ei.label;
+    const realism = useStore.getState().realism;
     const result = await uploadCaptures(
       ei,
       captures,
@@ -104,6 +106,9 @@ export function VisionPanel() {
         env_preset: envPreset,
         conveyor: showConveyor,
         conveyor_speed: showConveyor ? conveyorSpeed : undefined,
+        realism_mode: realism.mode,
+        realism_intensity:
+          realism.mode === 'off' ? 0 : realism.intensity,
       },
     );
     if (result.failed === 0) {
@@ -492,6 +497,8 @@ export function VisionPanel() {
           </button>
         </div>
       </div>
+
+      <RealismCard />
 
       <EiAuthCard />
 
