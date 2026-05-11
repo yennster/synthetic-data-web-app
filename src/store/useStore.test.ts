@@ -219,10 +219,10 @@ describe('randomizeArmPickupPositions', () => {
     const after = useStore.getState().sceneObjects;
     for (const o of after) {
       if (o.owner !== 'arm') continue;
-      // Reachable workspace: radius ∈ [0.08, 0.18], angle ∈ [0, π].
+      // Reachable workspace: radius ∈ [0.11, 0.22], angle ∈ [0, π].
       const r = Math.sqrt(o.position[0] ** 2 + o.position[2] ** 2);
-      expect(r).toBeGreaterThanOrEqual(0.08 - 1e-9);
-      expect(r).toBeLessThanOrEqual(0.18 + 1e-9);
+      expect(r).toBeGreaterThanOrEqual(0.11 - 1e-9);
+      expect(r).toBeLessThanOrEqual(0.22 + 1e-9);
       // Angle ∈ [0, π] means x ≥ 0 — front half-circle only.
       expect(o.position[0]).toBeGreaterThanOrEqual(-1e-9);
       // Y stays at half the cube extent so the body rests on the floor.
