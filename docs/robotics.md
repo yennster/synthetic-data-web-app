@@ -3,12 +3,15 @@
 Two synthetic-robot rigs in one mode, each producing time-series training data
 for the canonical Edge Impulse robotics datasets:
 
-- **Rover** — differential-drive ground robot with a 16-beam lidar / ToF ring,
-  driven through `cruise` / `collision` / `stuck` events. Outputs a combined
-  6-channel chassis IMU + N-channel lidar time-series per recording window.
+- **Rover** — differential-drive ground robot with a configurable lidar / ToF
+  ring (default 16 beams), driven through `cruise` / `collision` / `stuck`
+  events. Outputs a combined 6-channel chassis IMU + N-channel lidar
+  time-series per recording window.
 - **Arm (Arduino TinkerKit Braccio)** — 6-DOF stationary arm with animated
   gripper, driving through `pick_place` / `sweep` / `wave` / `random_pose` /
-  `draw_circle` joint trajectories. Outputs end-effector IMU per window.
+  `draw_circle` joint trajectories. Outputs end-effector IMU per window and,
+  for pick-and-place, metadata describing whether the pickup actually
+  succeeded.
 
 Both rigs share a small first-person POV preview canvas (the corner overlay)
 so you can see the scene the robot's onboard camera would see, matching how
@@ -66,10 +69,20 @@ packs them into a single time-series sample with one timestep per row and
   drives the chain there under realistic joint inertia + gravity
   loading, and the IMU reads what an MEMS sensor on the gripper would
   feel. Sampled at 20 Hz.
-- **Pickup target** — a free-joint cube body in the MJCF, snapped to the
+- **Pickup target** — a free-joint box body in the MJCF, snapped to the
   user's selected scene position at the start of a `pick_place` run.
-  The gripper fingers close on it physically (high-friction Coulomb
+  Primitive pickups use the default 3 cm cube proxy; imported USDZ
+  pickups rebuild the MuJoCo target to the imported asset's scaled
+  bounds, with the visual asset following the simulated body. The
+  gripper fingers close on it physically (high-friction Coulomb
   contacts) and the integrator handles the lift + place arc.
+- **Pickup validation** — during the close / lift window the arm checks
+  whether the target has tipped past 40 degrees or drifted outside its
+  footprint tolerance. Ungraspable targets are not counted as successful
+  pickups, and the gripper is kept open rather than pretending the
+  grasp worked. The IK target is also clamped so the finger pads cannot
+  be commanded through the floor while reaching for floor-resting
+  objects.
 
 The arm's POV camera shares the corner overlay so you can see the scene
 the gripper-mounted camera would see during the trajectory — useful for
@@ -94,7 +107,7 @@ traversal.
 
 | Trajectory     | Behavior |
 |----------------|----------|
-| `pick_place`   | 7-keyframe pick-and-place: rest → above target → on target → grasp → lift → above destination → release → rest. The pickup target is one of your scene objects (use **+ Pickup target** to spawn one); the destination is the diametrically-opposite point on the same radial ring. IK keeps the gripper pointing down throughout. |
+| `pick_place`   | 7-keyframe pick-and-place: rest → above target → on target → grasp → lift → above destination → release → rest. The pickup target is one of your scene objects (use **+ Pickup target** to spawn one, or import a USDZ pickup); the destination is the diametrically-opposite point on the same radial ring. IK keeps the gripper pointing down throughout. Tipped or drifted objects are marked failed in metadata instead of being treated as successful grasps. |
 | `sweep`        | Base servo sweeps across most of its 0–180° range at fixed shoulder / elbow. |
 | `wave`         | Wrist pitch oscillates two cycles across most of its range at fixed shoulder / elbow. |
 | `random_pose`  | Interpolate (cosine-eased) between two random reachable joint vectors. |
@@ -113,8 +126,10 @@ the physical arm.
   pose, and clear any in-flight recording.
 - **Imported USDZ assets** — use **Imported pickups** for Braccio
   pick-and-place targets or **Imported obstacles** for rover lidar /
-  MuJoCo collision obstacles. Imported robot assets are kept separate
-  from the detection / anomaly scene pool.
+  MuJoCo collision obstacles. Arm pickups use a box collision proxy
+  derived from the imported asset's scaled bounds; rover obstacles use
+  their imported footprint for collision and lidar raycasts. Imported
+  robot assets are kept separate from the detection / anomaly scene pool.
 - **Drag scene objects** — the same Shift+drag controls as detection /
   anomaly modes work on every robot-scene mesh:
   - `Shift+drag` — camera-aligned plane (free XYZ via orbit)
@@ -152,12 +167,14 @@ about the synthesis changes.
 ## ROS 2 export
 
 Toggle **ROS export** in the Sensor modality card to also write a
-`<event>_<i>.rosbag.jsonl` next to each EI payload. Each line is one
-canonical ROS 2 message:
+`<event>_<i>.rosbag.jsonl` next to each EI payload. Rover exports include
+IMU + LaserScan messages; arm exports include end-effector IMU + JointState
+messages. Each line is one canonical ROS 2 message:
 
 ```json
 {"topic":"/imu/data","msg":{"header":{"stamp":{"sec":1,"nanosec":500000000},"frame_id":"imu_link"},"linear_acceleration":{...},"angular_velocity":{...},"orientation":{...},...}}
 {"topic":"/scan","msg":{"header":{...,"frame_id":"laser_link"},"angle_min":0,"angle_max":...,"ranges":[...],...}}
+{"topic":"/joint_states","msg":{"header":{...},"name":["M1","M2","M3","M4","M5","M6"],"position":[...]}}
 ```
 
 Topics + frames follow REP-105 / REP-103:
@@ -165,13 +182,13 @@ Topics + frames follow REP-105 / REP-103:
 | Topic        | Type                  | Frame        |
 |--------------|-----------------------|--------------|
 | `/imu/data`  | `sensor_msgs/Imu`     | `imu_link`   |
-| `/scan`      | `sensor_msgs/LaserScan` | `laser_link` |
-| `/odom`      | `nav_msgs/Odometry`   | `odom` → `base_link` (when pose log is enabled) |
+| `/scan`      | `sensor_msgs/LaserScan` | `laser_link` (rover only) |
+| `/joint_states` | `sensor_msgs/JointState` | n/a (arm only) |
 
 JSONL replays trivially (`ros2 run rosbag2_play_jsonl rosbag.jsonl`
 with any user-side player) and the message shapes match `ros2 msg show`
 exactly so a deserializer is a one-liner. Bundles into the same zip
-as the EI payload — works whether the rover is uploading to EI or
+as the EI payload — works whether the robot is uploading to EI or
 just downloading samples.
 
 ## Synthetic IMU noise model
@@ -202,12 +219,18 @@ Edge Impulse users typically deploy to.
 
 ## Edge Impulse upload
 
-Both rigs upload to the standard Edge Impulse data acquisition endpoint.
-The label is the event class (rover) or trajectory class (arm); metadata
-includes the iteration index, total batch size, sensor parameters, and
-duration so you can filter on those in the EI Studio. With no API key
-configured, the runner zips the per-iteration JSON payloads and triggers
-a download.
+Both rigs build Edge Impulse data-acquisition JSON samples, then upload
+them through the Ingestion API `/files` endpoint as multipart `data`
+files. The label is the event class (rover) or trajectory class (arm).
+Direct uploads attach metadata via `x-metadata`; local downloads include
+the same labels and metadata in an `info.labels` sidecar next to the
+per-iteration JSON payloads.
+
+Shared robotics metadata includes the iteration index, total batch size,
+sensor parameters, duration, and upload split bucket when applicable.
+Arm `pick_place` samples also include `pickup_attempted`, `pickup_success`,
+`pickup_max_lift_m`, `pickup_graspable`, and failure details such as
+`pickup_failure_reason`, max tilt, and horizontal drift.
 
 ## Architecture
 
@@ -218,11 +241,15 @@ src/lib/
   braccio.ts            published Braccio joint limits + link lengths
   braccioIk.ts          analytical IK solver + lerp helper
   armTrajectories.ts    parametric joint-space trajectory generators
+  armPickupGeometry.ts  floor-safe pick-and-place gripper tip helpers
+  armPickupOutcome.ts   pickup success / failure observation + metadata
+  importedAssetBounds.ts imported-asset bounds normalization helpers
 
 src/components/
   Rover.tsx             rover rig + lidar fan + IMU sampler + path follower
-  RobotObstacles.tsx    draggable, store-driven obstacle field
-  BraccioArm.tsx        Braccio rig + IMU sampler + trajectory controller
+  SpawnedObjects.tsx    primitive pickup / obstacle meshes
+  ImportedAssets.tsx    USDZ pickup / obstacle meshes
+  BraccioArm.tsx        Braccio rig + IMU sampler + floor-safe pickup controller
   RobotPovCamera.tsx    first-person preview camera (rover front / arm wrist)
   RobotPanel.tsx        sidebar UI: kind, event/trajectory, count, scene reset
 ```

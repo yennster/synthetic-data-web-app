@@ -18,7 +18,7 @@ A browser-based 3D tool for generating synthetic training data for [Edge Impulse
 
 Run trained Edge Impulse YOLO / MobileNet / FOMO models **directly in-browser** for live inference on the virtual-camera preview.
 
-Created with Claude Code.
+Built with AI coding assistants.
 
 ![Synthetic Data Studio · Object Detection mode](docs/screenshot-detection.png)
 
@@ -38,9 +38,9 @@ Created with Claude Code.
 - HDRI-lit 3D scene with ACES tone mapping, contact shadows.
 - Light / dark theme toggle (defaults to dark; persists; URL-overridable).
 - Live HUD with mode-aware status pills.
-- Direct upload to the [Edge Impulse Ingestion API](https://docs.edgeimpulse.com/reference/data-ingestion/ingestion-api).
+- Direct upload to the [Edge Impulse Ingestion API](https://docs.edgeimpulse.com/apis/ingestion).
 - API keys held in memory only — never persisted.
-- Auto-attached EI metadata on every sample (page URL, mode, scene contents, capture timestamp). [More →](docs/internals.md#auto-attached-ei-metadata)
+- Auto-attached EI metadata on every sample: direct uploads use `x-metadata`, and downloaded time-series zips include an `info.labels` sidecar. [More →](docs/internals.md#auto-attached-ei-metadata)
 
 **Motion mode**
 - Hand tracking (Google MediaPipe `HandLandmarker`, in-browser, ~60 fps); toggle off for cameraless work.
@@ -48,7 +48,7 @@ Created with Claude Code.
 - 6-channel IMU output (`accX/Y/Z` m/s² + `gyrX/Y/Z` rad/s, body frame).
 - 8 object kinds (cube, sphere, cylinder, cone, torus, capsule, phone, soda can).
 - **Procedural motion generator** — pick `drop` / `throw` / `push` / `shake`, set count, height range, and per-sample duration; auto-runs through the batch. Upload directly or download as a zip.
-- Configurable sample rate (20–500 Hz, default 100). Optional HMAC-SHA256 signed uploads.
+- Configurable sample rate (20–500 Hz, default 100). Optional HMAC-SHA256 signing for time-series JSON payloads.
 
 **Object detection / Visual anomaly mode**
 - 4 environment presets (Studio / Warehouse / White box / Outdoor) plus per-slot custom textures (Floor / Wall / Object) stored in IndexedDB.
@@ -65,12 +65,12 @@ Created with Claude Code.
 - Fetch a built WebAssembly deployment straight from your project, or upload `.js` + `.wasm` manually.
 - Live inference at ~5 Hz on the virtual-camera preview; bounding boxes / FOMO centroids / visual-anomaly heatmap.
 
-- **Robotics mode**
+**Robotics mode**
 - Two synthetic robot rigs in one mode behind a kind toggle:
-  - **Rover** — differential-drive chassis with a configurable lidar / ToF ring (4–64 beams, 1–20 m range). Records combined 6-channel chassis IMU + N-channel lidar time-series labelled as `cruise` / `collision` / `stuck`. Contact detector injects a penetration-scaled impulse on impact so the accelerometer signature matches a real bumper switch.
-  - **Arm** — Arduino TinkerKit Braccio (6-DOF: M1–M6, published servo limits). Records 6-channel end-effector IMU labelled as `pick_place` / `sweep` / `wave` / `random_pose` / `draw_circle`. Pick-and-place uses analytical IK to target arm-scale (3 cm) configurable pickup objects; gripper open/close is animated.
+  - **Rover** — differential-drive chassis with a configurable lidar / ToF ring (4–64 beams, 1–20 m range). Records combined 6-channel chassis IMU + N-channel lidar time-series labelled as `cruise` / `collision` / `stuck`. MuJoCo's contact solver produces the impact acceleration; the app reads contacts as the bumper signal instead of injecting artificial impulses.
+  - **Arm** — Arduino TinkerKit Braccio (6-DOF: M1–M6, published servo limits). Records 6-channel end-effector IMU labelled as `pick_place` / `sweep` / `wave` / `random_pose` / `draw_circle`. Pick-and-place uses analytical IK against primitive or imported USDZ pickup targets, keeps the gripper clear of the floor, and records pickup success / failure metadata.
 - **Sensor modality picker** for the rover: upload **Fused (IMU+lidar)**, **IMU only**, or **Lidar only** to compare model accuracy or train one tower at a time.
-- **ROS 2 export**: toggle on to also write canonical `sensor_msgs/Imu` + `sensor_msgs/LaserScan` JSONL bundles alongside the EI payload — ready to replay through any ROS 2 pipeline.
+- **ROS 2 export**: toggle on to also write canonical JSONL bundles alongside the EI payload: rover exports `sensor_msgs/Imu` + `sensor_msgs/LaserScan`, and arm exports `sensor_msgs/Imu` + `sensor_msgs/JointState`.
 - Synthetic IMU noise model (MathWorks `imuSensor`-style: Allan-variance noise density, bias instability, scale-factor error, ADC quantization, saturation) applied to motion / rover / arm IMU paths. Defaults match an LSM6DSO at ±4 g / ±2000 dps.
 - Manual object spawning (pillars / crates / cones) and USDZ imports via the **Scene obstacles** / **Pickup objects** / **Imported** cards; obstacles and pickup targets are draggable with the same `Shift+drag` controls as detection mode.
 - First-person POV camera (front-mounted on rover, wrist-mounted on arm) renders into the corner overlay so you can see what the robot's onboard camera would see during the trajectory.
@@ -91,7 +91,7 @@ Created with Claude Code.
 | EI model inference | Edge Impulse WebAssembly deployment (Embind) |
 | ZIP read/write | Hand-rolled (STORE + DEFLATE via `DecompressionStream`) |
 | State | Zustand |
-| Upload | Fetch + WebCrypto SubtleCrypto (HMAC) |
+| Upload | Fetch multipart ingestion + WebCrypto SubtleCrypto (HMAC for signed time-series JSON) |
 
 ## Quick start
 
@@ -140,7 +140,7 @@ Step-by-step instructions for each mode are in **[docs/workflows.md](docs/workfl
 ## Edge Impulse setup
 
 1. **Dashboard → Keys** in your Edge Impulse project.
-2. Copy the **API key** (`ei_…`). For motion mode, optionally also copy the **HMAC key** for signed uploads.
+2. Copy the **API key** (`ei_…`). For motion and robotics time-series uploads, optionally also copy the **HMAC key** for signed JSON payloads.
 3. Paste into the sidebar; choose **Training** or **Testing**.
 
 For the exact JSON / multipart payloads sent to the ingestion API, see [docs/internals.md#edge-impulse-payload-formats](docs/internals.md#edge-impulse-payload-formats).
@@ -189,7 +189,7 @@ npm run test:watch     # interactive watch mode
 npm run test:coverage  # with v8 coverage report
 ```
 
-Stack: **Vitest** + **happy-dom**. Pure-logic libraries (`handMath`, `beltDynamics`, `capture` helpers, `edgeImpulse` payload + HMAC, store transitions, theme state, zip read/write, URL-param parsing) are covered, along with the MuJoCo MJCF generators (`braccioMjcf`, `roverMjcf`, `motionMjcf`) and the shared IMU sampler. The MediaPipe / OpenUSD / Rapier / MuJoCo WASM runtimes are stubbed in test config since they're browser-runtime-only — those are exercised in the headless screenshot script and end-to-end manual testing.
+Stack: **Vitest** + **happy-dom**. Pure-logic libraries (`handMath`, `beltDynamics`, `capture` helpers, `edgeImpulse` payload + HMAC + `info.labels`, arm pickup geometry / outcome metadata, store transitions, theme state, zip read/write, URL-param parsing) are covered, along with the MuJoCo MJCF generators (`braccioMjcf`, `roverMjcf`, `motionMjcf`) and the shared IMU sampler. The MediaPipe / OpenUSD / Rapier / MuJoCo WASM runtimes are stubbed in test config since they're browser-runtime-only — those are exercised in the headless screenshot script and end-to-end manual testing.
 
 A GitHub Actions workflow ([`.github/workflows/test.yml`](.github/workflows/test.yml)) runs `tsc --noEmit` + `npm test` on every push to `main` and every PR.
 

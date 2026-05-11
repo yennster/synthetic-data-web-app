@@ -21,7 +21,7 @@ Step-by-step instructions for the four modes.
 4. Click **⚡ Generate & upload N samples** if an API key is set, or **⚡ Generate & download N samples** to save a local zip without signing in. The app:
    - Auto-disables hand tracking (so the camera and the script don't fight over the pinch target).
    - For each sample: lifts the object to a random `(x, y, z)` and orientation, performs the chosen motion (free-fall, throw, push, or shake), records the 6-channel IMU trace for the configured duration, and stores it as `{motion}_{i}.json`. The EI sample's `x-label` is set to the motion class so EI auto-classifies the data.
-   - With an API key, each sample uploads to your project's `training` (or `testing`) bucket. Without an API key, the samples are bundled into one zip download.
+   - With an API key, each sample uploads to your project's `training` (or `testing`) bucket with label and metadata headers. Without an API key, the samples are bundled into one zip download with an `info.labels` sidecar so Edge Impulse can import the same labels and metadata later.
    - Click **■ Stop** at any time to cancel — the runner unwinds at the next checkpoint and packages whatever finished.
    - After an uploaded batch, use **↻ Retrain model** in the upload card to retrain the project with the new samples.
    - Status updates after each sample; failures are tallied separately and don't stop the rest of the batch.
@@ -74,10 +74,12 @@ Alternatively, unzip the WebAssembly deployment locally and upload `edge-impulse
    - (Optional) Toggle **ROS export** to include canonical ROS 2 `sensor_msgs` in your download/upload.
 5. **For the Arm:**
    - Pick a **Trajectory** (`pick_place`, `sweep`, `wave`, `random_pose`, or `draw_circle`).
-   - For `pick_place`, click **+ Pickup target** to spawn a small object for the arm to grab.
+   - For `pick_place`, click **+ Pickup target** to spawn a small object for the arm to grab, or import a USDZ pickup. Imported pickups keep their original visual mesh while the simulator uses a scaled bounding-box proxy for physical grasping.
 6. In the **Robotics generator** card, set the batch **count** and **duration** (e.g. 5 samples, 2000 ms each).
 7. Click **⚡ Generate & upload N samples** or **⚡ Generate & download N samples**.
    - The rig performs the selected motion while recording 6-channel IMU data (and N-channel lidar for the rover) at 20 Hz.
    - The **Robot POV** overlay shows the front-mounted (rover) or wrist-mounted (arm) camera view.
-   - For the rover, impacts with obstacles inject realistic impulses into the accelerometer trace.
+   - For the rover, MuJoCo contacts with obstacles produce the accelerometer impact trace and bumper state.
+   - For arm `pick_place`, the sample metadata records whether a pickup was attempted and whether it succeeded. If a target tips over or drifts out of a plausible grasp during the close / lift phase, the sample is marked failed instead of pretending the placement succeeded.
+   - Direct uploads attach metadata with `x-metadata`; downloaded robotics zips include `info.labels` next to the JSON samples.
 8. After uploading, click **↻ Retrain model** to start an Edge Impulse training job.

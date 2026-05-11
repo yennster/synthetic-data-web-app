@@ -2,7 +2,7 @@
   "name": "@yennster/synthetic-data-studio",
   "version": "0.11.0",
   "type": "module",
-  "description": "Browser-based 3D synthetic-data studio for Edge Impulse — accelerometer, object detection, and visual anomaly modes with hand tracking, USDZ import, conveyor physics, and direct ingestion-API upload.",
+  "description": "Browser-based 3D synthetic-data studio for Edge Impulse — motion IMU, object detection, visual anomaly, and robotics rover/arm modes with hand tracking, USDZ import, MuJoCo physics, and direct ingestion uploads.",
   "license": "Apache-2.0",
   "author": "yennster",
   "homepage": "https://github.com/yennster/synthetic-data-studio#readme",
