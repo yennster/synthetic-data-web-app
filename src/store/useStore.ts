@@ -273,6 +273,14 @@ type State = {
   setHandDetected: (b: boolean) => void;
   pinchStrength: number;
   setPinchStrength: (n: number) => void;
+  /** Multiplier applied to the hand-tracker's per-frame target coords
+   * before they're written to `pinchTarget`. Scaled from 1 → ~3 based
+   * on the OrbitControls camera distance from the scene anchor so the
+   * user can drop / throw from higher up the more they zoom out. The
+   * camera rig writes this each frame; CameraFeed reads it inside the
+   * MediaPipe callback. */
+  handMappingScale: number;
+  setHandMappingScale: (n: number) => void;
   /** Master toggle for the webcam + MediaPipe hand-tracking pipeline. When
    * off, the CameraFeed component doesn't mount, so the camera light never
    * turns on and no permission prompt fires. The procedural drops feature
@@ -654,6 +662,8 @@ export const useStore = create<State>()(
   setSampleRateHz: (n) => set({ sampleRateHz: n }),
   handDetected: false,
   setHandDetected: (b) => set({ handDetected: b }),
+  handMappingScale: 1,
+  setHandMappingScale: (n) => set({ handMappingScale: n }),
   pinchStrength: 0,
   setPinchStrength: (n) => set({ pinchStrength: n }),
   handTrackingEnabled: true,

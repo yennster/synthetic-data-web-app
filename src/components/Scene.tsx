@@ -546,6 +546,29 @@ function CameraRig() {
     controls.update();
   }, [mode, robotKind, camera, controls]);
 
+  // Hand-mapping scale: stretch the hand-tracker's per-frame target
+  // coords by how far the user has zoomed out. The default camera sits
+  // ~7.8 m from HAND_ANCHOR; doubling that distance roughly doubles the
+  // reachable drop height, capped to a 3× ceiling so a fully-zoomed-out
+  // wrist flick doesn't fling the cube to the horizon.
+  const setHandMappingScale = useStore((s) => s.setHandMappingScale);
+  const REF_DISTANCE = Math.hypot(4, 3, 6); // default camera position
+  const lastScale = useRef(1);
+  useFrame(() => {
+    if (mode !== 'motion') return;
+    const dx = camera.position.x - HAND_ANCHOR[0];
+    const dy = camera.position.y - HAND_ANCHOR[1];
+    const dz = camera.position.z - HAND_ANCHOR[2];
+    const distance = Math.hypot(dx, dy, dz);
+    const raw = Math.max(1, Math.min(3, distance / REF_DISTANCE));
+    // Only push to the store when it changes meaningfully — saves a
+    // zustand notification per frame in the steady state.
+    if (Math.abs(raw - lastScale.current) > 0.01) {
+      lastScale.current = raw;
+      setHandMappingScale(raw);
+    }
+  });
+
   return null;
 }
 

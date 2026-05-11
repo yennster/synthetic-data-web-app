@@ -137,12 +137,18 @@ export function CameraFeed() {
           //      (~0.04 each direction) covers full reach without saturating.
           const H_NEUTRAL = 0.13;
           const H_RANGE = 0.06;
-          const rawX = (1 - c.x - 0.5) * 6;
-          const rawY = (0.85 - c.y) * 5;
-          const rawZ = Math.max(
-            -2.5,
-            Math.min(2.5, ((handSize(hand) - H_NEUTRAL) / H_RANGE) * 2.5),
-          );
+          // `handMappingScale` is driven by the Scene's CameraRig from
+          // OrbitControls camera distance — zooming out widens the
+          // hand-controlled volume so the user can drop / throw from
+          // higher up without the in-frame hand position changing.
+          const mapScale = useStore.getState().handMappingScale;
+          const rawX = (1 - c.x - 0.5) * 6 * mapScale;
+          const rawY = (0.85 - c.y) * 5 * mapScale;
+          const rawZ =
+            Math.max(
+              -2.5,
+              Math.min(2.5, ((handSize(hand) - H_NEUTRAL) / H_RANGE) * 2.5),
+            ) * mapScale;
 
           // Exponential smoothing. Z is now hand-size based (much steadier
           // than MediaPipe's per-landmark z) so it can match X/Y.
