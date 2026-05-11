@@ -388,30 +388,39 @@ function ArmController({ sim }: { sim: BraccioSim | null }) {
     }
     const state = useStore.getState();
     const targetId = state.armTargetId;
-    let pickup = { x: 0.18, y: 0.06, z: 0.12 };
-    let drop = { x: -0.18, y: 0.06, z: 0.12 };
+    // World position of the cube body. The IK targets are derived from
+    // this — see comment block below for the bottom-of-cube reasoning.
+    let cubePos: [number, number, number] = [0.18, 0.015, 0.12];
     const target = state.sceneObjects.find(
       (o) => o.id === targetId && o.owner === 'arm',
     );
     if (target) {
-      pickup = {
-        x: target.position[0],
-        y: Math.max(0.04, target.position[1]),
-        z: target.position[2],
-      };
-      drop = {
-        x: -target.position[0],
-        y: Math.max(0.04, target.position[1]),
-        z: target.position[2],
-      };
+      cubePos = [
+        target.position[0],
+        target.position[1],
+        target.position[2],
+      ];
     }
-    // Place MuJoCo's pickup target at the user's selected position so
-    // the gripper actually closes on something. The cube y is clamped
-    // a smidge above the floor so it doesn't intersect on spawn. For
-    // non-pick-place trajectories we still place it — the user can
-    // see it as a static scene element even when the arm isn't
-    // trying to grasp.
-    sim.placeTarget([pickup.x, pickup.y, pickup.z]);
+    // Place MuJoCo's pickup target at the user's selected position. The
+    // sim's target body is a 3 cm cube (half-extent 0.015) with a free
+    // joint, so writing the user's stored center position puts the
+    // cube's bottom on the floor (matching what the user sees rendered).
+    sim.placeTarget(cubePos);
+
+    // IK aims at the gripper *tip* (bottom of the fingers). For the
+    // parallel-jaw gripper to actually wrap the cube, the tip needs
+    // to sit at the cube's bottom face so the fingers extend up the
+    // cube's full height before closing laterally. Subtract the cube
+    // half-extent (0.015) from the center y, clamped to a small
+    // positive margin so the IK doesn't degenerate when the cube
+    // sits exactly on the floor.
+    //
+    // Symmetry: the drop target uses (-x, +z) for a mirrored
+    // place-down arc.
+    const CUBE_HALF = 0.015;
+    const tipY = Math.max(0.002, cubePos[1] - CUBE_HALF);
+    const pickup = { x: cubePos[0], y: tipY, z: cubePos[2] };
+    const drop = { x: -cubePos[0], y: tipY, z: cubePos[2] };
     pathRef.current = buildArmTrajectory(trajectory, {
       pickup,
       drop,
