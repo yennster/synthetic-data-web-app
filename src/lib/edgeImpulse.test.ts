@@ -6,6 +6,7 @@ import {
   buildInfoLabelsFile,
   buildIngestionMetadata,
   buildRoverDataAcquisitionPayload,
+  getEiProjectDataKinds,
   inferIntervalMs,
   resolveBucket,
   uploadCaptures,
@@ -773,5 +774,153 @@ describe('uploadCaptures', () => {
       done: 2,
       failed: 0,
     });
+  });
+});
+
+describe('getEiProjectDataKinds', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  /** Helper: stub the Studio `/raw-data` endpoint per category with
+   *  a list of filenames. Every call returns 200 + `{ success: true,
+   *  samples: [...] }` with the requested filenames. */
+  function stubRawData(byCategory: Record<string, string[]>) {
+    fetchMock = vi.fn(async (url: string) => {
+      const m = url.match(/category=(\w+)/);
+      const category = m?.[1] ?? 'training';
+      const filenames = byCategory[category] ?? [];
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: async () =>
+          JSON.stringify({
+            success: true,
+            samples: filenames.map((filename) => ({ filename })),
+          }),
+      };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+  }
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('reports both flags false and totalChecked=0 for an empty project', async () => {
+    stubRawData({ training: [], testing: [] });
+    const r = await getEiProjectDataKinds('ei_test', 42);
+    expect(r).toEqual({
+      hasImages: false,
+      hasTimeSeries: false,
+      totalChecked: 0,
+    });
+  });
+
+  it('flags image-only projects (multiple image extensions)', async () => {
+    stubRawData({
+      training: [
+        'a.png',
+        'b.JPG',
+        'c.jpeg',
+        'd.webp',
+        'e.bmp',
+        'f.gif',
+      ],
+      testing: [],
+    });
+    const r = await getEiProjectDataKinds('ei_test', 42);
+    expect(r.hasImages).toBe(true);
+    expect(r.hasTimeSeries).toBe(false);
+    expect(r.totalChecked).toBeGreaterThan(0);
+  });
+
+  it('flags time-series-only projects (json / cbor filenames)', async () => {
+    stubRawData({
+      training: ['cruise_imu_1.json', 'shake_2.cbor', 'idle.csv'],
+      testing: [],
+    });
+    const r = await getEiProjectDataKinds('ei_test', 42);
+    expect(r.hasImages).toBe(false);
+    expect(r.hasTimeSeries).toBe(true);
+  });
+
+  it('flags mixed projects when both types appear', async () => {
+    stubRawData({
+      training: ['snap.png'],
+      testing: ['drop.json'],
+    });
+    const r = await getEiProjectDataKinds('ei_test', 42);
+    expect(r.hasImages).toBe(true);
+    expect(r.hasTimeSeries).toBe(true);
+  });
+
+  it('short-circuits when both flags are set early', async () => {
+    // Training already covers both kinds — testing fetch should be
+    // skipped because the function only stops requesting more
+    // categories once it has classified both.
+    stubRawData({
+      training: ['snap.png', 'drop.json'],
+      testing: ['other.png'],
+    });
+    await getEiProjectDataKinds('ei_test', 42);
+    // One call for training, none for testing.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toContain('category=training');
+  });
+
+  it('treats a per-category fetch failure as no data of that category', async () => {
+    fetchMock = vi
+      .fn()
+      // training: HTTP 500 — should be swallowed.
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        statusText: 'Server Error',
+        text: async () => 'oops',
+      })
+      // testing: returns image data.
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: async () =>
+          JSON.stringify({
+            success: true,
+            samples: [{ filename: 'pic.png' }],
+          }),
+      });
+    vi.stubGlobal('fetch', fetchMock);
+    const r = await getEiProjectDataKinds('ei_test', 42);
+    expect(r.hasImages).toBe(true);
+    expect(r.hasTimeSeries).toBe(false);
+  });
+
+  it('ignores samples whose filename is empty or missing', async () => {
+    fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      text: async () =>
+        JSON.stringify({
+          success: true,
+          samples: [{}, { filename: '' }, { filename: 'real.json' }],
+        }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const r = await getEiProjectDataKinds('ei_test', 42);
+    expect(r.hasTimeSeries).toBe(true);
+    expect(r.hasImages).toBe(false);
+    // Only the real.json counts; per-category fetch is called for both
+    // categories because we never hit the "both flags set" short-circuit.
+    expect(r.totalChecked).toBeGreaterThanOrEqual(1);
+  });
+
+  it('sends the API key via x-api-key for each category fetch', async () => {
+    stubRawData({ training: ['x.json'], testing: ['y.png'] });
+    await getEiProjectDataKinds('my-key', 7);
+    for (const call of fetchMock.mock.calls) {
+      const [, init] = call;
+      expect(init.headers['x-api-key']).toBe('my-key');
+    }
+    // URL should target the project id.
+    expect(fetchMock.mock.calls[0][0]).toContain('/7/raw-data');
   });
 });
