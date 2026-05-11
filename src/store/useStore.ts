@@ -414,6 +414,14 @@ type State = {
   setRobotRunning: (b: boolean) => void;
   robotCancelRequested: boolean;
   setRobotCancelRequested: (b: boolean) => void;
+  /** Successful captures produced by the in-progress (or last-completed)
+   * robotics run. Lives in the store so the HUD can show a live count
+   * for robotics mode — the vision `captures` array is image-only and
+   * stays empty in robotics. Reset at the start of each run and on
+   * `resetRobotScene`. */
+  robotCaptures: number;
+  bumpRobotCaptures: () => void;
+  resetRobotCaptures: () => void;
   /** Lidar/ToF time-series for the in-progress (or just-finished) rover
    * recording. Distinct from the IMU `samples` array because the per-tick
    * payload is N range bins, not a 6-channel reading. Cleared at the
@@ -769,6 +777,9 @@ export const useStore = create<State>()(
   setRobotRunning: (b) => set({ robotRunning: b }),
   robotCancelRequested: false,
   setRobotCancelRequested: (b) => set({ robotCancelRequested: b }),
+  robotCaptures: 0,
+  bumpRobotCaptures: () => set((s) => ({ robotCaptures: s.robotCaptures + 1 })),
+  resetRobotCaptures: () => set({ robotCaptures: 0 }),
   lidarSamples: [],
   pushLidarSample: (s) =>
     set((state) =>
@@ -801,6 +812,7 @@ export const useStore = create<State>()(
         armPickupObservation: null,
         roverInContact: false,
         robotCancelRequested: false,
+        robotCaptures: 0,
       };
     });
   },

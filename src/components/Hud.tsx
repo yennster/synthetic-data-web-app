@@ -8,6 +8,7 @@ export function Hud() {
   const isRecording = useStore((s) => s.isRecording);
   const samples = useStore((s) => s.samples);
   const captures = useStore((s) => s.captures);
+  const robotCaptures = useStore((s) => s.robotCaptures);
   const sceneObjects = useStore((s) => s.sceneObjects);
   const assets = useStore((s) => s.assets);
   const restoring = useStore((s) => s.restoringAssets);
@@ -46,12 +47,17 @@ export function Hud() {
           ? 'robotics'
           : mode;
 
+  // Robotics mode produces rosbag / timeseries captures via RobotPanel
+  // (no image-capture path), so the vision `captures` array stays empty.
+  // Surface the robotics-run counter instead so the pill actually updates.
+  const captureCount = mode === 'robot' ? robotCaptures : captures.length;
+
   return (
     <div className="hud">
       <div className="pill">Mode: {modeLabel}</div>
       <div className="pill">Objects: {sceneObjects.length + assets.length}</div>
-      <div className={`pill ${captures.length > 0 ? 'live' : ''}`}>
-        Captures: {captures.length}
+      <div className={`pill ${captureCount > 0 ? 'live' : ''}`}>
+        Captures: {captureCount}
       </div>
       <div
         className="pill tip"
