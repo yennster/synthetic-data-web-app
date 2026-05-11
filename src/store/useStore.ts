@@ -429,6 +429,17 @@ type State = {
   pushRobotImuSample: (s: AccelSample) => void;
   clearRobotImuSamples: () => void;
 
+  /** Joint-position samples recorded during an arm run. Each entry is
+   * a timestamp + six-vector (M1..M6 in the same units the rest of
+   * the arm code uses: joints 0..4 in radians, joint 5 normalized
+   * gripper aperture). Populated by the BraccioArm IMU sampler at the
+   * same cadence as `robotImuSamples`, so a ROS `JointState` message
+   * series and the end-effector `Imu` series line up tick-for-tick.
+   * Cleared per iteration alongside the IMU buffer. */
+  armJointSamples: { t: number; joints: number[] }[];
+  pushArmJointSample: (s: { t: number; joints: number[] }) => void;
+  clearArmJointSamples: () => void;
+
   /** True when the rover's contact detector reports overlap with at
    * least one obstacle this frame. The IMU sampler reads this to
    * inject a brief impulse along the contact axis (so the recorded
@@ -766,6 +777,14 @@ export const useStore = create<State>()(
         : state,
     ),
   clearRobotImuSamples: () => set({ robotImuSamples: [] }),
+  armJointSamples: [],
+  pushArmJointSample: (s) =>
+    set((state) =>
+      state.robotRunning
+        ? { armJointSamples: [...state.armJointSamples, s] }
+        : state,
+    ),
+  clearArmJointSamples: () => set({ armJointSamples: [] }),
   roverInContact: false,
   setRoverInContact: (b) => set({ roverInContact: b }),
 

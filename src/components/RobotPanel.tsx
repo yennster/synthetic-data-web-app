@@ -24,7 +24,7 @@ import {
   uploadRoverSample,
   uploadSample,
 } from '../lib/edgeImpulse';
-import { buildRoverRosJsonl } from '../lib/rosMessages';
+import { buildArmRosJsonl, buildRoverRosJsonl } from '../lib/rosMessages';
 import { useNumberInput } from '../lib/useNumberInput';
 import { buildZip, type ZipEntry } from '../lib/zip';
 import { EiAuthCard } from './EiAuthCard';
@@ -327,12 +327,15 @@ export function RobotPanel() {
           `${i + 1}/${robot.count} ${trajectory}: building trajectory…`,
         );
         clearRobotImuSamples();
+        useStore.getState().clearArmJointSamples();
         bumpArmEpoch();
         await sleepCancellable(robot.durationMs);
         const imu: AccelSample[] = useStore
           .getState()
           .robotImuSamples.slice();
+        const armJoints = useStore.getState().armJointSamples.slice();
         clearRobotImuSamples();
+        useStore.getState().clearArmJointSamples();
         if (imu.length === 0) {
           failed += 1;
           continue;
@@ -369,6 +372,15 @@ export function RobotPanel() {
           });
           captured += 1;
         }
+        if (robot.rosExport) {
+          // Bundle end-effector IMU + joint-state stream into a ROS 2
+          // JSONL. Same per-iteration filename pattern the rover path
+          // uses so downstream replayers can treat both robots
+          // uniformly.
+          const jsonl = buildArmRosJsonl({ imu, joints: armJoints });
+          const rosName = fileName.replace(/\.json$/, '.rosbag.jsonl');
+          zipEntries.push({ name: rosName, data: jsonl });
+        }
         setStatus(
           'busy',
           shouldUpload
@@ -378,6 +390,17 @@ export function RobotPanel() {
       }
       const headline = cancelled ? 'Arm run stopped' : 'Arm run complete';
       if (shouldUpload) {
+        // ROS JSONL has no upload endpoint, so even when EI uploads
+        // succeed we still zip the JSONL files locally if rosExport
+        // is on. Mirrors the rover path's behavior.
+        if (zipEntries.length > 0) {
+          const zipName = buildFileName(`arm_${trajectory}_rosbag`).replace(
+            /\.json$/,
+            '.zip',
+          );
+          const zip = await buildZip(zipEntries);
+          await saveBlob(zipName, zip);
+        }
         setStatus(
           cancelled || failed > 0 ? 'err' : 'ok',
           `${headline}: ${uploaded} uploaded${failed ? ` · ${failed} failed` : ''}`,
@@ -529,16 +552,18 @@ export function RobotPanel() {
 
       {robot.kind === 'arm' && (
         <SceneObjectsCard
-          title="Pickup objects"
+          title={
+            robot.armTrajectory === 'pick_place' ? 'Pickup objects' : 'Scene props'
+          }
           addCustom={(kind, label) =>
             useStore.getState().addArmPickupTarget(kind, label)
           }
           sizeRange={{ min: 0.02, max: 0.2, step: 0.005 }}
-          defaultLabel="pickup"
+          defaultLabel={robot.armTrajectory === 'pick_place' ? 'pickup' : 'prop'}
           helpText={
             robot.armTrajectory === 'pick_place'
               ? 'The runner picks one as the IK anchor each iteration. Drag to retarget; toggle physics to let the gripper actually push the object around.'
-              : 'Add objects for the camera and lidar to see — same controls as detection mode.'
+              : 'Scenery for the POV camera; only pick_place actually interacts with them.'
           }
           ownerFilter="arm"
           footer={
@@ -715,41 +740,44 @@ export function RobotPanel() {
               {robot.uploadModality === 'lidar' &&
                 'Lidar only. Useful for environment-classification models.'}
             </div>
-            <div className="webcam-control">
-              <div className="webcam-control-copy">
-                <div className="webcam-control-heading">
-                  <span className="webcam-control-title">ROS export</span>
-                  <span
-                    className={`webcam-control-state ${
-                      robot.rosExport ? 'on' : 'off'
-                    }`}
-                  >
-                    {robot.rosExport ? 'On' : 'Off'}
-                  </span>
-                </div>
-                <div className="webcam-control-help">
-                  Also write each window as ROS 2 sensor-message JSONL
-                  (sensor_msgs/Imu + LaserScan). Bundles into the
-                  download zip alongside the EI payload.
-                </div>
-              </div>
-              <button
-                type="button"
-                className={`webcam-switch ${robot.rosExport ? 'on' : ''}`}
-                role="switch"
-                aria-checked={robot.rosExport}
-                aria-label={
-                  robot.rosExport ? 'Turn ROS export off' : 'Turn ROS export on'
-                }
-                onClick={() => setRobot({ rosExport: !robot.rosExport })}
-                disabled={robotRunning}
-              >
-                <span className="webcam-switch-thumb" />
-              </button>
-            </div>
           </div>
         </>
       )}
+
+      <div className="card">
+        <div className="webcam-control">
+          <div className="webcam-control-copy">
+            <div className="webcam-control-heading">
+              <span className="webcam-control-title">ROS 2 export</span>
+              <span
+                className={`webcam-control-state ${
+                  robot.rosExport ? 'on' : 'off'
+                }`}
+              >
+                {robot.rosExport ? 'On' : 'Off'}
+              </span>
+            </div>
+            <div className="webcam-control-help">
+              {robot.kind === 'rover'
+                ? 'Also write each window as ROS 2 sensor-message JSONL (sensor_msgs/Imu + LaserScan). Bundles into the download zip alongside the EI payload.'
+                : 'Also write each window as ROS 2 sensor-message JSONL — end-effector sensor_msgs/Imu + per-tick sensor_msgs/JointState. Bundles into the download zip alongside the EI payload.'}
+            </div>
+          </div>
+          <button
+            type="button"
+            className={`webcam-switch ${robot.rosExport ? 'on' : ''}`}
+            role="switch"
+            aria-checked={robot.rosExport}
+            aria-label={
+              robot.rosExport ? 'Turn ROS export off' : 'Turn ROS export on'
+            }
+            onClick={() => setRobot({ rosExport: !robot.rosExport })}
+            disabled={robotRunning}
+          >
+            <span className="webcam-switch-thumb" />
+          </button>
+        </div>
+      </div>
 
       <EiAuthCard showHmac />
 

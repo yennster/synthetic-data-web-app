@@ -508,10 +508,21 @@ function ArmImuSampler({ sim }: { sim: BraccioSim | null }) {
     const sampleDt = recordAccum.current;
     recordAccum.current = 0;
 
-    const { robotRunning, pushRobotImuSample, imuNoise } = useStore.getState();
+    const {
+      robotRunning,
+      pushRobotImuSample,
+      pushArmJointSample,
+      imuNoise,
+    } = useStore.getState();
     if (!robotRunning) return;
     const sample = sampleImu(sim, noiseStateRef.current, imuNoise, sampleDt);
     pushRobotImuSample(sample);
+    // Snapshot joint positions at the same cadence so a downstream ROS
+    // exporter can pair `sensor_msgs/Imu` with `sensor_msgs/JointState`
+    // tick-for-tick. Reads from MuJoCo (not the store) for the freshest
+    // post-step values.
+    const joints = sim.readJointPositions();
+    pushArmJointSample({ t: sample.t, joints: [...joints] });
   });
 
   return null;

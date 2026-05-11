@@ -207,6 +207,77 @@ export type RosBundle = {
   lidarMaxRange: number;
 };
 
+/** sensor_msgs/JointState — joint position + velocity + effort vectors
+ * indexed by `name`. We only fill `position`; velocity is left empty
+ * (downstream nodes can finite-difference) and effort is empty
+ * (synthetic motion has no torque telemetry). REP-103 doesn't dictate
+ * a strict joint-name convention — we use the published Braccio servo
+ * labels (M1..M6) so the data lines up with Arduino's own tutorials. */
+export type RosJointStateMessage = {
+  header: RosHeader;
+  name: string[];
+  position: number[];
+  velocity: number[];
+  effort: number[];
+};
+
+/** Per-tick joint snapshot — matches the store's `armJointSamples`
+ * entry. Six values, M1..M6, in the same units the rest of the arm
+ * code uses (joints 0..4 in radians, joint 5 normalized gripper
+ * aperture). */
+export type ArmJointSample = { t: number; joints: number[] };
+
+export const BRACCIO_JOINT_LABELS: ReadonlyArray<string> = [
+  'M1_base',
+  'M2_shoulder',
+  'M3_elbow',
+  'M4_wrist_pitch',
+  'M5_wrist_roll',
+  'M6_gripper',
+];
+
+export function buildJointStateMessage(
+  sample: ArmJointSample,
+  frameId = 'braccio_base',
+): RosJointStateMessage {
+  return {
+    header: { stamp: performanceNowToRosTime(sample.t), frame_id: frameId },
+    name: [...BRACCIO_JOINT_LABELS],
+    position: sample.joints.slice(),
+    velocity: [],
+    effort: [],
+  };
+}
+
+/** Arm-side ROS bundle — IMU at the end-effector + per-tick joint
+ * states. Identical JSONL shape as the rover bundle so downstream
+ * loaders can stay generic. */
+export type ArmRosBundle = {
+  imu: AccelSample[];
+  joints: ArmJointSample[];
+};
+
+export function buildArmRosJsonl(bundle: ArmRosBundle): string {
+  const lines: string[] = [];
+  for (const s of bundle.imu) {
+    lines.push(
+      JSON.stringify({
+        topic: '/end_effector/imu',
+        msg: buildImuMessage(s, 'end_effector'),
+      }),
+    );
+  }
+  for (const s of bundle.joints) {
+    lines.push(
+      JSON.stringify({
+        topic: '/joint_states',
+        msg: buildJointStateMessage(s),
+      }),
+    );
+  }
+  return lines.join('\n') + '\n';
+}
+
 export function buildRoverRosJsonl(bundle: RosBundle): string {
   const lines: string[] = [];
   for (const s of bundle.imu) {

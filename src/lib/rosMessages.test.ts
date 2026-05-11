@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BRACCIO_JOINT_LABELS,
+  buildArmRosJsonl,
   buildImuMessage,
+  buildJointStateMessage,
   buildLaserScanMessage,
   buildOdometryMessage,
   buildRoverRosJsonl,
@@ -128,5 +131,45 @@ describe('buildRoverRosJsonl', () => {
     const parsed = lines.map((l) => JSON.parse(l));
     expect(parsed.filter((p) => p.topic === '/imu/data').length).toBe(2);
     expect(parsed.filter((p) => p.topic === '/scan').length).toBe(1);
+  });
+});
+
+describe('buildJointStateMessage', () => {
+  it('fills the canonical sensor_msgs/JointState shape with Braccio labels', () => {
+    const msg = buildJointStateMessage({
+      t: 1000,
+      joints: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
+    });
+    expect(msg.header.frame_id).toBe('braccio_base');
+    expect(msg.name).toEqual([...BRACCIO_JOINT_LABELS]);
+    expect(msg.position).toEqual([0.1, 0.2, 0.3, 0.4, 0.5, 0.6]);
+    // Velocity + effort are explicitly empty; downstream nodes can
+    // finite-difference if they want velocity.
+    expect(msg.velocity).toEqual([]);
+    expect(msg.effort).toEqual([]);
+  });
+});
+
+describe('buildArmRosJsonl', () => {
+  it('multiplexes IMU and joint-state samples onto separate topics', () => {
+    const jsonl = buildArmRosJsonl({
+      imu: [
+        { t: 0, ax: 0, ay: 9.81, az: 0, gx: 0, gy: 0, gz: 0 },
+        { t: 50, ax: 0.1, ay: 9.8, az: 0, gx: 0, gy: 0, gz: 0 },
+      ],
+      joints: [
+        { t: 0, joints: [0, 0, 0, 0, 0, 0] },
+        { t: 50, joints: [0.1, 0, 0, 0, 0, 0] },
+      ],
+    });
+    const lines = jsonl.trim().split('\n');
+    expect(lines.length).toBe(4);
+    const parsed = lines.map((l) => JSON.parse(l));
+    expect(parsed.filter((p) => p.topic === '/end_effector/imu').length).toBe(2);
+    expect(parsed.filter((p) => p.topic === '/joint_states').length).toBe(2);
+    // The IMU frame_id is the end-effector — matches the arm's
+    // physical IMU mount location (the gripper carrier).
+    const firstImu = parsed.find((p) => p.topic === '/end_effector/imu');
+    expect(firstImu.msg.header.frame_id).toBe('end_effector');
   });
 });
