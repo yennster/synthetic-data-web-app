@@ -541,57 +541,63 @@ export function RobotPanel() {
               : 'Add objects for the camera and lidar to see — same controls as detection mode.'
           }
           ownerFilter="arm"
-        />
-      )}
-
-      {robot.kind === 'arm' && robot.armTrajectory === 'pick_place' && (
-        <div className="card">
-          <div className="webcam-control">
-            <div className="webcam-control-copy">
-              <div className="webcam-control-heading">
-                <span className="webcam-control-title">Randomize pickup position</span>
-                <span
-                  className={`webcam-control-state ${
-                    robot.armRandomizeTarget ? 'on' : 'off'
+          footer={
+            robot.armTrajectory === 'pick_place' ? (
+              // Lives inside the pickup-objects card so the toggle that
+              // *acts on* those objects sits next to the list, not as a
+              // floating card below.
+              <div className="webcam-control" style={{ marginTop: 8 }}>
+                <div className="webcam-control-copy">
+                  <div className="webcam-control-heading">
+                    <span className="webcam-control-title">
+                      Randomize pickup position
+                    </span>
+                    <span
+                      className={`webcam-control-state ${
+                        robot.armRandomizeTarget ? 'on' : 'off'
+                      }`}
+                    >
+                      {robot.armRandomizeTarget ? 'On' : 'Off'}
+                    </span>
+                  </div>
+                  <div className="webcam-control-help">
+                    Re-sample each pickup object to a fresh random
+                    position inside the Braccio's reach at the start of
+                    every iteration. Generates varied IMU traces without
+                    dragging the cube around by hand.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className={`webcam-switch ${
+                    robot.armRandomizeTarget ? 'on' : ''
                   }`}
+                  role="switch"
+                  aria-checked={robot.armRandomizeTarget}
+                  aria-label={
+                    robot.armRandomizeTarget
+                      ? 'Turn pickup randomization off'
+                      : 'Turn pickup randomization on'
+                  }
+                  onClick={() => {
+                    const next = !robot.armRandomizeTarget;
+                    setRobot({ armRandomizeTarget: next });
+                    // Flipping the switch on should give immediate
+                    // visual feedback — randomize once now so the user
+                    // can see the pickups hop to fresh positions
+                    // before the next run bumps the armEpoch.
+                    if (next) {
+                      useStore.getState().randomizeArmPickupPositions();
+                    }
+                  }}
+                  disabled={robotRunning}
                 >
-                  {robot.armRandomizeTarget ? 'On' : 'Off'}
-                </span>
+                  <span className="webcam-switch-thumb" />
+                </button>
               </div>
-              <div className="webcam-control-help">
-                Re-sample each pickup object to a fresh random position
-                inside the Braccio's reach at the start of every
-                iteration. Generates varied IMU traces without dragging
-                the cube around by hand.
-              </div>
-            </div>
-            <button
-              type="button"
-              className={`webcam-switch ${robot.armRandomizeTarget ? 'on' : ''}`}
-              role="switch"
-              aria-checked={robot.armRandomizeTarget}
-              aria-label={
-                robot.armRandomizeTarget
-                  ? 'Turn pickup randomization off'
-                  : 'Turn pickup randomization on'
-              }
-              onClick={() => {
-                const next = !robot.armRandomizeTarget;
-                setRobot({ armRandomizeTarget: next });
-                // Flipping the switch on should give immediate visual
-                // feedback — randomize once now so the user can see the
-                // pickup hop to a new position before the next run
-                // bumps the armEpoch.
-                if (next) {
-                  useStore.getState().randomizeArmPickupPositions();
-                }
-              }}
-              disabled={robotRunning}
-            >
-              <span className="webcam-switch-thumb" />
-            </button>
-          </div>
-        </div>
+            ) : undefined
+          }
+        />
       )}
 
       <div className="card">

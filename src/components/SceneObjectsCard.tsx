@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   useStore,
   type ObjectKind,
@@ -36,6 +36,7 @@ export function SceneObjectsCard({
   helpText,
   hidden = false,
   ownerFilter,
+  footer,
 }: {
   title?: string;
   addCustom?: ((kind: ObjectKind, label?: string) => string) | null;
@@ -50,6 +51,12 @@ export function SceneObjectsCard({
    * tag too — keeps the panel-side editor coherent with the
    * scene-side filter. */
   ownerFilter?: SceneObjectOwner | 'vision';
+  /** Extra content to render at the bottom of the card, inside the
+   * same `<div className="card">` wrapper. Used by robotics arm mode
+   * to inline the "randomize pickup position" toggle so it sits next
+   * to the objects it affects instead of in a separate floating card.
+   */
+  footer?: ReactNode;
 }) {
   const sceneObjects = useStore((s) => s.sceneObjects);
   const addSceneObject = useStore((s) => s.addSceneObject);
@@ -146,6 +153,7 @@ export function SceneObjectsCard({
           ))}
         </div>
       )}
+      {footer}
     </div>
   );
 }
