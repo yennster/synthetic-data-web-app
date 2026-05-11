@@ -117,10 +117,6 @@ ${obstacleBodies}
 `.trim();
 }
 
-/** Legacy export — the obstacle-less version, kept for any caller that
- * still wants the baseline model. The runtime always uses
- * `roverMjcf(obstacles)` now. */
-export const ROVER_MJCF = roverMjcf();
 
 export const ROVER_ACTUATOR_NAMES = ['a_x', 'a_z', 'a_yaw'] as const;
 export const ROVER_JOINT_NAMES = ['j_x', 'j_z', 'j_yaw'] as const;

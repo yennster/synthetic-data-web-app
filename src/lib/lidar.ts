@@ -21,7 +21,7 @@ const ray = new THREE.Raycaster();
 const dirVec = new THREE.Vector3();
 const originVec = new THREE.Vector3();
 
-export type LidarOptions = {
+type LidarOptions = {
   origin: { x: number; y: number; z: number };
   /** Forward yaw in radians; bin 0 is along this direction. */
   heading: number;

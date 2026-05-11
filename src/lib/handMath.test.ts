@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  angularVelocityFromQuats,
   cameraRelativeToWorld,
   computePinchStrength,
   handOrientation,
@@ -305,54 +304,3 @@ describe('handOrientation', () => {
   });
 });
 
-describe('angularVelocityFromQuats', () => {
-  /** Quaternion for a rotation of `angle` rad around a unit axis. */
-  function aa(axis: [number, number, number], angle: number): [number, number, number, number] {
-    const s = Math.sin(angle / 2);
-    return [axis[0] * s, axis[1] * s, axis[2] * s, Math.cos(angle / 2)];
-  }
-
-  it('returns the zero vector when the rotation is unchanged', () => {
-    const q = aa([0, 1, 0], 0.4);
-    const w = angularVelocityFromQuats(q, q, 0.01);
-    expect(w[0]).toBeCloseTo(0, 9);
-    expect(w[1]).toBeCloseTo(0, 9);
-    expect(w[2]).toBeCloseTo(0, 9);
-  });
-
-  it('reports the right magnitude and axis for a steady spin', () => {
-    // Two samples 10 ms apart along a +Y spin at 1 rad/s — angular velocity
-    // should read as +1 rad/s around +Y.
-    const dt = 0.01;
-    const t0 = 0.5;
-    const q0 = aa([0, 1, 0], t0);
-    const q1 = aa([0, 1, 0], t0 + dt);
-    const w = angularVelocityFromQuats(q0, q1, dt);
-    expect(w[0]).toBeCloseTo(0, 6);
-    expect(w[1]).toBeCloseTo(1, 5);
-    expect(w[2]).toBeCloseTo(0, 6);
-  });
-
-  it('takes the short arc — 359° of yaw reads as -1°/dt, not +359°/dt', () => {
-    // Without the dw < 0 flip, a near-full-revolution sample would emit a
-    // huge positive ω and the "kinematic spin while pinching" use case
-    // would report nonsense whenever the wrap-around frame happened.
-    const dt = 0.01;
-    const q0: [number, number, number, number] = [0, 0, 0, 1];
-    const q1 = aa([0, 1, 0], (-2 * Math.PI / 180) * 1); // -2° around +Y, near identity but going the "long" way
-    // Construct the long-way quaternion explicitly: same rotation, opposite hemisphere.
-    const long: [number, number, number, number] = [-q1[0], -q1[1], -q1[2], -q1[3]];
-    const w = angularVelocityFromQuats(q0, long, dt);
-    // Magnitude should be 2°/0.01 ≈ 3.49 rad/s, NOT 358°/0.01.
-    const mag = Math.hypot(w[0], w[1], w[2]);
-    expect(mag).toBeLessThan(5);
-    expect(w[1]).toBeLessThan(0); // around -Y direction
-  });
-
-  it('returns zero for a numerically near-identity delta', () => {
-    const q0: [number, number, number, number] = [0, 0, 0, 1];
-    const q1: [number, number, number, number] = [1e-10, 0, 0, Math.sqrt(1 - 1e-20)];
-    const w = angularVelocityFromQuats(q0, q1, 0.01);
-    expect(w).toEqual([0, 0, 0]);
-  });
-});

@@ -42,7 +42,10 @@
  * and not worry about the noise math beyond calling `applyImuNoise`.
  */
 
-import type { Vec3 } from './imu';
+/** 3-vector used for accel / gyro readings. Local to this module so
+ * the noise helper doesn't depend on the (now-deleted) kinematic IMU
+ * math file. */
+type Vec3 = readonly [number, number, number];
 
 export type ImuNoiseConfig = {
   /** Master switch — when false, samples pass through untouched. */

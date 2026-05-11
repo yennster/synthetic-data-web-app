@@ -85,7 +85,7 @@ Created with Claude Code.
 |---|---|
 | Build | Vite + React 18 + TypeScript |
 | 3D rendering | three.js + `@react-three/fiber` + `@react-three/drei` |
-| Physics | Rapier (`@react-three/rapier`) |
+| Physics + sensors | MuJoCo WebAssembly (`@mujoco/mujoco`) for the manipulated body, the arm + pickup target, and the rover + obstacles. Rapier (`@react-three/rapier`) is retained for the vision-mode conveyor + spawned objects. |
 | Hand tracking | `@mediapipe/tasks-vision` (HandLandmarker, GPU delegate) |
 | USDZ import | `@needle-tools/usd` (OpenUSD WASM with UsdSkel) |
 | EI model inference | Edge Impulse WebAssembly deployment (Embind) |
@@ -189,7 +189,7 @@ npm run test:watch     # interactive watch mode
 npm run test:coverage  # with v8 coverage report
 ```
 
-Stack: **Vitest** + **happy-dom**. Pure-logic libraries (`handMath`, `beltDynamics`, `capture` helpers, `edgeImpulse` payload + HMAC, store transitions, theme state, zip read/write, URL-param parsing) are covered. The MediaPipe / OpenUSD / Rapier wrappers are stubbed in test config since they're browser-runtime-only — those are exercised in the headless screenshot script and end-to-end manual testing.
+Stack: **Vitest** + **happy-dom**. Pure-logic libraries (`handMath`, `beltDynamics`, `capture` helpers, `edgeImpulse` payload + HMAC, store transitions, theme state, zip read/write, URL-param parsing) are covered, along with the MuJoCo MJCF generators (`braccioMjcf`, `roverMjcf`, `motionMjcf`) and the shared IMU sampler. The MediaPipe / OpenUSD / Rapier / MuJoCo WASM runtimes are stubbed in test config since they're browser-runtime-only — those are exercised in the headless screenshot script and end-to-end manual testing.
 
 A GitHub Actions workflow ([`.github/workflows/test.yml`](.github/workflows/test.yml)) runs `tsc --noEmit` + `npm test` on every push to `main` and every PR.
 

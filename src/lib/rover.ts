@@ -240,23 +240,3 @@ function pointToSegmentDist(
   return Math.sqrt(dx * dx + dz * dz);
 }
 
-/**
- * Test the rover's chassis disc against every obstacle. Returns the
- * first overlapping obstacle and the penetration depth, or null when
- * the rover is clear.
- */
-export function detectContact(
-  rover: { x: number; z: number },
-  chassisRadius: number,
-  obstacles: readonly ObstacleDisc[],
-): { obstacle: ObstacleDisc; penetration: number } | null {
-  for (const o of obstacles) {
-    const dx = rover.x - o.x;
-    const dz = rover.z - o.z;
-    const d = Math.sqrt(dx * dx + dz * dz);
-    const overlap = o.r + chassisRadius - d;
-    if (overlap > 0) return { obstacle: o, penetration: overlap };
-  }
-  return null;
-}
-

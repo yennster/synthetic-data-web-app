@@ -31,18 +31,27 @@ collection campaign.
 
 ## Sensors
 
+Both robots run on **MuJoCo** (WebAssembly). The visual three.js rigs read
+their pose from `data.xpos` / `data.xquat` each frame; sensors come from
+MuJoCo's native `accelerometer` + `gyro` at an IMU site on the relevant
+body. See [Internals → Physics + sensors](internals.md#physics--sensors-one-pipeline-mujoco-wasm).
+
 ### Rover
 
-- **Chassis IMU** (6-channel) — body-local proper acceleration + gyroscope,
-  computed from kinematic pose deltas via `computeImuReading` (the same
-  helper Motion mode uses). On contact, a penetration-scaled impulse is
-  injected along the contact normal so the accelerometer spike matches what
-  a real bumper switch would feel.
+- **Chassis IMU** (6-channel) — body-local proper acceleration + gyroscope
+  from the IMU site at the chassis center. Position-actuator dynamics +
+  body mass mean the IMU reads physical acceleration, not finite-
+  differenced pose deltas.
+- **Contact detection** — MuJoCo's contact solver runs each step.
+  `RoverSim.chassisInContact()` reads `data.ncon` + the contact list to
+  flip the bumper indicator; the accelerometer spike on impact comes
+  from the solver's constraint response, no hand-tuned magnitude.
 - **2D lidar / ToF ring** (configurable bins, default 16) — `THREE.Raycaster`
-  fans cast horizontally from the rover head against the obstacle group
-  every frame. Beams that don't hit anything within `lidarMaxRange` clamp
-  to that value, matching how a real ToF reports "no return". Bin 0 points
-  along the rover's forward heading; bins sweep counter-clockwise.
+  fans cast horizontally from the rover head against the three.js
+  obstacle group every frame. Beams that don't hit anything within
+  `lidarMaxRange` clamp to that value, matching how a real ToF reports
+  "no return". Bin 0 points along the rover's forward heading; bins
+  sweep counter-clockwise.
 
 Both sensors sample at 20 Hz during a recording. The Edge Impulse upload
 packs them into a single time-series sample with one timestep per row and
@@ -52,9 +61,15 @@ packs them into a single time-series sample with one timestep per row and
 ### Arm
 
 - **End-effector IMU** (6-channel) — body-local proper acceleration +
-  gyroscope, derived from world-pose deltas of the gripper-carrier group
-  (the chain is kinematic, so we use pose differences instead of reading
-  rapier velocity). Sampled at 20 Hz during a recording.
+  gyroscope from the IMU site at the gripper carrier. Trajectories push
+  target joint angles into MuJoCo's position actuators; the integrator
+  drives the chain there under realistic joint inertia + gravity
+  loading, and the IMU reads what an MEMS sensor on the gripper would
+  feel. Sampled at 20 Hz.
+- **Pickup target** — a free-joint cube body in the MJCF, snapped to the
+  user's selected scene position at the start of a `pick_place` run.
+  The gripper fingers close on it physically (high-friction Coulomb
+  contacts) and the integrator handles the lift + place arc.
 
 The arm's POV camera shares the corner overlay so you can see the scene
 the gripper-mounted camera would see during the trajectory — useful for
