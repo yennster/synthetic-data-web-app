@@ -28,6 +28,7 @@ import { buildRoverRosJsonl } from '../lib/rosMessages';
 import { useNumberInput } from '../lib/useNumberInput';
 import { buildZip, type ZipEntry } from '../lib/zip';
 import { EiAuthCard } from './EiAuthCard';
+import { ImuNoiseToggle } from './ImuNoiseToggle';
 import { SceneObjectsCard } from './SceneObjectsCard';
 
 const ROBOT_KINDS: { value: RobotKind; label: string; hint: string }[] = [
@@ -628,6 +629,7 @@ export function RobotPanel() {
               ? '6-channel IMU + N-channel lidar per sample.'
               : '6-channel end-effector IMU per sample.'}
         </div>
+        <ImuNoiseToggle />
       </div>
 
       {robot.kind === 'rover' && (
