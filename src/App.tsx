@@ -8,6 +8,36 @@ import { Sidebar } from './components/Sidebar';
 import { TouchResizeHandle } from './components/TouchResizeHandle';
 import { useStore, type AppMode } from './store/useStore';
 import { useRehydrateAssets } from './lib/rehydrateAssets';
+import { useTheme } from './lib/useTheme';
+
+/**
+ * Keep the scene environment in lockstep with the dark/light theme for
+ * the two modes where the user typically watches the 3D scene every
+ * frame (motion + robotics). Light theme → `whitebox` preset (matte
+ * off-white floor + sky-bright lighting); dark theme → `studio`
+ * (dark backdrop, original look).
+ *
+ * Only auto-flips when the current preset is one of the two "default"
+ * options. If the user picked `warehouse` or `outdoor` deliberately,
+ * a theme toggle leaves it alone — we don't want to clobber an
+ * intentional choice every time the user swaps the UI palette.
+ *
+ * No-op for detection / anomaly modes, where the env preset tends to
+ * be tied to capture conditions and the user wants control.
+ */
+function useThemedSceneEnv(mode: AppMode) {
+  const theme = useTheme();
+  const setEnvPreset = useStore((s) => s.setEnvPreset);
+  useEffect(() => {
+    if (mode !== 'motion' && mode !== 'robot') return;
+    const current = useStore.getState().envPreset;
+    if (theme === 'light' && current === 'studio') {
+      setEnvPreset('whitebox');
+    } else if (theme === 'dark' && current === 'whitebox') {
+      setEnvPreset('studio');
+    }
+  }, [theme, mode, setEnvPreset]);
+}
 
 /**
  * Map a `?mode=` query value to the canonical `AppMode`. Accepts a few
@@ -55,6 +85,7 @@ export default function App() {
   const setMode = useStore((s) => s.setMode);
   const captureSettings = useStore((s) => s.capture);
   const handTrackingEnabled = useStore((s) => s.handTrackingEnabled);
+  useThemedSceneEnv(mode);
 
   // One-time URL sync at startup: if the user landed via a deep link with
   // `?mode=robotics` (or any of its aliases) and that's a different mode
