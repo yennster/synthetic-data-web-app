@@ -40,8 +40,12 @@ function shapeGeom(kind: ObjectKind): { geom: string; mass: number } {
         mass: 0.15,
       };
     case 'capsule':
+      // MuJoCo capsule defaults to a local-Z long axis; three.js
+      // CapsuleGeometry lives along local-Y. Rotate the geom 90° about
+      // X so physics and visual agree — otherwise the mesh sits at a
+      // 90° offset from the collision shape and dips through the floor.
       return {
-        geom: `<geom name="g_body" type="capsule" size="0.35 0.4" mass="0.12" rgba="0.96 0.62 0.04 1" friction="0.6 0.05 0.005"/>`,
+        geom: `<geom name="g_body" type="capsule" size="0.35 0.4" quat="0.7071 0.7071 0 0" mass="0.12" rgba="0.96 0.62 0.04 1" friction="0.6 0.05 0.005"/>`,
         mass: 0.12,
       };
     case 'cylinder':
@@ -53,15 +57,20 @@ function shapeGeom(kind: ObjectKind): { geom: string; mass: number } {
       // MuJoCo has no built-in cone geom; approximate as a steep capsule.
       // The IMU signature is dominated by mass + inertia, not silhouette,
       // so the approximation is fine for synthetic-data purposes.
+      // Quat aligns the capsule's long axis with three.js coneGeometry's
+      // local-Y axis so the collider matches the visual.
       return {
-        geom: `<geom name="g_body" type="capsule" size="0.3 0.4" mass="0.12" rgba="0.96 0.62 0.04 1" friction="0.6 0.05 0.005"/>`,
+        geom: `<geom name="g_body" type="capsule" size="0.3 0.4" quat="0.7071 0.7071 0 0" mass="0.12" rgba="0.96 0.62 0.04 1" friction="0.6 0.05 0.005"/>`,
         mass: 0.12,
       };
     case 'torus':
       // No torus primitive either; approximate with a flat cylinder.
       // Real-world torus inertia is hollow; close enough for IMU.
+      // three.js TorusGeometry lives in the XY plane (axis along local-Z),
+      // which already matches MuJoCo's default cylinder orientation — so
+      // unlike the other cylinder-backed shapes, no quat is needed here.
       return {
-        geom: `<geom name="g_body" type="cylinder" size="0.4 0.15" quat="0.7071 0.7071 0 0" mass="0.12" rgba="0.96 0.62 0.04 1" friction="0.6 0.05 0.005"/>`,
+        geom: `<geom name="g_body" type="cylinder" size="0.4 0.15" mass="0.12" rgba="0.96 0.62 0.04 1" friction="0.6 0.05 0.005"/>`,
         mass: 0.12,
       };
     case 'soda_can':
