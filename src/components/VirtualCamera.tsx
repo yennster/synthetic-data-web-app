@@ -239,12 +239,18 @@ export function VirtualCamera({
 
       const snapshot = useStore.getState();
       const sceneKinds = Array.from(
-        new Set(snapshot.sceneObjects.map((o) => o.kind)),
+        new Set(
+          snapshot.sceneObjects
+            .filter((o) => o.owner == null)
+            .map((o) => o.kind),
+        ),
       );
-      const assetSnapshot = snapshot.assets.map((a) => ({
-        name: a.name,
-        label: a.label,
-      }));
+      const assetSnapshot = snapshot.assets
+        .filter((a) => a.owner == null)
+        .map((a) => ({
+          name: a.name,
+          label: a.label,
+        }));
       const captureRecord: Capture = {
         id: crypto.randomUUID(),
         filename,

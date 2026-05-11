@@ -111,6 +111,10 @@ the physical arm.
 
 - **Reset scene** — clear the rover pose, reset the arm to its home
   pose, and clear any in-flight recording.
+- **Imported USDZ assets** — use **Imported pickups** for Braccio
+  pick-and-place targets or **Imported obstacles** for rover lidar /
+  MuJoCo collision obstacles. Imported robot assets are kept separate
+  from the detection / anomaly scene pool.
 - **Drag scene objects** — the same Shift+drag controls as detection /
   anomaly modes work on every robot-scene mesh:
   - `Shift+drag` — camera-aligned plane (free XYZ via orbit)

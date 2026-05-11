@@ -26,8 +26,10 @@ import {
 } from '../lib/edgeImpulse';
 import { buildArmRosJsonl, buildRoverRosJsonl } from '../lib/rosMessages';
 import { useNumberInput } from '../lib/useNumberInput';
+import { disposeUsdz } from '../lib/usdz';
 import { buildZip, type ZipEntry } from '../lib/zip';
 import { EiAuthCard } from './EiAuthCard';
+import { ImportedAssetsCard } from './ImportedAssetsCard';
 import { ImuNoiseToggle } from './ImuNoiseToggle';
 import { SceneObjectsCard } from './SceneObjectsCard';
 
@@ -39,6 +41,49 @@ const ROBOT_KINDS: { value: RobotKind; label: string; hint: string }[] = [
     hint: 'End-effector IMU, optional pick-and-place',
   },
 ];
+
+function armAssetPlacement({
+  assetIndex,
+  maxDim,
+}: {
+  assetIndex: number;
+  maxDim: number;
+}) {
+  const radius = 0.14;
+  const angle = (assetIndex * 0.5 + 0.4) % (Math.PI * 2);
+  return {
+    position: [
+      Math.sin(angle) * radius,
+      0,
+      Math.cos(angle) * radius,
+    ] as [number, number, number],
+    scale: 0.05 / Math.max(maxDim, 1e-6),
+    physics: false,
+  };
+}
+
+function roverAssetPlacement({
+  assetIndex,
+  maxDim,
+}: {
+  assetIndex: number;
+  maxDim: number;
+}) {
+  const radius = 1.2;
+  const angle = assetIndex * 1.15 + 0.7;
+  let scale = 1;
+  if (maxDim > 1.2) scale = 1.2 / maxDim;
+  else if (maxDim < 0.2) scale = 0.3 / maxDim;
+  return {
+    position: [
+      Math.sin(angle) * radius,
+      0,
+      Math.cos(angle) * radius,
+    ] as [number, number, number],
+    scale,
+    physics: false,
+  };
+}
 
 class CancelledError extends Error {
   constructor() {
@@ -61,6 +106,8 @@ export function RobotPanel() {
   const setArmJoints = useStore((s) => s.setArmJoints);
   const setArmTargetId = useStore((s) => s.setArmTargetId);
   const resetRobotScene = useStore((s) => s.resetRobotScene);
+  const assets = useStore((s) => s.assets);
+  const removeAsset = useStore((s) => s.removeAsset);
   const ei = useStore((s) => s.ei);
   const status = useStore((s) => s.status);
   const setStatus = useStore((s) => s.setStatus);
@@ -310,13 +357,19 @@ export function RobotPanel() {
       await sleepCancellable(60);
       for (let i = 0; i < robot.count; i++) {
         // For pick_place, pick a random scene object as the pickup
-        // target so the IK keyframes anchor on something visible. If
-        // there are no scene objects, the controller falls back to a
-        // stock placeholder pickup point.
+        // target so the IK keyframes anchor on something visible. Both
+        // primitive scene objects and imported USDZ assets participate.
+        // If there are no arm-owned objects, the controller falls back
+        // to a stock placeholder pickup point.
         if (trajectory === 'pick_place') {
-          const objs = useStore.getState().sceneObjects;
-          if (objs.length > 0) {
-            const pick = objs[Math.floor(Math.random() * objs.length)];
+          const state = useStore.getState();
+          const candidates = [
+            ...state.sceneObjects.filter((o) => o.owner === 'arm'),
+            ...state.assets.filter((a) => a.owner === 'arm'),
+          ];
+          if (candidates.length > 0) {
+            const pick =
+              candidates[Math.floor(Math.random() * candidates.length)];
             setArmTargetId(pick.id);
           } else {
             setArmTargetId(null);
@@ -444,6 +497,14 @@ export function RobotPanel() {
     else void onRunArm();
   };
 
+  const onResetRobotScene = () => {
+    for (const asset of assets.filter((a) => a.owner === robot.kind)) {
+      disposeUsdz(asset.object, asset.handle ?? undefined);
+      removeAsset(asset.id);
+    }
+    resetRobotScene();
+  };
+
   const hasApiKey = ei.apiKey.trim().length > 0;
 
   return (
@@ -476,7 +537,7 @@ export function RobotPanel() {
         <div className="row">
           <button
             type="button"
-            onClick={resetRobotScene}
+            onClick={onResetRobotScene}
             disabled={robotRunning}
             title="Regenerate the obstacle field, clear the rover pose and any in-flight recording."
           >
@@ -625,6 +686,27 @@ export function RobotPanel() {
         />
       )}
 
+      {robot.kind === 'arm' && (
+        <ImportedAssetsCard
+          ownerFilter="arm"
+          title={
+            robot.armTrajectory === 'pick_place'
+              ? 'Imported pickups'
+              : 'Imported props'
+          }
+          defaultLabel={robot.armTrajectory === 'pick_place' ? 'pickup' : 'prop'}
+          sizeRange={{ min: 0.005, max: 0.2, step: 0.005 }}
+          showPhysics={false}
+          disabled={robotRunning}
+          initialPlacement={armAssetPlacement}
+          helpText={
+            robot.armTrajectory === 'pick_place'
+              ? 'Imported USDZ assets are scaled to small Braccio targets, placed inside reach, and can be chosen as pick-and-place anchors.'
+              : 'Imported USDZ scenery appears only in the arm scene and POV camera.'
+          }
+        />
+      )}
+
       <div className="card">
         <h3>Recording</h3>
         <div className="row">
@@ -670,6 +752,19 @@ export function RobotPanel() {
           defaultLabel="obstacle"
           helpText="Add obstacles the rover can bump into. The lidar fan and contact detector see them all."
           ownerFilter="rover"
+        />
+      )}
+
+      {robot.kind === 'rover' && (
+        <ImportedAssetsCard
+          ownerFilter="rover"
+          title="Imported obstacles"
+          defaultLabel="obstacle"
+          sizeRange={{ min: 0.02, max: 3, step: 0.01 }}
+          showPhysics={false}
+          disabled={robotRunning}
+          initialPlacement={roverAssetPlacement}
+          helpText="Imported USDZ assets render in the rover scene, appear in lidar rays, and are approximated as MuJoCo collision obstacles."
         />
       )}
 

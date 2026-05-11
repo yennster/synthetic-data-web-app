@@ -13,6 +13,7 @@ import {
   type ImuNoiseConfig,
 } from '../lib/imuNoise';
 import { BRACCIO_REST_RAD } from '../lib/braccio';
+import type { ImportedAssetBounds } from '../lib/importedAssetBounds';
 
 export type ObjectKind =
   | 'cube'
@@ -111,6 +112,10 @@ export type ImportedAsset = {
   position: [number, number, number];
   rotation: [number, number, number];
   scale: number;
+  /** Local-space size recorded at import time. Used by robotics mode to
+   * approximate imported assets as pickup centers / rover collision
+   * footprints without walking the three.js subtree every frame. */
+  bounds?: ImportedAssetBounds;
   /** When true, wrap the asset in a Rapier RigidBody (convex-hull collider)
    * so it falls under gravity, collides with other bodies, and is carried by
    * the conveyor. Toggling remounts the body. */
@@ -153,6 +158,7 @@ export type PersistedAsset = {
   position: [number, number, number];
   rotation: [number, number, number];
   scale: number;
+  bounds?: ImportedAssetBounds;
   physics: boolean;
   overrideMaterial: boolean;
   overrideColor: string;
@@ -491,9 +497,11 @@ type State = {
    * Returns the new object's id so the caller can target it for
    * pick-and-place. */
   addArmPickupTarget: (kind?: ObjectKind, label?: string) => string;
-  /** Re-sample a random reachable position for every arm-owned scene
-   * object. Position stays on the floor (y = 0.015 = cube half-extent
-   * above the floor); xz is drawn uniformly from the Braccio's
+  /** Re-sample a random reachable position for every arm-owned pickup
+   * object, including imported USDZ assets. Primitive object positions
+   * stay at their center (y = 0.015 for the default 3 cm cube); imported
+   * assets keep their floor-origin convention (y = 0). xz is drawn
+   * uniformly from the Braccio's
    * reachable workspace (radius 8–18 cm, base-yaw half-circle
    * 0–π). Called by the BraccioArm controller on each iteration when
    * `armRandomizeTarget` is on. */
@@ -871,20 +879,25 @@ export const useStore = create<State>()(
     //     the workspace boundary.
     const R_MIN = 0.11;
     const R_MAX = 0.22;
+    const nextFloorPosition = (): [number, number, number] => {
+      const radius = R_MIN + rng() * (R_MAX - R_MIN);
+      const angle = rng() * Math.PI;
+      return [Math.sin(angle) * radius, 0, Math.cos(angle) * radius];
+    };
     set((s) => ({
       sceneObjects: s.sceneObjects.map((o) => {
         if (o.owner !== 'arm') return o;
-        const radius = R_MIN + rng() * (R_MAX - R_MIN);
-        const angle = rng() * Math.PI;
+        const [x, , z] = nextFloorPosition();
         return {
           ...o,
-          position: [
-            Math.sin(angle) * radius,
-            0.015,
-            Math.cos(angle) * radius,
-          ],
+          position: [x, 0.015, z],
         };
       }),
+      assets: s.assets.map((a) =>
+        a.owner === 'arm'
+          ? { ...a, position: nextFloorPosition() }
+          : a,
+      ),
     }));
   },
   removeSceneObject: (id) =>
@@ -1076,6 +1089,7 @@ export const useStore = create<State>()(
           overrideMetalness: a.overrideMetalness,
           isAnimated: a.isAnimated,
           animationPlaying: a.animationPlaying,
+          bounds: a.bounds,
           owner: a.owner,
         })),
       }),

@@ -9,7 +9,12 @@ import {
 import { BraccioSim } from '../lib/mujoco/BraccioSim';
 import { sampleImu, type NoiseStateRef } from '../lib/mujoco/imuSensor';
 import { loadMujocoModule } from '../lib/mujoco/runtime';
-import { useStore } from '../store/useStore';
+import {
+  getImportedAssetCenter,
+  getImportedAssetScaledSize,
+} from '../lib/importedAssetBounds';
+import { useStore, type ImportedAsset } from '../store/useStore';
+import { ImportedAssetPrimitive } from './ImportedAssets';
 
 /**
  * Physics-backed Braccio rig, powered by MuJoCo (WebAssembly).
@@ -329,11 +334,10 @@ export function BraccioArm() {
 }
 
 /**
- * Renders the MuJoCo-owned pickup target as a small cube. The mesh's
- * pose is driven by `sim.readTargetPose()` each frame, so it tracks
- * the integrator — including the lift + drop arcs that come from
- * the gripper closing on it. The visual block size (3 cm) matches
- * the half-extents of the MJCF `g_target` geom.
+ * Renders the MuJoCo-owned pickup target. Primitive pickups use the
+ * small 3 cm cube that matches the MJCF `g_target` geom; imported USDZ
+ * pickups reuse their loaded geometry, centered around the MuJoCo cube
+ * pose so the visible object follows the grasp / lift / drop arc.
  *
  * This replaces what `SpawnedObjects` would render for the active arm
  * target; `ArmScene` in `Scene.tsx` filters that ID out so we don't
@@ -341,14 +345,19 @@ export function BraccioArm() {
  */
 function ArmTargetMesh({ sim }: { sim: BraccioSim | null }) {
   const armTargetId = useStore((s) => s.armTargetId);
-  const targetPosition = useStore((s) => {
-    const obj = s.sceneObjects.find(
-      (o) => o.id === armTargetId && o.owner === 'arm',
-    );
-    return obj?.position ?? null;
-  });
+  const sceneTarget = useStore((s) =>
+    s.sceneObjects.find((o) => o.id === armTargetId && o.owner === 'arm'),
+  );
+  const assetTarget = useStore((s) =>
+    s.assets.find((a) => a.id === armTargetId && a.owner === 'arm'),
+  );
   const robotRunning = useStore((s) => s.robotRunning);
-  const meshRef = useRef<THREE.Mesh>(null);
+  const targetRef = useRef<THREE.Group>(null);
+  const targetPosition = sceneTarget
+    ? sceneTarget.position
+    : assetTarget
+      ? getImportedAssetCenter(assetTarget)
+      : null;
 
   // Keep MuJoCo's target body in sync with the user's selected pickup
   // outside of a run. The ArmController is the source of truth during
@@ -360,16 +369,22 @@ function ArmTargetMesh({ sim }: { sim: BraccioSim | null }) {
   useEffect(() => {
     if (!sim || robotRunning || !targetPosition) return;
     sim.placeTarget([targetPosition[0], targetPosition[1], targetPosition[2]]);
-  }, [sim, robotRunning, targetPosition]);
+  }, [
+    sim,
+    robotRunning,
+    targetPosition?.[0],
+    targetPosition?.[1],
+    targetPosition?.[2],
+  ]);
 
   useFrame(() => {
     if (!sim) return;
     const pose = sim.readTargetPose();
-    const m = meshRef.current;
-    if (!m) return;
-    m.position.set(pose.pos[0], pose.pos[1], pose.pos[2]);
+    const g = targetRef.current;
+    if (!g) return;
+    g.position.set(pose.pos[0], pose.pos[1], pose.pos[2]);
     // MuJoCo quat is (w, x, y, z); three.js is (x, y, z, w).
-    m.quaternion.set(pose.quat[1], pose.quat[2], pose.quat[3], pose.quat[0]);
+    g.quaternion.set(pose.quat[1], pose.quat[2], pose.quat[3], pose.quat[0]);
   });
 
   // No active pickup → don't draw the MuJoCo target body. Without this
@@ -378,17 +393,34 @@ function ArmTargetMesh({ sim }: { sim: BraccioSim | null }) {
   // unmovable object next to the real ones rendered by SpawnedObjects.
   if (!armTargetId || !targetPosition) return null;
 
+  if (assetTarget) {
+    const [, h] = getImportedAssetScaledSize(assetTarget);
+    return (
+      <group ref={targetRef}>
+        <group
+          position={[0, -h / 2, 0]}
+          rotation={assetTarget.rotation}
+          scale={assetTarget.scale}
+        >
+          <ImportedAssetPrimitive asset={assetTarget} />
+        </group>
+      </group>
+    );
+  }
+
   return (
-    <mesh ref={meshRef} castShadow>
-      <boxGeometry args={[0.03, 0.03, 0.03]} />
-      <meshStandardMaterial
-        color="#5eead4"
-        emissive="#0d4d44"
-        emissiveIntensity={0.3}
-        roughness={0.4}
-        metalness={0.2}
-      />
-    </mesh>
+    <group ref={targetRef}>
+      <mesh castShadow>
+        <boxGeometry args={[0.03, 0.03, 0.03]} />
+        <meshStandardMaterial
+          color="#5eead4"
+          emissive="#0d4d44"
+          emissiveIntensity={0.3}
+          roughness={0.4}
+          metalness={0.2}
+        />
+      </mesh>
+    </group>
   );
 }
 
@@ -428,18 +460,23 @@ function ArmController({ sim }: { sim: BraccioSim | null }) {
       state = useStore.getState();
     }
     const targetId = state.armTargetId;
-    // World position of the cube body. The IK targets are derived from
-    // this — see comment block below for the bottom-of-cube reasoning.
+    // World position of the pickup body. The IK targets are derived from
+    // this — see comment block below for the bottom-of-target reasoning.
     let cubePos: [number, number, number] = [0.18, 0.015, 0.12];
-    const target = state.sceneObjects.find(
+    const sceneTarget = state.sceneObjects.find(
       (o) => o.id === targetId && o.owner === 'arm',
     );
-    if (target) {
+    const assetTarget = state.assets.find(
+      (a): a is ImportedAsset => a.id === targetId && a.owner === 'arm',
+    );
+    if (sceneTarget) {
       cubePos = [
-        target.position[0],
-        target.position[1],
-        target.position[2],
+        sceneTarget.position[0],
+        sceneTarget.position[1],
+        sceneTarget.position[2],
       ];
+    } else if (assetTarget) {
+      cubePos = getImportedAssetCenter(assetTarget);
     }
     // Place MuJoCo's pickup target at the user's selected position. The
     // sim's target body is a 3 cm cube (half-extent 0.015) with a free
