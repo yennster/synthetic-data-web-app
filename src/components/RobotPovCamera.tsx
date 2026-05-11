@@ -2,6 +2,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { captureFrame } from '../lib/capture';
+import { canvasToFeatures } from '../lib/eiModel';
 import {
   createReadbackBlitState,
   ensureReadbackBlitState,
@@ -33,6 +34,8 @@ import { useStore } from '../store/useStore';
  */
 const PREVIEW_HZ = 15;
 const PREVIEW_INTERVAL_MS = 1000 / PREVIEW_HZ;
+const INFERENCE_HZ = 5;
+const INFERENCE_INTERVAL_MS = 1000 / INFERENCE_HZ;
 const FOV_DEG = 70;
 
 export function RobotPovCamera({
@@ -50,6 +53,14 @@ export function RobotPovCamera({
   // that happened before this component mounted.
   const lastHandledCaptureSignal = useRef(
     useStore.getState().robotCaptureSignal,
+  );
+  // Inference timing: throttle live inference to INFERENCE_HZ so a
+  // chunky model doesn't drag the preview rate down. One-shot inference
+  // (the "Run once" button) bypasses the throttle by bumping
+  // `inferenceSignal`.
+  const lastInferenceMs = useRef(0);
+  const lastHandledInferenceSignal = useRef(
+    useStore.getState().inferenceSignal,
   );
 
   const camera = useMemo(() => {
@@ -197,6 +208,35 @@ export function RobotPovCamera({
     const pixels = ensureReadbackBlitState(readback.current, ctx, w, h);
     gl.readRenderTargetPixels(previewTarget, 0, 0, w, h, pixels);
     putFlippedReadback(ctx, readback.current);
+
+    // Live / one-shot inference against the freshly painted preview
+    // canvas. Mirrors VirtualCamera's path: gate on `eiLive`
+    // (continuous) and on `inferenceSignal` bumps (single shot),
+    // throttled to INFERENCE_HZ so a slow model can't drag the preview
+    // HZ down.
+    const { eiLive, eiModel, eiModelInfo, inferenceSignal, setEiResult } =
+      useStore.getState();
+    const oneShot = inferenceSignal !== lastHandledInferenceSignal.current;
+    lastHandledInferenceSignal.current = inferenceSignal;
+    if (eiModel && eiModelInfo && (oneShot || eiLive)) {
+      if (oneShot || now - lastInferenceMs.current >= INFERENCE_INTERVAL_MS) {
+        lastInferenceMs.current = now;
+        try {
+          const features = canvasToFeatures(
+            previewCanvas,
+            eiModelInfo.inputWidth,
+            eiModelInfo.inputHeight,
+            eiModelInfo.isRgb,
+          );
+          const res = eiModel.classifier.classify(features);
+          setEiResult(res);
+        } catch (e) {
+          useStore
+            .getState()
+            .setStatus('err', `Inference: ${(e as Error).message}`);
+        }
+      }
+    }
   });
 
   return null;

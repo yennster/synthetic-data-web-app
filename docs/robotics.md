@@ -191,6 +191,60 @@ exactly so a deserializer is a one-liner. Bundles into the same zip
 as the EI payload — works whether the robot is uploading to EI or
 just downloading samples.
 
+## Object detection (POV camera)
+
+Toggle **Object detection** in the robot sidebar to layer image capture on
+top of every sensor-data run. Each iteration the runner also snaps one or
+more PNGs from the rover front / arm POV camera at the configured
+resolution, computes 2D bounding boxes from any labelled scene meshes
+(scene objects, imported USDZ assets) using the same projection pipeline
+that detection mode uses, and routes the image stream alongside the
+sensor stream.
+
+Edge Impulse projects only accept one data type per project — image or
+time-series — so when **Object detection** is on with an API key set,
+the runner probes the project's existing samples and asks you to confirm
+the routing:
+
+| Project contents     | Sensor stream → | Image stream → |
+|----------------------|-----------------|----------------|
+| Empty                | EI upload       | EI upload      |
+| Time-series only     | EI upload       | local zip      |
+| Image only           | local zip       | EI upload      |
+| Mixed                | EI upload       | EI upload      |
+
+Local downloads bundle the images with a `bounding_boxes.labels`
+sidecar in the same EI format the detection-mode zips use, so the
+output can be dropped straight into the Studio uploader. Uploads attach
+boxes via the standard `x-bounding-boxes` header.
+
+Capture sub-controls:
+
+- **Capture at rest** — snap before motion begins instead of mid-motion.
+  Because the robot is stationary, exactly one image is captured per
+  iteration in this mode.
+- **Images per iteration** *(motion only)* — N captures distributed
+  evenly across the recording window so consecutive frames show
+  meaningfully different poses (the window is sliced into N+1 segments
+  so no shot lands at `t=0` or `t=duration`).
+- **Image width / height** — output resolution for the captured PNGs.
+
+The lidar / ToF beam overlay is automatically hidden during each
+capture so the debug graphics never bleed into the training PNGs. The
+live POV preview continues to show the beams — visibility is toggled
+only across the single synchronous render call inside `captureFrame`.
+
+### Live model inference
+
+When **Object detection** is on, the sidebar surfaces the same
+**Inference (Edge Impulse model)** card the detection / anomaly modes
+use. Load a WebAssembly browser deployment (fetch from a project, build
+on-demand, or upload `.js` + `.wasm` files) and the model runs against
+the POV preview at 5 Hz when **Live** is on, or one frame at a time
+via **Run once**. Predictions render as bounding boxes over the Robot
+POV overlay in the corner, so you can sanity-check what the robot's
+onboard model would detect before generating a synthetic dataset.
+
 ## Synthetic IMU noise model
 
 Every IMU sample (motion mode, rover chassis, arm end-effector) is
@@ -250,11 +304,18 @@ src/components/
   SpawnedObjects.tsx    primitive pickup / obstacle meshes
   ImportedAssets.tsx    USDZ pickup / obstacle meshes
   BraccioArm.tsx        Braccio rig + IMU sampler + floor-safe pickup controller
-  RobotPovCamera.tsx    first-person preview camera (rover front / arm wrist)
+  RobotPovCamera.tsx    POV preview + object-detection capture + live inference
   RobotPanel.tsx        sidebar UI: kind, event/trajectory, count, scene reset
+  EiInferenceCard.tsx   shared inference card (used by detection + robot modes)
+
+src/lib/
+  robotCapture.ts       Promise handoff between runner and POV-camera bridge
 ```
 
 The procedural runner in `RobotPanel.tsx` mirrors the motion-mode runner:
 it bumps an epoch counter that the in-canvas controller listens to, sleeps
 for the recording window, snapshots the per-modality sample arrays, and
-either uploads to EI or writes a zip.
+either uploads to EI or writes a zip. When object detection is enabled it
+also calls `awaitRobotCapture()` + `triggerRobotCapture()` from
+`lib/robotCapture.ts` to synchronously snap PNGs from the POV camera at
+specific instants during the trajectory.

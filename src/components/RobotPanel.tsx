@@ -44,6 +44,7 @@ import { disposeUsdz } from '../lib/usdz';
 import type { ZipEntry } from '../lib/zip';
 import { buildZipOffThread } from '../lib/zipWorkerClient';
 import { EiAuthCard } from './EiAuthCard';
+import { EiInferenceCard } from './EiInferenceCard';
 import { ImportedAssetsCard } from './ImportedAssetsCard';
 import { ImuNoiseToggle } from './ImuNoiseToggle';
 import { SceneObjectsCard } from './SceneObjectsCard';
@@ -1379,10 +1380,19 @@ export function RobotPanel() {
               </span>
             </div>
             <div className="webcam-control-help">
-              Snap one POV-camera image per iteration with 2D bounding
-              boxes. EI accepts only one data type per project — the
-              runner probes the project and routes the other to a local
-              zip.
+              Snap{' '}
+              {robot.captureAtRest
+                ? 1
+                : robot.objectDetectionImagesPerIteration}{' '}
+              POV-camera image
+              {(robot.captureAtRest
+                ? 1
+                : robot.objectDetectionImagesPerIteration) === 1
+                ? ''
+                : 's'}{' '}
+              per iteration with 2D bounding boxes. EI accepts only one
+              data type per project — the runner probes the project and
+              routes the other to a local zip.
             </div>
           </div>
           <button
@@ -1511,6 +1521,14 @@ export function RobotPanel() {
       </div>
 
       <EiAuthCard showHmac />
+
+      {/* Mount the EI inference card whenever object detection is on
+          so the user can load a model and see live detections drawn
+          over the POV preview as they generate. Hidden otherwise to
+          keep the sensor-only sidebar uncluttered. */}
+      {robot.objectDetection && (
+        <EiInferenceCard previewSource="robot-pov" />
+      )}
 
       <div className="card">
         <h3>Generate</h3>

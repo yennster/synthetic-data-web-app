@@ -1,16 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { useStore } from '../store/useStore';
 import {
-  buildEiDeployment,
-  downloadEiHistoricDeployment,
-  listEiDeploymentHistory,
   listEiProjects,
   retrainEiModel,
   uploadCaptures,
   waitForEiJob,
-  type EiProject,
 } from '../lib/edgeImpulse';
-import { loadEiModel, loadEiModelFromZip } from '../lib/eiModel';
 import { useNumberInput } from '../lib/useNumberInput';
 import { disposeUsdz } from '../lib/usdz';
 import {
@@ -19,6 +14,7 @@ import {
   type TextureKind,
 } from '../lib/textureStore';
 import { EiAuthCard } from './EiAuthCard';
+import { EiInferenceCard } from './EiInferenceCard';
 import { ImportedAssetsCard } from './ImportedAssetsCard';
 import { ObjectCaptureCard } from './ObjectCaptureCard';
 import { SceneObjectsCard } from './SceneObjectsCard';
@@ -54,18 +50,6 @@ export function VisionPanel() {
     setStatus,
   } = useStore();
 
-  const eiModel = useStore((s) => s.eiModel);
-  const eiModelInfo = useStore((s) => s.eiModelInfo);
-  const eiModelName = useStore((s) => s.eiModelName);
-  const setEiModel = useStore((s) => s.setEiModel);
-  const eiThreshold = useStore((s) => s.eiThreshold);
-  const setEiThreshold = useStore((s) => s.setEiThreshold);
-  const eiLive = useStore((s) => s.eiLive);
-  const setEiLive = useStore((s) => s.setEiLive);
-  const eiResult = useStore((s) => s.eiResult);
-  const triggerInference = useStore((s) => s.triggerInference);
-  const modelFilesRef = useRef<HTMLInputElement>(null);
-  const [modelLoading, setModelLoading] = useState(false);
   // Controlled number inputs that tolerate transient empty / partial
   // entries while the user is typing — see lib/useNumberInput for why.
   const widthInput = useNumberInput(
@@ -89,287 +73,15 @@ export function VisionPanel() {
   const [texturesOpen, setTexturesOpen] = useState(
     customFloorTexture !== null || customWallTexture !== null,
   );
-  const [eiProjects, setEiProjects] = useState<EiProject[] | null>(null);
-  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
-  const lastApiKeyRef = useRef(ei.apiKey);
-  /** Inline status shown directly inside the Inference card. The global
-   * status bar lives at the bottom of the sidebar and is easy to miss when
-   * the user is focused on this section, so we mirror progress + errors
-   * here too. `kind: 'busy'` shows a spinner; 'ok'/'err' show a colored
-   * message. */
-  const [inferenceStatus, setInferenceStatus] = useState<{
-    kind: 'idle' | 'busy' | 'ok' | 'err';
-    msg: string;
-  }>({ kind: 'idle', msg: '' });
-  const setBoth = (kind: 'idle' | 'busy' | 'ok' | 'err', msg: string) => {
-    setInferenceStatus({ kind, msg });
-    if (kind !== 'idle') setStatus(kind, msg);
-  };
-
-  useEffect(() => {
-    if (ei.apiKey === lastApiKeyRef.current) return;
-    lastApiKeyRef.current = ei.apiKey;
-    setEiProjects(null);
-    setSelectedProjectId(null);
-  }, [ei.apiKey]);
-
-  /** Translate raw fetch / runtime errors into something actionable. The
-   * generic browser "TypeError: Failed to fetch" is opaque — usually means
-   * either a CORS rejection or the user is offline; either way the user
-   * deserves a hint about what to check. */
+  /** Translate raw fetch / runtime errors into something actionable. */
   const explainError = (e: unknown): string => {
     const msg = e instanceof Error ? e.message : String(e);
     if (/Failed to fetch|NetworkError|Load failed/.test(msg)) {
-      return `Network/CORS error contacting the Edge Impulse Studio API. Check your network, that the API key is valid, and (production hosts only) that the page can reach studio.edgeimpulse.com without a CSP block. Original: ${msg}`;
+      return `Network/CORS error contacting Edge Impulse Studio. Check network, API key, and CSP. Original: ${msg}`;
     }
-    if (/401/.test(msg)) return `${msg} — API key rejected. Double-check Dashboard → Keys in your project.`;
-    if (/403/.test(msg)) return `${msg} — API key doesn't have access to this project.`;
+    if (/401/.test(msg)) return `${msg} — API key rejected.`;
+    if (/403/.test(msg)) return `${msg} — API key doesn't have access.`;
     return msg;
-  };
-
-  const onListProjects = async () => {
-    if (!ei.apiKey) {
-      setBoth('err', 'Enter your Edge Impulse API key first');
-      return;
-    }
-    setBoth('busy', 'Listing projects…');
-    try {
-      const list = await listEiProjects(ei.apiKey);
-      setEiProjects(list);
-      const nextProjectId =
-        list.length === 1
-          ? list[0].id
-          : list.some((p) => p.id === selectedProjectId)
-            ? selectedProjectId
-            : null;
-      setSelectedProjectId(nextProjectId);
-      if (list.length === 0) {
-        setBoth('err', 'No projects accessible to this API key');
-      } else {
-        setBoth(
-          'ok',
-          `Found ${list.length} project${list.length === 1 ? '' : 's'}`,
-        );
-      }
-    } catch (e) {
-      setBoth('err', `List projects: ${explainError(e)}`);
-    }
-  };
-
-  const onFetchModel = async () => {
-    if (!ei.apiKey) {
-      setBoth('err', 'Enter your Edge Impulse API key first');
-      return;
-    }
-    if (!selectedProjectId) {
-      setBoth('err', 'Pick a project first');
-      return;
-    }
-    setModelLoading(true);
-    try {
-      setBoth('busy', 'Checking deployment history…');
-      // Enumerate every successful build and pick the newest WebAssembly
-      // (browser) one. This is the only API path that reliably finds the
-      // deployment when the project has multiple impulses, engines, or
-      // (engine, modelType) combinations — the legacy singular endpoint
-      // requires the exact tuple up front and silently misses everything
-      // else.
-      const history = await listEiDeploymentHistory(
-        ei.apiKey,
-        selectedProjectId,
-      );
-      const isWasmBrowser = (e: (typeof history)[number]) => {
-        const fmt = (e.deploymentFormat || '').toLowerCase();
-        const targetFmt = (e.deploymentTarget?.format || '').toLowerCase();
-        const targetName = (e.deploymentTarget?.name || '').toLowerCase();
-        return (
-          fmt === 'wasm' ||
-          targetFmt === 'wasm' ||
-          targetName.includes('webassembly') ||
-          targetName.includes('browser')
-        );
-      };
-      const candidate = history.find(
-        (e) => isWasmBrowser(e) && !e.impulseIsDeleted,
-      );
-      if (!candidate) {
-        if (history.length === 0) {
-          setBoth(
-            'err',
-            'No deployments built yet. In the Studio: Deployment → Build with target "WebAssembly".',
-          );
-        } else {
-          const formats = Array.from(
-            new Set(
-              history.map(
-                (e) => e.deploymentTarget?.name || e.deploymentFormat || '?',
-              ),
-            ),
-          ).join(', ');
-          setBoth(
-            'err',
-            `No WebAssembly (browser) deployment found among ${history.length} build${
-              history.length === 1 ? '' : 's'
-            } (${formats}). In the Studio: Deployment → Build with target "WebAssembly".`,
-          );
-        }
-        return;
-      }
-      setBoth(
-        'busy',
-        `Downloading model v${candidate.deploymentVersion} (${
-          candidate.engine
-        }${candidate.modelType ? `/${candidate.modelType}` : ''})…`,
-      );
-      const zip = await downloadEiHistoricDeployment(
-        ei.apiKey,
-        selectedProjectId,
-        candidate.deploymentVersion,
-      );
-      setBoth('busy', `Unpacking model (${(zip.size / 1024).toFixed(0)} KB)…`);
-      const projName =
-        eiProjects?.find((p) => p.id === selectedProjectId)?.name ??
-        `project-${selectedProjectId}`;
-      const loaded = await loadEiModelFromZip(zip, projName);
-      setEiModel(loaded, projName);
-      const i = loaded.info;
-      setBoth(
-        'ok',
-        `Loaded ${projName}: ${i.inputWidth}×${i.inputHeight} ${
-          i.isRgb ? 'RGB' : 'GRAY'
-        }${i.isObjectDetection ? ' · object detection' : ''}`,
-      );
-    } catch (e) {
-      setBoth('err', `Fetch model: ${explainError(e)}`);
-    } finally {
-      setModelLoading(false);
-    }
-  };
-
-  const onLoadModel = async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    const all = Array.from(files);
-    const wasmFile = all.find((f) => f.name.toLowerCase().endsWith('.wasm')) ?? null;
-    // Pick the .js intentionally: prefer edge-impulse-standalone.js, never
-    // pick run-impulse.js (Node.js test wrapper that uses require()).
-    const jsFiles = all.filter((f) => f.name.toLowerCase().endsWith('.js'));
-    const jsFile =
-      jsFiles.find((f) =>
-        f.name.toLowerCase().includes('edge-impulse-standalone'),
-      ) ??
-      jsFiles.find(
-        (f) => !/^run-impulse|^run-classifier|^index\.js$/i.test(f.name),
-      ) ??
-      jsFiles[0] ??
-      null;
-    if (!jsFile || !wasmFile) {
-      setBoth(
-        'err',
-        'Pick BOTH the EI .js and .wasm from the unzipped WebAssembly deployment.',
-      );
-      return;
-    }
-    setModelLoading(true);
-    setBoth('busy', `Loading model ${jsFile.name}…`);
-    try {
-      const loaded = await loadEiModel(jsFile, wasmFile, jsFile.name);
-      setEiModel(loaded, jsFile.name.replace(/\.js$/i, ''));
-      const i = loaded.info;
-      setBoth(
-        'ok',
-        `Loaded ${jsFile.name}: ${i.inputWidth}×${i.inputHeight} ${
-          i.isRgb ? 'RGB' : 'GRAY'
-        }${i.isObjectDetection ? ' · object detection' : ''}${
-          i.hasVisualAnomaly ? ' · visual anomaly' : ''
-        }`,
-      );
-    } catch (e) {
-      setBoth('err', `Model load: ${(e as Error).message}`);
-    } finally {
-      setModelLoading(false);
-      if (modelFilesRef.current) modelFilesRef.current.value = '';
-    }
-  };
-
-  const onUnloadModel = () => {
-    setEiModel(null);
-    setEiLive(false);
-    setBoth('ok', 'Model unloaded');
-  };
-
-  /**
-   * Kick off a fresh "WebAssembly (browser)" build via the EI Studio API,
-   * poll until it finishes, then auto-fetch + load the result. Useful when
-   * the user's project either has no deployment yet or the existing
-   * deployment is the Node.js variant (which won't run here).
-   */
-  const onBuildBrowserDeployment = async () => {
-    if (!ei.apiKey) {
-      setBoth('err', 'Enter your Edge Impulse API key first');
-      return;
-    }
-    if (!selectedProjectId) {
-      setBoth('err', 'Pick a project first');
-      return;
-    }
-    setModelLoading(true);
-    try {
-      setBoth('busy', 'Starting WebAssembly (browser) build…');
-      const { jobId } = await buildEiDeployment(ei.apiKey, selectedProjectId);
-      setBoth('busy', `Build job #${jobId} queued, waiting for it to finish…`);
-      await waitForEiJob(ei.apiKey, selectedProjectId, jobId, {
-        onProgress: (elapsed) => {
-          setBoth(
-            'busy',
-            `Build job #${jobId} running (${Math.floor(elapsed / 1000)}s)…`,
-          );
-        },
-      });
-      setBoth('busy', 'Build done — downloading model…');
-      // Look up the just-built artefact via the deployment history so we
-      // download exactly that build (latest wasm entry).
-      const history = await listEiDeploymentHistory(
-        ei.apiKey,
-        selectedProjectId,
-      );
-      const candidate = history.find((e) => {
-        const fmt = (e.deploymentFormat || '').toLowerCase();
-        const targetFmt = (e.deploymentTarget?.format || '').toLowerCase();
-        const targetName = (e.deploymentTarget?.name || '').toLowerCase();
-        return (
-          fmt === 'wasm' ||
-          targetFmt === 'wasm' ||
-          targetName.includes('webassembly') ||
-          targetName.includes('browser')
-        );
-      });
-      if (!candidate) {
-        throw new Error(
-          'Build finished but no WebAssembly deployment shows up in history',
-        );
-      }
-      const zip = await downloadEiHistoricDeployment(
-        ei.apiKey,
-        selectedProjectId,
-        candidate.deploymentVersion,
-      );
-      const projName =
-        eiProjects?.find((p) => p.id === selectedProjectId)?.name ??
-        `project-${selectedProjectId}`;
-      const loaded = await loadEiModelFromZip(zip, projName);
-      setEiModel(loaded, projName);
-      const i = loaded.info;
-      setBoth(
-        'ok',
-        `Built & loaded ${projName}: ${i.inputWidth}×${i.inputHeight} ${
-          i.isRgb ? 'RGB' : 'GRAY'
-        }${i.isObjectDetection ? ' · object detection' : ''}`,
-      );
-    } catch (e) {
-      setBoth('err', `Build deployment: ${explainError(e)}`);
-    } finally {
-      setModelLoading(false);
-    }
   };
 
   const onUpload = async () => {
@@ -404,34 +116,32 @@ export function VisionPanel() {
     }
   };
 
+  /**
+   * Retrain whichever project this API key resolves to. With a project-
+   * scoped key (the common case) the single project is unambiguous; if
+   * the key sees multiple projects, the user has to retrain from the
+   * Studio so they pick the right one.
+   */
   const onRetrainModel = async () => {
     if (!ei.apiKey) {
       setStatus('err', 'Enter your Edge Impulse API key first');
       return;
     }
-
-    let projectId = selectedProjectId;
-    let projects = eiProjects;
     try {
-      if (!projectId) {
-        setStatus('busy', 'Finding Edge Impulse project…');
-        projects = await listEiProjects(ei.apiKey);
-        setEiProjects(projects);
-        if (projects.length === 1) {
-          projectId = projects[0].id;
-          setSelectedProjectId(projectId);
-        } else if (projects.length === 0) {
-          setStatus('err', 'No projects accessible to this API key');
-          return;
-        } else {
-          setStatus('err', 'Pick a project in the Inference card first');
-          return;
-        }
+      setStatus('busy', 'Finding Edge Impulse project…');
+      const projects = await listEiProjects(ei.apiKey);
+      if (projects.length === 0) {
+        setStatus('err', 'No projects accessible to this API key');
+        return;
       }
-
-      const projectName =
-        projects?.find((p) => p.id === projectId)?.name ??
-        `project-${projectId}`;
+      if (projects.length > 1) {
+        setStatus(
+          'err',
+          'Multi-project API key — retrain from the Studio instead.',
+        );
+        return;
+      }
+      const { id: projectId, name: projectName } = projects[0];
       setStatus('busy', `Starting retrain for ${projectName}…`);
       const { jobId } = await retrainEiModel(ei.apiKey, projectId);
       await waitForEiJob(ei.apiKey, projectId, jobId, {
@@ -785,201 +495,7 @@ export function VisionPanel() {
 
       <EiAuthCard />
 
-      <div className="card ei-inference-card">
-        <h3>Inference (Edge Impulse model)</h3>
-        {!eiModel ? (
-          <>
-            <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-              Object detection (YOLO/MobileNet) and FOMO models are supported.
-            </div>
-
-            <fieldset className="ei-fetch-group">
-              <legend>From your project</legend>
-              <button
-                onClick={onListProjects}
-                disabled={
-                  modelLoading ||
-                  !ei.apiKey ||
-                  inferenceStatus.kind === 'busy'
-                }
-                title={
-                  !ei.apiKey
-                    ? 'Set your API key in the Edge Impulse · auth card above'
-                    : undefined
-                }
-              >
-                {inferenceStatus.kind === 'busy' &&
-                inferenceStatus.msg.startsWith('Listing')
-                  ? '… listing'
-                  : eiProjects
-                    ? '↻ Refresh projects'
-                    : '🔑 List projects'}
-              </button>
-            {eiProjects && eiProjects.length > 0 && (
-              <>
-                {/* Project API keys (the common case) only ever resolve to
-                    a single project — no point rendering a 1-item picker.
-                    Show the name as a static label instead. Multi-project
-                    keys still get the dropdown. */}
-                {eiProjects.length === 1 ? (
-                  <div className="field">
-                    <span className="field-label">Project</span>
-                    <div className="ei-project-name">
-                      {eiProjects[0].name}
-                      {eiProjects[0].owner ? ` · ${eiProjects[0].owner}` : ''}
-                    </div>
-                  </div>
-                ) : (
-                  <label className="field">
-                    Project
-                    <select
-                      value={selectedProjectId ?? ''}
-                      onChange={(e) =>
-                        setSelectedProjectId(
-                          e.target.value ? Number(e.target.value) : null,
-                        )
-                      }
-                    >
-                      <option value="">(pick one)</option>
-                      {eiProjects.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}
-                          {p.owner ? ` · ${p.owner}` : ''}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-                {/* Build button stays first in the visual order (primary
-                    recovery action when Fetch fails) but is rendered as
-                    secondary so Fetch — the most common happy-path action
-                    — keeps the eye-catching teal styling. */}
-                <button
-                  onClick={onBuildBrowserDeployment}
-                  disabled={modelLoading || !selectedProjectId}
-                  title="Trigger a fresh WebAssembly (browser) build in the Studio, then auto-load it. Use this if the existing deployment is Node.js-only or there isn't one yet."
-                >
-                  🔨 Build browser deployment
-                </button>
-                <button
-                  onClick={onFetchModel}
-                  disabled={modelLoading || !selectedProjectId}
-                  className="primary"
-                >
-                  {modelLoading ? '… loading' : '⤓ Fetch & load model'}
-                </button>
-              </>
-            )}
-            </fieldset>
-
-            <fieldset className="ei-fetch-group">
-              <legend>From file</legend>
-              <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                Upload the <code>edge-impulse-standalone.js</code> +{' '}
-                <code>.wasm</code> from an unzipped EI{' '}
-                <strong>WebAssembly (browser)</strong> deployment.
-              </div>
-              <input
-                ref={modelFilesRef}
-                type="file"
-                accept=".js,.wasm"
-                multiple
-                disabled={modelLoading}
-                onChange={(e) => onLoadModel(e.target.files)}
-                style={{ fontSize: 11 }}
-              />
-            </fieldset>
-            {/* Inline status sits BELOW the action buttons so the user sees
-                the result of the click they just made without scrolling. */}
-            {inferenceStatus.kind !== 'idle' && (
-              <div
-                className={`inline-status ${inferenceStatus.kind}`}
-                role="status"
-                aria-live="polite"
-              >
-                {inferenceStatus.kind === 'busy' && (
-                  <span className="spinner" aria-hidden />
-                )}
-                <span>{inferenceStatus.msg}</span>
-              </div>
-            )}
-          </>
-        ) : (
-          <>
-            <div style={{ fontSize: 11 }}>
-              <strong>{eiModelName ?? 'model'}</strong>
-              <div style={{ color: 'var(--muted)' }}>
-                {eiModelInfo &&
-                  `${eiModelInfo.inputWidth}×${eiModelInfo.inputHeight} · ${
-                    eiModelInfo.isRgb ? 'RGB' : 'GRAY'
-                  }${eiModelInfo.isObjectDetection ? ' · obj-det' : ''}${
-                    eiModelInfo.hasVisualAnomaly ? ' · anomaly' : ''
-                  }`}
-                {eiModelInfo && eiModelInfo.labels.length > 0 && (
-                  <div style={{ marginTop: 2 }}>
-                    {eiModelInfo.labels.length} labels
-                    {eiModelInfo.labels.length <= 6 &&
-                      `: ${eiModelInfo.labels.join(', ')}`}
-                  </div>
-                )}
-              </div>
-            </div>
-            <label className="field">
-              Threshold {(eiThreshold * 100).toFixed(0)}%
-              <input
-                type="range"
-                min={0.05}
-                max={0.95}
-                step={0.05}
-                value={eiThreshold}
-                onChange={(e) => setEiThreshold(Number(e.target.value))}
-              />
-            </label>
-            <div className="row">
-              <button onClick={() => triggerInference()} className="primary">
-                Run once
-              </button>
-              <button
-                onClick={() => setEiLive(!eiLive)}
-                className={eiLive ? 'danger' : ''}
-              >
-                {eiLive ? '■ Stop live' : '▶ Live'}
-              </button>
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-              Detections appear as boxes on the virtual-camera preview in
-              the bottom-left.
-            </div>
-            {eiResult && (
-              <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                {eiResult.bounding_boxes.length} boxes
-                {eiResult.classification.length > 0 &&
-                  ` · top: ${(() => {
-                    const top = [...eiResult.classification].sort(
-                      (a, b) => b.value - a.value,
-                    )[0];
-                    return top ? `${top.label} ${(top.value * 100).toFixed(0)}%` : '';
-                  })()}`}
-                {typeof eiResult.anomaly === 'number' &&
-                  ` · anomaly ${eiResult.anomaly.toFixed(2)}`}
-              </div>
-            )}
-            <button onClick={onUnloadModel}>Unload model</button>
-            {inferenceStatus.kind !== 'idle' && (
-              <div
-                className={`inline-status ${inferenceStatus.kind}`}
-                role="status"
-                aria-live="polite"
-              >
-                {inferenceStatus.kind === 'busy' && (
-                  <span className="spinner" aria-hidden />
-                )}
-                <span>{inferenceStatus.msg}</span>
-              </div>
-            )}
-          </>
-        )}
-      </div>
+      <EiInferenceCard previewSource="virtual-camera" />
 
       <div className="card">
         <h3>Upload to Edge Impulse</h3>
