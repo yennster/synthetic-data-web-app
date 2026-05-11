@@ -1,12 +1,13 @@
 import { useFrame } from '@react-three/fiber';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { BRACCIO_LINKS, BRACCIO_REST_RAD } from '../lib/braccio';
 import {
   buildArmTrajectory,
   type ArmParametricPath,
 } from '../lib/armTrajectories';
-import { computeImuReading } from '../lib/imu';
+import { BraccioSim } from '../lib/mujoco/BraccioSim';
+import { loadMujocoModule } from '../lib/mujoco/runtime';
 import {
   applyImuNoise,
   makeImuNoiseState,
@@ -15,42 +16,81 @@ import {
 import { useStore } from '../store/useStore';
 
 /**
- * Visual rig + controller + IMU sampler for the Arduino TinkerKit
- * Braccio. The kinematic chain is built as nested groups so each
- * joint's rotation composes onto its parent. Joint angles come from
- * `armJoints` in the store (or the spec rest pose when nothing's
- * driving the arm).
+ * Physics-backed Braccio rig, powered by MuJoCo (WebAssembly).
  *
- * Three pieces run together:
+ * Trajectories no longer drive the visible mesh directly — they push
+ * joint-space *targets* into MuJoCo's position actuators. MuJoCo
+ * integrates the chain under real gravity + joint inertia and the
+ * resulting `qpos` is what the three.js groups read each frame. The
+ * IMU sampler reads MuJoCo's built-in accelerometer + gyroscope at the
+ * end-effector site, so the recorded signal contains real dynamics
+ * (gravity loading, motor lag, contact response) instead of a finite-
+ * difference of a kinematic chain.
  *
- *  - **rig**            renders the chain + animates the gripper
- *  - **controller**     advances `armJoints` along the active
- *                       trajectory each frame
- *  - **IMU sampler**    samples the end-effector's body-frame IMU at
- *                       `RECORD_HZ` — same convention as motion mode,
- *                       feeding `pushRobotImuSample` so the runner can
- *                       upload a 6-channel time-series to EI
+ * Component layout (unchanged from the kinematic version so the rest of
+ * the app — POV-camera anchors, RobotPanel, capture pipeline — keeps
+ * working):
  *
- * Joint order (matches the published Braccio servo numbering):
- *   M1 base yaw          rotation about +Y
- *   M2 shoulder pitch    rotation about +X
- *   M3 elbow pitch       rotation about +X
- *   M4 wrist pitch       rotation about +X
- *   M5 wrist roll        rotation about +Y (along the forearm)
- *   M6 gripper aperture  symmetric finger spread (0=closed, 1=open)
+ *  - **BraccioArm**     mounts the visual rig + the sim
+ *  - **ArmController**  advances the trajectory each frame and writes
+ *                       targets into the sim
+ *  - **ArmImuSampler**  reads MuJoCo's sensors at `RECORD_HZ`
  */
 
 const RECORD_HZ = 20;
-const G_WORLD: [number, number, number] = [0, -9.81, 0];
+
+/** Async hook that resolves to a `BraccioSim` instance, returning null
+ * until the WASM module loads. The sim is disposed on unmount so
+ * navigating away from robotics mode frees the WASM-side heap. */
+function useBraccioSim(): BraccioSim | null {
+  const [sim, setSim] = useState<BraccioSim | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let local: BraccioSim | null = null;
+    loadMujocoModule().then((mujoco) => {
+      if (cancelled) return;
+      local = new BraccioSim(mujoco);
+      // Seed the integrator at the user's configured home pose so the
+      // first frame doesn't snap from all-zeros to a flexed pose under
+      // PD control — that produced a velocity spike in the first IMU
+      // sample of every recording.
+      local.snapToPose(useStore.getState().robot.armHomePose);
+      setSim(local);
+    });
+    return () => {
+      cancelled = true;
+      // The Promise may resolve after unmount; `local` is captured here
+      // and disposed inline. The `setSim` cancellation guard above
+      // keeps us from rendering a stale instance.
+      local?.dispose();
+    };
+  }, []);
+
+  return sim;
+}
+
+/** Re-snap the sim's pose whenever the user adjusts the home sliders
+ * AND no trajectory is running. While a trajectory is active we let
+ * MuJoCo integrate freely; outside that, the home pose is the rest
+ * position and the integrator should sit there with zero velocity. */
+function useHomePoseSync(sim: BraccioSim | null) {
+  const homePose = useStore((s) => s.robot.armHomePose);
+  const robotRunning = useStore((s) => s.robotRunning);
+  useEffect(() => {
+    if (!sim || robotRunning) return;
+    sim.snapToPose(homePose);
+  }, [sim, homePose, robotRunning]);
+}
 
 export function BraccioArm() {
-  const joints = useStore((s) => s.armJoints);
-  // When no trajectory is driving the arm, the rig holds the user's
-  // configured home pose. Trajectories pull the same value as their
-  // rest reference so e.g. `pick_place` returns to the user's home,
-  // not the spec-default all-90° pose.
-  const homePose = useStore((s) => s.robot.armHomePose);
+  const sim = useBraccioSim();
+  useHomePoseSync(sim);
 
+  // Visual-rig refs. The geometry tree mirrors the MJCF body hierarchy
+  // 1:1 — every joint here corresponds to a hinge or slide joint in
+  // the MJCF, and the per-frame loop below copies the simulated joint
+  // positions onto these groups.
   const baseRef = useRef<THREE.Group>(null);
   const shoulderRef = useRef<THREE.Group>(null);
   const elbowRef = useRef<THREE.Group>(null);
@@ -62,8 +102,26 @@ export function BraccioArm() {
     right: THREE.Mesh | null;
   }>({ left: null, right: null });
 
-  useFrame(() => {
-    const j = joints ?? homePose;
+  useFrame((_, dt) => {
+    if (!sim) {
+      // While the WASM module is still loading, render the rig at the
+      // configured home pose so the user sees an arm instead of a
+      // collapsed chain.
+      const j = useStore.getState().armJoints ?? useStore.getState().robot.armHomePose;
+      applyJointsToRig(j);
+      return;
+    }
+
+    sim.step(dt);
+    const j = sim.readJointPositions();
+    // Mirror the simulated pose into the store so other listeners
+    // (HUD, trajectory debug, capture pipeline) keep seeing a single
+    // source of truth for the current arm pose.
+    useStore.getState().setArmJoints(j);
+    applyJointsToRig(j);
+  });
+
+  function applyJointsToRig(j: [number, number, number, number, number, number]) {
     if (baseRef.current) baseRef.current.rotation.y = j[0];
     if (shoulderRef.current) shoulderRef.current.rotation.x = j[1];
     if (elbowRef.current) elbowRef.current.rotation.x = j[2];
@@ -73,7 +131,7 @@ export function BraccioArm() {
     const half = (BRACCIO_LINKS.gripperWidth / 2) * aperture;
     if (gripperRef.current.left) gripperRef.current.left.position.x = -half;
     if (gripperRef.current.right) gripperRef.current.right.position.x = half;
-  });
+  }
 
   const L = BRACCIO_LINKS;
 
@@ -267,48 +325,38 @@ export function BraccioArm() {
           </group>
         </group>
       </group>
-      <ArmController />
-      <ArmImuSampler endEffectorRef={endEffectorRef} />
+      <ArmController sim={sim} />
+      <ArmImuSampler sim={sim} />
     </>
   );
 }
 
 /**
- * Drives `armJoints` along a parametric trajectory each frame. Listens
- * for `armEpoch` bumps from the runner; on each bump (while the run
- * flag is active) we build a fresh trajectory for the currently-
- * selected class. For `pick_place`, the runner picks a scene object
- * and a destination point and writes them into the store before
- * bumping; the controller pulls those out and threads them into the
- * trajectory builder.
+ * Drives MuJoCo's position-actuator targets along a parametric
+ * trajectory each frame. Same trajectory engine and same epoch-bump
+ * trigger as the kinematic version; the only difference is that we
+ * write into `sim.setJointTargets(...)` instead of `setArmJoints(...)`.
+ * The store's `armJoints` is updated by the rig in `useFrame` from the
+ * simulated `qpos`, so listeners still see the live arm pose.
  */
-function ArmController() {
+function ArmController({ sim }: { sim: BraccioSim | null }) {
   const epoch = useStore((s) => s.armEpoch);
   const trajectory = useStore((s) => s.robot.armTrajectory);
   const durationMs = useStore((s) => s.robot.durationMs);
   const robotRunning = useStore((s) => s.robotRunning);
-  const setArmJoints = useStore((s) => s.setArmJoints);
 
   const pathRef = useRef<ArmParametricPath | null>(null);
   const startMs = useRef(0);
 
   useEffect(() => {
-    if (!robotRunning) {
+    if (!sim || !robotRunning) {
       pathRef.current = null;
       return;
     }
-    // Pull the chosen scene object as the pickup target. Drop point is
-    // a small lateral offset from the pickup so the place arc clears
-    // the source. Falls back to a stock pickup/drop pair when no scene
-    // objects exist. Targets are in world coordinates and the arm
-    // sits at world origin, so no mount-frame conversion is needed.
     const state = useStore.getState();
     const targetId = state.armTargetId;
     let pickup = { x: 0.18, y: 0.06, z: 0.12 };
     let drop = { x: -0.18, y: 0.06, z: 0.12 };
-    // Resolve the configured target by id, but constrain to arm-owned
-    // scene objects so a rover obstacle (different owner) can't be
-    // picked up accidentally.
     const target = state.sceneObjects.find(
       (o) => o.id === targetId && o.owner === 'arm',
     );
@@ -331,104 +379,53 @@ function ArmController() {
       home: state.robot.armHomePose,
     });
     startMs.current = performance.now();
-    setArmJoints(pathRef.current.sample(0));
-  }, [epoch, trajectory, robotRunning, setArmJoints]);
+    // Seed the sim's targets at t=0 so the first physics step doesn't
+    // chase a stale target left over from the previous trajectory.
+    sim.setJointTargets(pathRef.current.sample(0));
+  }, [epoch, trajectory, robotRunning, sim]);
 
   useFrame(() => {
     const path = pathRef.current;
-    if (!path || !robotRunning) return;
+    if (!path || !robotRunning || !sim) return;
     const elapsed = performance.now() - startMs.current;
     const t = Math.max(0, Math.min(1, elapsed / Math.max(1, durationMs)));
-    setArmJoints(path.sample(t));
+    sim.setJointTargets(path.sample(t));
   });
 
   return null;
 }
 
 /**
- * End-effector IMU sampler. Reads the gripper-carrier group's world
- * pose, derives linvel from pose deltas (the chain is kinematic), and
- * feeds `computeImuReading`. Pushes one sample per `RECORD_HZ` tick
- * into `robotImuSamples` while a recording is active.
+ * IMU sampler reading MuJoCo's built-in sensors at `RECORD_HZ`. The
+ * accelerometer at the end-effector site reports body-frame acceler-
+ * ation including gravity; the gyro reports body-frame angular vel-
+ * ocity. We feed those through `applyImuNoise` (same noise model used
+ * in motion mode) so the recorded trace has realistic bias drift and
+ * per-axis scale-factor errors.
+ *
+ * No more pose-delta finite differences — gravity, joint compliance,
+ * and contact response come straight from the integrator and end up
+ * in the IMU sample as physical quantities.
  */
-function ArmImuSampler({
-  endEffectorRef,
-}: {
-  endEffectorRef: React.RefObject<THREE.Group>;
-}) {
+function ArmImuSampler({ sim }: { sim: BraccioSim | null }) {
   const recordAccum = useRef(0);
   const recordPeriod = 1 / RECORD_HZ;
-  const sampleInit = useRef(false);
-  const prevPos = useRef(new THREE.Vector3());
-  const prevQuat = useRef(new THREE.Quaternion());
-  const prevLinvel = useRef(new THREE.Vector3());
   const noiseState = useRef<ImuNoiseState | null>(null);
 
   useFrame((_, dt) => {
+    if (!sim) return;
     recordAccum.current += dt;
     if (recordAccum.current < recordPeriod) return;
     const sampleDt = recordAccum.current;
     recordAccum.current = 0;
 
-    const ee = endEffectorRef.current;
-    if (!ee) return;
-
-    const curPos = new THREE.Vector3();
-    ee.getWorldPosition(curPos);
-    const curQuat = new THREE.Quaternion();
-    ee.getWorldQuaternion(curQuat);
-
-    if (!sampleInit.current) {
-      prevPos.current.copy(curPos);
-      prevQuat.current.copy(curQuat);
-      prevLinvel.current.set(0, 0, 0);
-      sampleInit.current = true;
-      return;
-    }
-
-    const linvel = new THREE.Vector3()
-      .copy(curPos)
-      .sub(prevPos.current)
-      .divideScalar(sampleDt);
-    const dq = curQuat.clone().multiply(prevQuat.current.clone().invert());
-    const angle =
-      2 *
-      Math.atan2(
-        Math.sqrt(dq.x * dq.x + dq.y * dq.y + dq.z * dq.z),
-        dq.w,
-      );
-    const sinHalf = Math.sqrt(1 - Math.min(1, dq.w * dq.w));
-    const angVelWorld: [number, number, number] =
-      sinHalf > 1e-6
-        ? [
-            (dq.x / sinHalf) * (angle / sampleDt),
-            (dq.y / sinHalf) * (angle / sampleDt),
-            (dq.z / sinHalf) * (angle / sampleDt),
-          ]
-        : [0, 0, 0];
-
-    const reading = computeImuReading({
-      linvel: [linvel.x, linvel.y, linvel.z],
-      prevLinvel: [
-        prevLinvel.current.x,
-        prevLinvel.current.y,
-        prevLinvel.current.z,
-      ],
-      angVelWorld,
-      qCur: [curQuat.x, curQuat.y, curQuat.z, curQuat.w],
-      dt: sampleDt,
-      gWorld: G_WORLD,
-    });
-
-    prevPos.current.copy(curPos);
-    prevQuat.current.copy(curQuat);
-    prevLinvel.current.copy(linvel);
+    const imu = sim.readImu();
 
     const noiseCfg = useStore.getState().imuNoise;
     if (!noiseState.current) noiseState.current = makeImuNoiseState(noiseCfg);
     const noisy = applyImuNoise(
-      [reading.ax, reading.ay, reading.az],
-      [reading.gx, reading.gy, reading.gz],
+      imu.accel,
+      imu.gyro,
       noiseState.current,
       noiseCfg,
       sampleDt,

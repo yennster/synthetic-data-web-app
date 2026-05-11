@@ -6,7 +6,9 @@ export default defineConfig({
   plugins: [react()],
   server: {
     host: true,
-    port: 5173,
+    // Honor the PORT env var so harnesses (preview tool, CI) that assign
+    // a port via env can override the default without a config edit.
+    port: Number(process.env.PORT) || 5173,
     // Required for SharedArrayBuffer (used by the OpenUSD WASM runtime in
     // three-usdz-loader). `credentialless` is more permissive than
     // `require-corp` and doesn't require external resources (like the
@@ -22,7 +24,13 @@ export default defineConfig({
     // `?url` natively but esbuild (the dep pre-bundler) doesn't recognise
     // `.data` files and bails. Excluding the package lets Vite resolve
     // those URLs at runtime.
-    exclude: ['@mediapipe/tasks-vision', '@needle-tools/usd'],
+    // `@mujoco/mujoco` ships its Emscripten loader as ESM and uses
+    // `new URL('mujoco.wasm', import.meta.url)` to fetch the binary
+    // next to the JS. When Vite pre-bundles the package into
+    // `node_modules/.vite/deps/`, the wasm sibling isn't copied along,
+    // and the runtime ends up fetching the SPA fallback. Excluding
+    // keeps the import resolving to the real package directory.
+    exclude: ['@mediapipe/tasks-vision', '@needle-tools/usd', '@mujoco/mujoco'],
   },
   resolve: {
     dedupe: ['three'],
