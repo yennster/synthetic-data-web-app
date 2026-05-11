@@ -29,7 +29,6 @@ const OBJECTS: { value: ObjectKind; label: string }[] = [
   { value: 'cube', label: 'Cube' },
   { value: 'sphere', label: 'Sphere' },
   { value: 'cylinder', label: 'Cylinder' },
-  { value: 'cone', label: 'Cone' },
   { value: 'torus', label: 'Torus' },
   { value: 'capsule', label: 'Capsule' },
   { value: 'phone', label: 'Phone slab' },

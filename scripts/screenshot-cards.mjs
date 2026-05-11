@@ -95,7 +95,7 @@ async function seedScene(page, modeKey) {
       const seed = [
         ['cube', 'box', undefined, { position: [-0.4, 1.2, 0] }],
         ['sphere', 'ball', undefined, { position: [0.4, 1.2, -0.6] }],
-        ['cone', 'cone', undefined, { position: [-0.3, 1.2, -1.2] }],
+        ['torus', 'ring', undefined, { position: [-0.3, 1.25, -1.2] }],
       ];
       for (const [k, l, o, p] of seed) {
         state.addSceneObject(k, l, o);
@@ -134,7 +134,7 @@ async function seedScene(page, modeKey) {
         objectDetectionImagesPerIteration: 2,
       });
       state.clearSceneObjects();
-      ['cube', 'sphere', 'cone'].forEach((k) =>
+      ['cube', 'sphere', 'cylinder'].forEach((k) =>
         state.addArmPickupTarget(k, 'pickup'),
       );
     }

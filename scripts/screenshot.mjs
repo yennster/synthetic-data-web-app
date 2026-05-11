@@ -159,7 +159,6 @@ async function seedScene(page, target) {
         ['cube', 'box', undefined, { position: [-0.45, 1.15, 0.15] }],
         ['sphere', 'ball', undefined, { position: [0.42, 1.2, -0.2] }],
         ['cylinder', 'can', undefined, { position: [-0.35, 1.2, -0.9] }],
-        ['cone', 'cone', undefined, { position: [0.45, 1.2, -1.2] }],
         ['torus', 'ring', undefined, { position: [-0.45, 1.25, -1.8] }],
         ['capsule', 'capsule', undefined, { position: [0.4, 1.25, -2.0] }],
       ];
@@ -189,7 +188,7 @@ async function seedScene(page, target) {
       const targets = [
         ['cube', 'pickup cube', { color: '#5eead4' }],
         ['sphere', 'pickup ball', { color: '#f59e0b' }],
-        ['cone', 'pickup cone', { color: '#f472b6' }],
+        ['cylinder', 'pickup can', { color: '#f472b6' }],
       ];
       for (const [kind, label, patch] of targets) {
         const id = store.getState().addArmPickupTarget(kind, label);
@@ -253,7 +252,7 @@ async function seedScene(page, target) {
         },
       ],
       [
-        'cone',
+        'cylinder',
         'traffic cone',
         'rover',
         {

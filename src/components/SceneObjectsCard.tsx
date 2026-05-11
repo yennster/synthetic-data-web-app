@@ -172,7 +172,6 @@ const OBJECT_OPTIONS: ObjectKind[] = [
   'cube',
   'sphere',
   'cylinder',
-  'cone',
   'torus',
   'capsule',
   'phone',

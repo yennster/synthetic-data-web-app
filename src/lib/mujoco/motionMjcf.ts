@@ -53,30 +53,6 @@ function shapeGeom(kind: ObjectKind): { geom: string; mass: number } {
         geom: `<geom name="g_body" type="cylinder" size="0.4 0.45" quat="0.7071 0.7071 0 0" mass="0.12" rgba="0.96 0.62 0.04 1" friction="0.6 0.05 0.005"/>`,
         mass: 0.12,
       };
-    case 'cone':
-      // MuJoCo has no cone primitive. Approximate as a single cylinder
-      // sized to the cone's bounding cylinder (radius matches the base,
-      // height matches the full cone). The body spawns identity-quat
-      // at y=2 with no angular velocity, so under pure gravity it falls
-      // straight down and rests upright on the cylinder's flat end —
-      // and the cone visual, centered at body origin, sits with its
-      // base at world y=0.
-      //
-      // Composite colliders (multi-geom approximations of the cone's
-      // taper) gave more realistic on-side rolling at the cost of
-      // intermittent compile failures from MuJoCo's auto-inertia
-      // pipeline. The single cylinder loses the on-side tilt physics
-      // but recovers a stable, predictable upright rest — the resting
-      // state users will see 99% of the time in motion mode, since
-      // the recorder spawns / re-spawns the body upright.
-      //
-      // Three.js coneGeometry(0.5, 1.0) lives on local-Y, so the
-      // cylinder's default Z axis gets the same 90° X-rotation quat
-      // as the other Y-aligned primitives in this file.
-      return {
-        geom: `<geom name="g_body" type="cylinder" size="0.5 0.5" quat="0.7071 0.7071 0 0" mass="0.12" rgba="0.96 0.62 0.04 1" friction="0.6 0.05 0.005"/>`,
-        mass: 0.12,
-      };
     case 'torus':
       // No torus primitive either; approximate with a flat cylinder
       // sized to the torus's outer envelope. Radius 0.55 = major 0.4
