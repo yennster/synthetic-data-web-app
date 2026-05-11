@@ -35,6 +35,13 @@ export function getImportedAssetScaledSize(
   ];
 }
 
+export function getImportedAssetHalfExtents(
+  asset: Pick<ImportedAsset, 'bounds' | 'object' | 'scale'>,
+): [number, number, number] {
+  const size = getImportedAssetScaledSize(asset);
+  return [size[0] / 2, size[1] / 2, size[2] / 2];
+}
+
 /** Imported USDZ assets are re-centered by `loadUsdz()` so their X/Z
  * origin is the footprint center and their Y origin rests on the floor.
  * Robotics pickup math wants the object center, so add half the scaled

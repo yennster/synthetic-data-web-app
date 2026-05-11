@@ -12,6 +12,11 @@ import {
   DEFAULT_IMU_NOISE,
   type ImuNoiseConfig,
 } from '../lib/imuNoise';
+import {
+  createArmPickupObservation,
+  updateArmPickupObservation,
+  type ArmPickupObservation,
+} from '../lib/armPickupOutcome';
 import { BRACCIO_REST_RAD } from '../lib/braccio';
 import type { ImportedAssetBounds } from '../lib/importedAssetBounds';
 
@@ -455,6 +460,13 @@ type State = {
   pushArmJointSample: (s: { t: number; joints: number[] }) => void;
   clearArmJointSamples: () => void;
 
+  /** Per-iteration pick-and-place outcome observed from the MuJoCo target
+   * body. The arm target renderer updates the max lift while the robot is
+   * running; the panel snapshots it into EI metadata when the sample ends. */
+  armPickupObservation: ArmPickupObservation | null;
+  resetArmPickupObservation: (targetId: string | null) => void;
+  observeArmPickupLift: (targetId: string, liftM: number) => void;
+
   /** True when the rover's contact detector reports overlap with at
    * least one obstacle this frame. The IMU sampler reads this to
    * inject a brief impulse along the contact axis (so the recorded
@@ -780,6 +792,7 @@ export const useStore = create<State>()(
         robotImuSamples: [],
         armJoints: null,
         armTargetId: null,
+        armPickupObservation: null,
         roverInContact: false,
         robotCancelRequested: false,
       };
@@ -802,6 +815,20 @@ export const useStore = create<State>()(
         : state,
     ),
   clearArmJointSamples: () => set({ armJointSamples: [] }),
+  armPickupObservation: null,
+  resetArmPickupObservation: (targetId) =>
+    set({ armPickupObservation: createArmPickupObservation(targetId) }),
+  observeArmPickupLift: (targetId, liftM) =>
+    set((state) => {
+      const next = updateArmPickupObservation(
+        state.armPickupObservation,
+        targetId,
+        liftM,
+      );
+      return next === state.armPickupObservation
+        ? state
+        : { armPickupObservation: next };
+    }),
   roverInContact: false,
   setRoverInContact: (b) => set({ roverInContact: b }),
 

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { Group } from 'three';
 import { useStore } from './useStore';
+import { ARM_PICKUP_SUCCESS_LIFT_M } from '../lib/armPickupOutcome';
 import { BRACCIO_REST_RAD } from '../lib/braccio';
 
 // Polyfill crypto.randomUUID for happy-dom (which has crypto but not randomUUID).
@@ -26,6 +27,9 @@ beforeEach(() => {
     envPreset: 'studio',
     anomalyLabel: 'normal',
     status: { kind: 'idle', msg: '' },
+    robotRunning: false,
+    armPickupObservation: null,
+    armTargetId: null,
   });
 });
 
@@ -325,6 +329,30 @@ describe('motion recording', () => {
 });
 
 describe('robot scene reset', () => {
+  it('tracks arm pickup lift outcome for sample metadata', () => {
+    const s = useStore.getState();
+    s.resetArmPickupObservation('target-a');
+    expect(useStore.getState().armPickupObservation).toEqual({
+      targetId: 'target-a',
+      maxLiftM: 0,
+      success: false,
+    });
+
+    s.observeArmPickupLift('target-a', ARM_PICKUP_SUCCESS_LIFT_M / 2);
+    expect(useStore.getState().armPickupObservation?.success).toBe(false);
+
+    s.observeArmPickupLift('target-a', ARM_PICKUP_SUCCESS_LIFT_M + 0.005);
+    expect(useStore.getState().armPickupObservation?.success).toBe(true);
+    expect(useStore.getState().armPickupObservation?.maxLiftM).toBeCloseTo(
+      ARM_PICKUP_SUCCESS_LIFT_M + 0.005,
+    );
+
+    s.observeArmPickupLift('target-a', 0.001);
+    expect(useStore.getState().armPickupObservation?.maxLiftM).toBeCloseTo(
+      ARM_PICKUP_SUCCESS_LIFT_M + 0.005,
+    );
+  });
+
   it('restores the default arm home pose when resetting the arm scene', () => {
     useStore.getState().setRobot({
       kind: 'arm',

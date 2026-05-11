@@ -4,15 +4,21 @@ import {
   ALL_ROVER_UPLOAD_MODALITIES,
   useStore,
   type AccelSample,
+  type ImportedAsset,
   type LidarSample,
   type RobotKind,
   type RoverEvent,
   type RoverUploadModality,
+  type SceneObject,
 } from '../store/useStore';
 import {
   ALL_ARM_TRAJECTORIES,
   type ArmTrajectory,
 } from '../lib/armTrajectories';
+import {
+  buildArmPickupMetadata,
+  type ArmPickupTargetMetadata,
+} from '../lib/armPickupOutcome';
 import { BRACCIO_LIMITS_RAD, BRACCIO_REST_RAD } from '../lib/braccio';
 import { saveBlob } from '../lib/capture';
 import {
@@ -83,6 +89,40 @@ function roverAssetPlacement({
     scale,
     physics: false,
   };
+}
+
+type ArmTargetState = {
+  armTargetId: string | null;
+  sceneObjects: SceneObject[];
+  assets: ImportedAsset[];
+};
+
+function summarizeArmTarget(state: ArmTargetState): ArmPickupTargetMetadata {
+  const id = state.armTargetId;
+  if (!id) return { id: null, type: 'fallback' };
+  const sceneTarget = state.sceneObjects.find(
+    (o) => o.id === id && o.owner === 'arm',
+  );
+  if (sceneTarget) {
+    return {
+      id,
+      type: 'primitive',
+      kind: sceneTarget.kind,
+      label: sceneTarget.label,
+    };
+  }
+  const assetTarget = state.assets.find(
+    (a) => a.id === id && a.owner === 'arm',
+  );
+  if (assetTarget) {
+    return {
+      id,
+      type: 'asset',
+      name: assetTarget.name,
+      label: assetTarget.label,
+    };
+  }
+  return { id, type: 'unknown' };
 }
 
 class CancelledError extends Error {
@@ -375,6 +415,12 @@ export function RobotPanel() {
             setArmTargetId(null);
           }
         }
+        const selectedTargetId = useStore.getState().armTargetId;
+        useStore
+          .getState()
+          .resetArmPickupObservation(
+            trajectory === 'pick_place' ? selectedTargetId : null,
+          );
         setStatus(
           'busy',
           `${i + 1}/${robot.count} ${trajectory}: building trajectory…`,
@@ -383,10 +429,11 @@ export function RobotPanel() {
         useStore.getState().clearArmJointSamples();
         bumpArmEpoch();
         await sleepCancellable(robot.durationMs);
-        const imu: AccelSample[] = useStore
-          .getState()
-          .robotImuSamples.slice();
-        const armJoints = useStore.getState().armJointSamples.slice();
+        const stateAfterRun = useStore.getState();
+        const imu: AccelSample[] = stateAfterRun.robotImuSamples.slice();
+        const armJoints = stateAfterRun.armJointSamples.slice();
+        const armTarget = summarizeArmTarget(stateAfterRun);
+        const pickupObservation = stateAfterRun.armPickupObservation;
         clearRobotImuSamples();
         useStore.getState().clearArmJointSamples();
         if (imu.length === 0) {
@@ -401,7 +448,12 @@ export function RobotPanel() {
           trajectory_index: i + 1,
           trajectory_total: robot.count,
           duration_ms: robot.durationMs,
-          arm_target_id: useStore.getState().armTargetId ?? '',
+          arm_target_id: armTarget.id ?? '',
+          ...buildArmPickupMetadata(
+            trajectory,
+            armTarget,
+            pickupObservation,
+          ),
         };
         if (shouldUpload) {
           try {
@@ -489,6 +541,7 @@ export function RobotPanel() {
       setRobotCancelRequested(false);
       setArmJoints(null);
       setArmTargetId(null);
+      useStore.getState().resetArmPickupObservation(null);
     }
   };
 
