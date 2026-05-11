@@ -1,27 +1,42 @@
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import {
-  ContactShadows,
-  Environment,
-  Grid,
-  OrbitControls,
-  SoftShadows,
-} from '@react-three/drei';
+import { ContactShadows } from '@react-three/drei/core/ContactShadows.js';
+import { Environment } from '@react-three/drei/core/Environment.js';
+import { Grid } from '@react-three/drei/core/Grid.js';
+import { OrbitControls } from '@react-three/drei/core/OrbitControls.js';
+import { SoftShadows } from '@react-three/drei/core/softShadows.js';
 import { Physics } from '@react-three/rapier';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { cameraRelativeToWorld } from '../lib/handMath';
 import { MotionSim } from '../lib/mujoco/MotionSim';
 import { loadMujocoModule } from '../lib/mujoco/runtime';
 import { sampleImu, type NoiseStateRef } from '../lib/mujoco/imuSensor';
 import { useStore, type ObjectKind } from '../store/useStore';
-import { BraccioArm } from './BraccioArm';
 import { Conveyor } from './Conveyor';
-import { ImportedAssets } from './ImportedAssets';
-import { RobotPovCamera } from './RobotPovCamera';
-import { Rover } from './Rover';
 import { SceneEnvironment } from './SceneEnvironment';
 import { SpawnedObjects } from './SpawnedObjects';
-import { VirtualCamera } from './VirtualCamera';
+
+const BraccioArm = lazy(() =>
+  import('./BraccioArm').then((mod) => ({ default: mod.BraccioArm })),
+);
+const ImportedAssets = lazy(() =>
+  import('./ImportedAssets').then((mod) => ({
+    default: mod.ImportedAssets,
+  })),
+);
+const RobotPovCamera = lazy(() =>
+  import('./RobotPovCamera').then((mod) => ({
+    default: mod.RobotPovCamera,
+  })),
+);
+const Rover = lazy(() =>
+  import('./Rover').then((mod) => ({ default: mod.Rover })),
+);
+const VirtualCamera = lazy(() =>
+  import('./VirtualCamera').then((mod) => ({
+    default: mod.VirtualCamera,
+  })),
+);
 
 const GRAVITY: [number, number, number] = [0, -9.81, 0];
 const FOLLOW_LERP = 0.35;
@@ -485,9 +500,13 @@ function RoverScene() {
     <>
       <group ref={obstaclesRef}>
         <SpawnedObjects ownerFilter="rover" />
-        <ImportedAssets ownerFilter="rover" physicsMode="visual" />
+        <Suspense fallback={null}>
+          <ImportedAssets ownerFilter="rover" physicsMode="visual" />
+        </Suspense>
       </group>
-      <Rover obstaclesRef={obstaclesRef} />
+      <Suspense fallback={null}>
+        <Rover obstaclesRef={obstaclesRef} />
+      </Suspense>
     </>
   );
 }
@@ -505,13 +524,17 @@ function ArmScene() {
   );
   return (
     <>
-      <BraccioArm />
+      <Suspense fallback={null}>
+        <BraccioArm />
+      </Suspense>
       <SpawnedObjects ownerFilter="arm" excludeIds={excludeIds} />
-      <ImportedAssets
-        ownerFilter="arm"
-        excludeIds={excludeIds}
-        physicsMode="visual"
-      />
+      <Suspense fallback={null}>
+        <ImportedAssets
+          ownerFilter="arm"
+          excludeIds={excludeIds}
+          physicsMode="visual"
+        />
+      </Suspense>
     </>
   );
 }
@@ -654,16 +677,22 @@ export function Scene({
                 Keeps robotics-tagged objects from leaking into the
                 vision capture frames. */}
             <SpawnedObjects ownerFilter="vision" />
-            <ImportedAssets ownerFilter="vision" />
+            <Suspense fallback={null}>
+              <ImportedAssets ownerFilter="vision" />
+            </Suspense>
           </>
         )}
       </Physics>
 
       {(mode === 'detection' || mode === 'anomaly') && (
-        <VirtualCamera previewCanvas={previewCanvas} />
+        <Suspense fallback={null}>
+          <VirtualCamera previewCanvas={previewCanvas} />
+        </Suspense>
       )}
       {mode === 'robot' && (
-        <RobotPovCamera previewCanvas={previewCanvas} />
+        <Suspense fallback={null}>
+          <RobotPovCamera previewCanvas={previewCanvas} />
+        </Suspense>
       )}
 
       <OrbitControls

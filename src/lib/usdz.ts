@@ -7,12 +7,11 @@ import * as THREE from 'three';
 // for those files and the asset shows up invisibly. The .wasm/.data/.js/.worker.js
 // files are copied to public/usdz-wasm/ by scripts/setup-usdz-wasm.mjs.
 import {
-  createThreeHydra,
-  getUsdModule,
   type HydraFile,
   type NeedleThreeHydraHandle,
   type USD,
 } from '@needle-tools/usd';
+type UsdRuntime = typeof import('@needle-tools/usd');
 
 export type LoadedUsdz = {
   object: THREE.Group;
@@ -38,16 +37,26 @@ export type LoadedUsdz = {
   defaultMaterialMeshes: number;
 };
 
+let _usdRuntimePromise: Promise<UsdRuntime> | null = null;
+function getUsdRuntime(): Promise<UsdRuntime> {
+  if (!_usdRuntimePromise) {
+    _usdRuntimePromise = import('@needle-tools/usd');
+  }
+  return _usdRuntimePromise;
+}
+
 let _usdPromise: Promise<USD> | null = null;
 function getUsd(): Promise<USD> {
   if (!_usdPromise) {
-    _usdPromise = getUsdModule({
-      // Vite serves /public/* at the site root, so the four emHdBindings.*
-      // files live at /usdz-wasm/* and need to be co-located: the .js
-      // bootstrapper internally fetches the .wasm/.data/.worker.js siblings
-      // by relative URL.
-      mainScriptUrlOrBlob: '/usdz-wasm/emHdBindings.js',
-    });
+    _usdPromise = getUsdRuntime().then(({ getUsdModule }) =>
+      getUsdModule({
+        // Vite serves /public/* at the site root, so the four emHdBindings.*
+        // files live at /usdz-wasm/* and need to be co-located: the .js
+        // bootstrapper internally fetches the .wasm/.data/.worker.js siblings
+        // by relative URL.
+        mainScriptUrlOrBlob: '/usdz-wasm/emHdBindings.js',
+      }),
+    );
   }
   return _usdPromise;
 }
@@ -72,7 +81,10 @@ export function prewarmUsdz(): void {
  * other metadata as needed for bounding-box projection / capture.
  */
 export async function loadUsdz(file: File): Promise<LoadedUsdz> {
-  const USD = await getUsd();
+  const [USD, { createThreeHydra }] = await Promise.all([
+    getUsd(),
+    getUsdRuntime(),
+  ]);
 
   // Outer wrapper that we own; the loader populates it with the imported
   // prims directly (no `inner` child added by the loader itself).

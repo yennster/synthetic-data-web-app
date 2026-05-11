@@ -406,6 +406,23 @@ label.field, div.field {
 
 .scene { position: relative; overflow: hidden; }
 
+.scene-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--text-muted);
+  font-family: var(--t-mono);
+  font-size: var(--t-sm);
+  background: linear-gradient(180deg, #0b0d10 0%, #14181d 100%);
+}
+
+.panel-loading {
+  color: var(--text-muted);
+  font-family: var(--t-mono);
+  font-size: var(--t-sm);
+}
+
 .sidebar {
   background: var(--surface-1);
   border-left: 1px solid var(--line);

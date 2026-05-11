@@ -1,7 +1,6 @@
-import {
+import type {
   HandLandmarker,
-  FilesetResolver,
-  type HandLandmarkerResult,
+  HandLandmarkerResult,
 } from '@mediapipe/tasks-vision';
 
 // Re-export the pure helpers from handMath so existing call sites
@@ -24,6 +23,9 @@ const WASM_URL =
   'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/wasm';
 
 export async function createHandLandmarker(): Promise<HandLandmarker> {
+  const { FilesetResolver, HandLandmarker } = await import(
+    '@mediapipe/tasks-vision'
+  );
   const fileset = await FilesetResolver.forVisionTasks(WASM_URL);
   return HandLandmarker.createFromOptions(fileset, {
     baseOptions: {
