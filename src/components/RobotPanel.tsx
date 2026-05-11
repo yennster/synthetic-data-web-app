@@ -543,6 +543,48 @@ export function RobotPanel() {
         />
       )}
 
+      {robot.kind === 'arm' && robot.armTrajectory === 'pick_place' && (
+        <div className="card">
+          <div className="webcam-control">
+            <div className="webcam-control-copy">
+              <div className="webcam-control-heading">
+                <span className="webcam-control-title">Randomize pickup position</span>
+                <span
+                  className={`webcam-control-state ${
+                    robot.armRandomizeTarget ? 'on' : 'off'
+                  }`}
+                >
+                  {robot.armRandomizeTarget ? 'On' : 'Off'}
+                </span>
+              </div>
+              <div className="webcam-control-help">
+                Re-sample each pickup object to a fresh random position
+                inside the Braccio's reach at the start of every
+                iteration. Generates varied IMU traces without dragging
+                the cube around by hand.
+              </div>
+            </div>
+            <button
+              type="button"
+              className={`webcam-switch ${robot.armRandomizeTarget ? 'on' : ''}`}
+              role="switch"
+              aria-checked={robot.armRandomizeTarget}
+              aria-label={
+                robot.armRandomizeTarget
+                  ? 'Turn pickup randomization off'
+                  : 'Turn pickup randomization on'
+              }
+              onClick={() =>
+                setRobot({ armRandomizeTarget: !robot.armRandomizeTarget })
+              }
+              disabled={robotRunning}
+            >
+              <span className="webcam-switch-thumb" />
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="card">
         <h3>Recording</h3>
         <div className="row">
