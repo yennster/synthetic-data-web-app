@@ -340,7 +340,28 @@ export function BraccioArm() {
  * draw two cubes on top of each other.
  */
 function ArmTargetMesh({ sim }: { sim: BraccioSim | null }) {
+  const armTargetId = useStore((s) => s.armTargetId);
+  const targetPosition = useStore((s) => {
+    const obj = s.sceneObjects.find(
+      (o) => o.id === armTargetId && o.owner === 'arm',
+    );
+    return obj?.position ?? null;
+  });
+  const robotRunning = useStore((s) => s.robotRunning);
   const meshRef = useRef<THREE.Mesh>(null);
+
+  // Keep MuJoCo's target body in sync with the user's selected pickup
+  // outside of a run. The ArmController is the source of truth during
+  // a run (it places the target at iteration start and lets physics
+  // take over); when the run flag is off, this effect mirrors whatever
+  // position the user has dragged the cube to in the store. Without
+  // this, the cube only snapped into place on the first run iteration
+  // and otherwise floated at the MJCF's default spawn position.
+  useEffect(() => {
+    if (!sim || robotRunning || !targetPosition) return;
+    sim.placeTarget([targetPosition[0], targetPosition[1], targetPosition[2]]);
+  }, [sim, robotRunning, targetPosition]);
+
   useFrame(() => {
     if (!sim) return;
     const pose = sim.readTargetPose();
@@ -350,6 +371,13 @@ function ArmTargetMesh({ sim }: { sim: BraccioSim | null }) {
     // MuJoCo quat is (w, x, y, z); three.js is (x, y, z, w).
     m.quaternion.set(pose.quat[1], pose.quat[2], pose.quat[3], pose.quat[0]);
   });
+
+  // No active pickup → don't draw the MuJoCo target body. Without this
+  // gate the cube sat at the MJCF's hardcoded spawn (0.18, 0.015, 0.12)
+  // even when the user hadn't picked a target, looking like a phantom
+  // unmovable object next to the real ones rendered by SpawnedObjects.
+  if (!armTargetId || !targetPosition) return null;
+
   return (
     <mesh ref={meshRef} castShadow>
       <boxGeometry args={[0.03, 0.03, 0.03]} />
