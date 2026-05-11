@@ -91,6 +91,7 @@ export function VisionPanel() {
   );
   const [eiProjects, setEiProjects] = useState<EiProject[] | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
+  const lastApiKeyRef = useRef(ei.apiKey);
   /** Inline status shown directly inside the Inference card. The global
    * status bar lives at the bottom of the sidebar and is easy to miss when
    * the user is focused on this section, so we mirror progress + errors
@@ -104,6 +105,13 @@ export function VisionPanel() {
     setInferenceStatus({ kind, msg });
     if (kind !== 'idle') setStatus(kind, msg);
   };
+
+  useEffect(() => {
+    if (ei.apiKey === lastApiKeyRef.current) return;
+    lastApiKeyRef.current = ei.apiKey;
+    setEiProjects(null);
+    setSelectedProjectId(null);
+  }, [ei.apiKey]);
 
   /** Translate raw fetch / runtime errors into something actionable. The
    * generic browser "TypeError: Failed to fetch" is opaque — usually means
@@ -128,10 +136,16 @@ export function VisionPanel() {
     try {
       const list = await listEiProjects(ei.apiKey);
       setEiProjects(list);
+      const nextProjectId =
+        list.length === 1
+          ? list[0].id
+          : list.some((p) => p.id === selectedProjectId)
+            ? selectedProjectId
+            : null;
+      setSelectedProjectId(nextProjectId);
       if (list.length === 0) {
         setBoth('err', 'No projects accessible to this API key');
       } else {
-        if (list.length === 1) setSelectedProjectId(list[0].id);
         setBoth(
           'ok',
           `Found ${list.length} project${list.length === 1 ? '' : 's'}`,

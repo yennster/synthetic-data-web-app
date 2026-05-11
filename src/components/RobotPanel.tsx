@@ -196,6 +196,49 @@ export function RobotPanel() {
     let cancelled = false;
     const zipEntries: ZipEntry[] = [];
     const infoLabelsEntries: EdgeImpulseInfoLabelsEntry[] = [];
+    const finalizeRoverRun = async (headline: string) => {
+      if (shouldUpload) {
+        // ROS export still needs to land somewhere even when EI
+        // uploads succeed — there's no ROS ingestion endpoint, so
+        // we always zip the JSONL files locally if rosExport is on.
+        if (zipEntries.length > 0) {
+          const zipName = buildFileName(
+            `rover_${event}_rosbag`,
+          ).replace(/\.json$/, '.zip');
+          const zip = await buildZip(zipEntries);
+          await saveBlob(zipName, zip);
+        }
+        setStatus(
+          cancelled || failed > 0 ? 'err' : 'ok',
+          `${headline}: ${uploaded} uploaded${failed ? ` · ${failed} failed` : ''}${
+            zipEntries.length > 0 ? ` · ROS bundle saved` : ''
+          }`,
+        );
+      } else if (zipEntries.length > 0) {
+        const entries =
+          infoLabelsEntries.length > 0
+            ? [
+                ...zipEntries,
+                {
+                  name: 'info.labels',
+                  data: buildInfoLabelsFile(infoLabelsEntries),
+                },
+              ]
+            : zipEntries;
+        setStatus('busy', `Packaging ${entries.length} files…`);
+        const zipName = buildFileName(
+          `rover_${event}_${infoLabelsEntries.length || zipEntries.length}`,
+        ).replace(/\.json$/, '.zip');
+        const zip = await buildZip(entries);
+        await saveBlob(zipName, zip);
+        setStatus(
+          cancelled || failed > 0 ? 'err' : 'ok',
+          `${headline}: downloaded ${entries.length} files${failed ? ` · ${failed} failed` : ''}`,
+        );
+      } else {
+        setStatus('err', `${headline}: no samples captured`);
+      }
+    };
 
     try {
       await sleepCancellable(60);
@@ -343,57 +386,18 @@ export function RobotPanel() {
             : `Rover: ${captured} captured · ${failed} failed (of ${i + 1}/${robot.count})`,
         );
       }
-      const headline = cancelled ? 'Rover run stopped' : 'Rover run complete';
-      if (shouldUpload) {
-        // ROS export still needs to land somewhere even when EI
-        // uploads succeed — there's no ROS ingestion endpoint, so
-        // we always zip the JSONL files locally if rosExport is on.
-        if (zipEntries.length > 0) {
-          const zipName = buildFileName(
-            `rover_${event}_rosbag`,
-          ).replace(/\.json$/, '.zip');
-          const zip = await buildZip(zipEntries);
-          await saveBlob(zipName, zip);
-        }
-        setStatus(
-          cancelled || failed > 0 ? 'err' : 'ok',
-          `${headline}: ${uploaded} uploaded${failed ? ` · ${failed} failed` : ''}${
-            zipEntries.length > 0 ? ` · ROS bundle saved` : ''
-          }`,
-        );
-      } else if (zipEntries.length > 0) {
-        const entries =
-          infoLabelsEntries.length > 0
-            ? [
-                ...zipEntries,
-                {
-                  name: 'info.labels',
-                  data: buildInfoLabelsFile(infoLabelsEntries),
-                },
-              ]
-            : zipEntries;
-        setStatus('busy', `Packaging ${entries.length} files…`);
-        const zipName = buildFileName(
-          `rover_${event}_${infoLabelsEntries.length || zipEntries.length}`,
-        ).replace(/\.json$/, '.zip');
-        const zip = await buildZip(entries);
-        await saveBlob(zipName, zip);
-        setStatus(
-          cancelled || failed > 0 ? 'err' : 'ok',
-          `${headline}: downloaded ${entries.length} files${failed ? ` · ${failed} failed` : ''}`,
-        );
-      } else {
-        setStatus('err', `${headline}: no samples captured`);
-      }
+      await finalizeRoverRun('Rover run complete');
     } catch (e) {
       if (e instanceof CancelledError) {
         cancelled = true;
-        setStatus(
-          'err',
-          shouldUpload
-            ? `Rover run stopped: ${uploaded} uploaded${failed ? ` · ${failed} failed` : ''}`
-            : `Rover run stopped: ${zipEntries.length} samples saved`,
-        );
+        try {
+          await finalizeRoverRun('Rover run stopped');
+        } catch (saveError) {
+          setStatus(
+            'err',
+            `Rover run stopped, but saving partial data failed: ${(saveError as Error).message}`,
+          );
+        }
       } else {
         setStatus('err', `Rover error: ${(e as Error).message}`);
       }
@@ -416,6 +420,50 @@ export function RobotPanel() {
     let cancelled = false;
     const zipEntries: ZipEntry[] = [];
     const infoLabelsEntries: EdgeImpulseInfoLabelsEntry[] = [];
+    const finalizeArmRun = async (headline: string) => {
+      if (shouldUpload) {
+        // ROS JSONL has no upload endpoint, so even when EI uploads
+        // succeed we still zip the JSONL files locally if rosExport
+        // is on. Mirrors the rover path's behavior.
+        if (zipEntries.length > 0) {
+          const zipName = buildFileName(`arm_${trajectory}_rosbag`).replace(
+            /\.json$/,
+            '.zip',
+          );
+          const zip = await buildZip(zipEntries);
+          await saveBlob(zipName, zip);
+        }
+        setStatus(
+          cancelled || failed > 0 ? 'err' : 'ok',
+          `${headline}: ${uploaded} uploaded${failed ? ` · ${failed} failed` : ''}${
+            zipEntries.length > 0 ? ` · ROS bundle saved` : ''
+          }`,
+        );
+      } else if (zipEntries.length > 0) {
+        const entries =
+          infoLabelsEntries.length > 0
+            ? [
+                ...zipEntries,
+                {
+                  name: 'info.labels',
+                  data: buildInfoLabelsFile(infoLabelsEntries),
+                },
+              ]
+            : zipEntries;
+        setStatus('busy', `Packaging ${entries.length} files…`);
+        const zipName = buildFileName(
+          `arm_${trajectory}_${infoLabelsEntries.length || zipEntries.length}`,
+        ).replace(/\.json$/, '.zip');
+        const zip = await buildZip(entries);
+        await saveBlob(zipName, zip);
+        setStatus(
+          cancelled || failed > 0 ? 'err' : 'ok',
+          `${headline}: downloaded ${entries.length} files${failed ? ` · ${failed} failed` : ''}`,
+        );
+      } else {
+        setStatus('err', `${headline}: no samples captured`);
+      }
+    };
     try {
       await sleepCancellable(60);
       for (let i = 0; i < robot.count; i++) {
@@ -524,56 +572,18 @@ export function RobotPanel() {
             : `Arm: ${captured} captured · ${failed} failed (of ${i + 1}/${robot.count})`,
         );
       }
-      const headline = cancelled ? 'Arm run stopped' : 'Arm run complete';
-      if (shouldUpload) {
-        // ROS JSONL has no upload endpoint, so even when EI uploads
-        // succeed we still zip the JSONL files locally if rosExport
-        // is on. Mirrors the rover path's behavior.
-        if (zipEntries.length > 0) {
-          const zipName = buildFileName(`arm_${trajectory}_rosbag`).replace(
-            /\.json$/,
-            '.zip',
-          );
-          const zip = await buildZip(zipEntries);
-          await saveBlob(zipName, zip);
-        }
-        setStatus(
-          cancelled || failed > 0 ? 'err' : 'ok',
-          `${headline}: ${uploaded} uploaded${failed ? ` · ${failed} failed` : ''}`,
-        );
-      } else if (zipEntries.length > 0) {
-        const entries =
-          infoLabelsEntries.length > 0
-            ? [
-                ...zipEntries,
-                {
-                  name: 'info.labels',
-                  data: buildInfoLabelsFile(infoLabelsEntries),
-                },
-              ]
-            : zipEntries;
-        setStatus('busy', `Packaging ${entries.length} files…`);
-        const zipName = buildFileName(
-          `arm_${trajectory}_${infoLabelsEntries.length || zipEntries.length}`,
-        ).replace(/\.json$/, '.zip');
-        const zip = await buildZip(entries);
-        await saveBlob(zipName, zip);
-        setStatus(
-          cancelled || failed > 0 ? 'err' : 'ok',
-          `${headline}: downloaded ${entries.length} files${failed ? ` · ${failed} failed` : ''}`,
-        );
-      } else {
-        setStatus('err', `${headline}: no samples captured`);
-      }
+      await finalizeArmRun('Arm run complete');
     } catch (e) {
       if (e instanceof CancelledError) {
         cancelled = true;
-        setStatus(
-          'err',
-          shouldUpload
-            ? `Arm run stopped: ${uploaded} uploaded${failed ? ` · ${failed} failed` : ''}`
-            : `Arm run stopped: ${zipEntries.length} samples saved`,
-        );
+        try {
+          await finalizeArmRun('Arm run stopped');
+        } catch (saveError) {
+          setStatus(
+            'err',
+            `Arm run stopped, but saving partial data failed: ${(saveError as Error).message}`,
+          );
+        }
       } else {
         setStatus('err', `Arm error: ${(e as Error).message}`);
       }
@@ -720,6 +730,7 @@ export function RobotPanel() {
               ? 'The runner picks one as the IK anchor each iteration. Drag to retarget; toggle physics to let the gripper actually push the object around.'
               : 'Scenery for the POV camera; only pick_place actually interacts with them.'
           }
+          disabled={robotRunning}
           ownerFilter="arm"
           footer={
             robot.armTrajectory === 'pick_place' ? (
@@ -845,6 +856,7 @@ export function RobotPanel() {
           sizeRange={{ min: 0.05, max: 1.5, step: 0.05 }}
           defaultLabel="obstacle"
           helpText="Add obstacles the rover can bump into. The lidar fan and contact detector see them all."
+          disabled={robotRunning}
           ownerFilter="rover"
         />
       )}

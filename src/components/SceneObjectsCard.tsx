@@ -35,6 +35,7 @@ export function SceneObjectsCard({
   defaultLabel = '',
   helpText,
   hidden = false,
+  disabled = false,
   ownerFilter,
   footer,
 }: {
@@ -44,6 +45,7 @@ export function SceneObjectsCard({
   defaultLabel?: string;
   helpText?: string;
   hidden?: boolean;
+  disabled?: boolean;
   /** When set, the card only shows / clears objects with this owner.
    * `'vision'` matches the legacy untagged pool. Omit to operate on
    * the full list (the default detection-mode behavior). New objects
@@ -78,6 +80,7 @@ export function SceneObjectsCard({
     : sceneObjects;
 
   const onAdd = () => {
+    if (disabled) return;
     const lbl = newLabel || newKind;
     if (addCustom) {
       addCustom(newKind, lbl);
@@ -91,6 +94,7 @@ export function SceneObjectsCard({
   };
 
   const onClear = () => {
+    if (disabled) return;
     if (!ownerFilter) {
       clearSceneObjects();
       return;
@@ -112,6 +116,7 @@ export function SceneObjectsCard({
         <select
           value={newKind}
           onChange={(e) => setNewKind(e.target.value as ObjectKind)}
+          disabled={disabled}
         >
           {OBJECT_OPTIONS.map((k) => (
             <option key={k} value={k}>
@@ -123,11 +128,14 @@ export function SceneObjectsCard({
           value={newLabel}
           onChange={(e) => setNewLabel(e.target.value)}
           placeholder="label"
+          disabled={disabled}
         />
       </div>
       <div className="row">
-        <button onClick={onAdd}>+ Add</button>
-        <button onClick={onClear} disabled={filtered.length === 0}>
+        <button onClick={onAdd} disabled={disabled}>
+          + Add
+        </button>
+        <button onClick={onClear} disabled={disabled || filtered.length === 0}>
           Clear all
         </button>
       </div>
@@ -147,6 +155,7 @@ export function SceneObjectsCard({
               key={o.id}
               obj={o}
               sizeRange={sizeRange}
+              disabled={disabled}
               onUpdate={(patch) => updateSceneObject(o.id, patch)}
               onRemove={() => removeSceneObject(o.id)}
             />
@@ -172,11 +181,13 @@ const OBJECT_OPTIONS: ObjectKind[] = [
 function SceneObjectRow({
   obj,
   sizeRange,
+  disabled,
   onUpdate,
   onRemove,
 }: {
   obj: SceneObject;
   sizeRange: { min: number; max: number; step: number };
+  disabled: boolean;
   onUpdate: (patch: Partial<SceneObject>) => void;
   onRemove: () => void;
 }) {
@@ -198,15 +209,17 @@ function SceneObjectRow({
           value={obj.color}
           onChange={(e) => onUpdate({ color: e.target.value })}
           title={`Color: ${obj.color}`}
+          disabled={disabled}
           style={{ flex: 'none', width: 28, height: 28, padding: 0 }}
         />
         <input
           value={obj.label}
           onChange={(e) => onUpdate({ label: e.target.value })}
+          disabled={disabled}
           style={{ flex: 1, padding: '3px 6px' }}
         />
         <span style={{ color: 'var(--muted)' }}>{obj.kind}</span>
-        <button onClick={onRemove} style={{ padding: '2px 6px' }}>
+        <button onClick={onRemove} disabled={disabled} style={{ padding: '2px 6px' }}>
           ×
         </button>
       </div>
@@ -220,6 +233,7 @@ function SceneObjectRow({
             step={sizeRange.step}
             value={obj.scale}
             onChange={(e) => onUpdate({ scale: Number(e.target.value) })}
+            disabled={disabled}
             style={{ flex: 1 }}
           />
           <NumberField
@@ -228,6 +242,7 @@ function SceneObjectRow({
             step={sizeRange.step}
             value={obj.scale}
             onChange={(n) => onUpdate({ scale: n })}
+            disabled={disabled}
             style={{ width: 64, flex: 'none', padding: '3px 6px' }}
           />
         </div>
@@ -245,6 +260,7 @@ function SceneObjectRow({
           type="checkbox"
           checked={obj.physics}
           onChange={(e) => onUpdate({ physics: e.target.checked })}
+          disabled={disabled}
           style={{ width: 'auto', flex: 'none' }}
         />
         <span>Physics (falls, collides)</span>

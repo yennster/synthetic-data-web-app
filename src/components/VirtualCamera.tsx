@@ -170,12 +170,14 @@ export function VirtualCamera({
     if (helper) helper.visible = false;
 
     const prevTarget = gl.getRenderTarget();
-    gl.setRenderTarget(previewTarget);
-    gl.clear();
-    gl.render(scene, camera);
-    gl.setRenderTarget(prevTarget);
-
-    if (helper) helper.visible = helperWasVisible;
+    try {
+      gl.setRenderTarget(previewTarget);
+      gl.clear();
+      gl.render(scene, camera);
+    } finally {
+      gl.setRenderTarget(prevTarget);
+      if (helper) helper.visible = helperWasVisible;
+    }
 
     // Read back into a CPU buffer and blit to the 2D preview canvas.
     // WebGL textures are origin bottom-left, so we flip vertically when
@@ -211,15 +213,17 @@ export function VirtualCamera({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [batchSignal]);
 
-  async function doCapture(opts: { skipSave?: boolean } = {}) {
+  async function doCapture(
+    opts: { skipSave?: boolean } = {},
+  ): Promise<Capture | null> {
     const cam = camera;
     if (!opts.skipSave) setStatus('busy', 'Capturing…');
+    const helper = helperRef.current;
+    const helperWasVisible = helper?.visible ?? true;
     try {
       const { width, height } = cameraSettings;
       // Hide helper for the capture too, so the frustum gizmo isn't burned
       // into the saved PNG.
-      const helper = helperRef.current;
-      const helperWasVisible = helper?.visible ?? true;
       if (helper) helper.visible = false;
 
       const { blob, boxes } = await captureFrame({
@@ -229,8 +233,6 @@ export function VirtualCamera({
         width,
         height,
       });
-
-      if (helper) helper.visible = helperWasVisible;
 
       const idx = useStore.getState().captures.length;
       const labelPrefix =
@@ -291,10 +293,15 @@ export function VirtualCamera({
           }
         } catch (e) {
           setStatus('err', `Save failed: ${(e as Error).message}`);
+          return null;
         }
       }
+      return captureRecord;
     } catch (e) {
       setStatus('err', `Capture error: ${(e as Error).message}`);
+      return null;
+    } finally {
+      if (helper) helper.visible = helperWasVisible;
     }
   }
 
@@ -396,7 +403,10 @@ export function VirtualCamera({
           await waitForObjectsToSettle();
         }
 
-        await doCapture({ skipSave: true });
+        const capture = await doCapture({ skipSave: true });
+        if (!capture) {
+          throw new Error(`capture ${i + 1}/${total} failed`);
+        }
         setStatus('busy', `Batch ${i + 1}/${total}`);
       }
       // Restore base settings
