@@ -27,11 +27,8 @@ export function ImuNoiseToggle() {
           </span>
         </div>
         <div className="webcam-control-help">
-          When on, samples include LSM6DSO-style bias drift, scale-
-          factor errors, ADC quantization, and ±range clipping — so
-          synthetic traces match what a real Nano 33 BLE Sense or
-          Portenta IMU would produce. Off gives the clean MuJoCo
-          sensor output, useful for debugging trajectories.
+          On: LSM6DSO-style bias drift, scale-factor error, quantization,
+          and range clipping. Off: clean MuJoCo sensor output.
         </div>
       </div>
       <button

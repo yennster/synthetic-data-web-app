@@ -1,12 +1,14 @@
 import { useFrame, useThree } from '@react-three/fiber';
 import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
+import { captureFrame } from '../lib/capture';
 import {
   createReadbackBlitState,
   ensureReadbackBlitState,
   putFlippedReadback,
   resetReadbackBlitState,
 } from '../lib/readbackBlit';
+import { resolveRobotCapture } from '../lib/robotCapture';
 import { useStore } from '../store/useStore';
 
 /**
@@ -41,6 +43,14 @@ export function RobotPovCamera({
   const { gl, scene } = useThree();
   const robotKind = useStore((s) => s.robot.kind);
   const armCameraMount = useStore((s) => s.robot.armCameraMount);
+  // useFrame polls `useStore.getState().robotCaptureSignal` each tick;
+  // we don't subscribe through the hook so a bump doesn't unnecessarily
+  // re-render the bridge. Initialize the "already handled" watermark to
+  // whatever the store currently has so we don't replay a stale bump
+  // that happened before this component mounted.
+  const lastHandledCaptureSignal = useRef(
+    useStore.getState().robotCaptureSignal,
+  );
 
   const camera = useMemo(() => {
     const c = new THREE.PerspectiveCamera(FOV_DEG, 4 / 3, 0.02, 50);
@@ -110,6 +120,57 @@ export function RobotPovCamera({
     look.getWorldPosition(lookPos);
     camera.position.copy(mountPos);
     camera.lookAt(lookPos);
+
+    // Object-detection capture handoff: if the runner asked for a
+    // snapshot since our last tick, render it at the configured output
+    // resolution and hand the blob + bounding boxes back through the
+    // `lib/robotCapture` Promise queue. We do this with the POV
+    // camera *after* it has been re-aimed for this frame so the
+    // capture matches what the user sees in the preview.
+    const liveSignal = useStore.getState().robotCaptureSignal;
+    if (liveSignal !== lastHandledCaptureSignal.current) {
+      lastHandledCaptureSignal.current = liveSignal;
+      // The PerspectiveCamera's aspect is currently bound to the preview
+      // canvas; the offscreen capture renderer in `captureFrame` will
+      // briefly override it to match `width / height` and restore after.
+      const { robot } = useStore.getState();
+      const width = robot.objectDetectionWidth;
+      const height = robot.objectDetectionHeight;
+      // Hide every node tagged `userData.hideForCapture` (e.g. the
+      // rover's lidar/ToF beam overlay) so the rendered PNG shows the
+      // physical scene as a real onboard camera would — no debug
+      // graphics burned into the training data. We restore visibility
+      // unconditionally after the toBlob settles. Live preview is
+      // unaffected because we toggle visibility only across the
+      // single synchronous `captureFrame` render call.
+      const hidden: THREE.Object3D[] = [];
+      scene.traverse((obj) => {
+        if (obj.userData?.hideForCapture && obj.visible) {
+          obj.visible = false;
+          hidden.push(obj);
+        }
+      });
+      const restore = () => {
+        for (const o of hidden) o.visible = true;
+      };
+      // Don't await — useFrame must stay synchronous. Capture runs in
+      // its own microtask; resolveRobotCapture fires when toBlob lands.
+      void captureFrame({
+        renderer: gl as THREE.WebGLRenderer,
+        scene,
+        camera,
+        width,
+        height,
+      })
+        .then(({ blob, boxes }) => {
+          restore();
+          resolveRobotCapture({ blob, boxes, width, height });
+        })
+        .catch(() => {
+          restore();
+          resolveRobotCapture(null);
+        });
+    }
 
     const prevTarget = gl.getRenderTarget();
     try {

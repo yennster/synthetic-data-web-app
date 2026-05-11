@@ -407,6 +407,32 @@ type State = {
      * inside the published Braccio reach envelope (radius 8–18 cm,
      * base-yaw half-circle) so every randomized target is graspable. */
     armRandomizeTarget: boolean;
+    /** Enable an "object detection" capture pass alongside the sensor
+     * recording. Each iteration the runner also snaps a high-res image
+     * from the rover/arm POV camera (mid-motion) with bounding boxes
+     * computed from labelled scene meshes — i.e. the same 2D-projection
+     * pipeline detection-mode uses. The image stream lands either in
+     * the Edge Impulse project (object-detection sample) or in the
+     * downloaded zip depending on what the target project already
+     * contains; the sensor stream is routed the opposite way when the
+     * project type would conflict. */
+    objectDetection: boolean;
+    /** When `objectDetection` is on, also capture one image per
+     * iteration with the robot at rest (rover stopped at the starting
+     * pose; arm at the home pose) in addition to the in-motion capture.
+     * Doubles the per-iteration image count. */
+    captureAtRest: boolean;
+    /** Output resolution for object-detection captures. The live POV
+     * preview canvas can be tiny (overlay in the corner), so the
+     * runner renders into a fresh offscreen canvas at this size when
+     * the user wants higher-quality training images. */
+    objectDetectionWidth: number;
+    objectDetectionHeight: number;
+    /** How many object-detection images to snap each iteration. In
+     * motion-phase mode the runner spaces them evenly across the
+     * recording window; in at-rest mode they fire back-to-back at
+     * the start. Range [1, 20]. */
+    objectDetectionImagesPerIteration: number;
   };
   setRobot: (patch: Partial<State['robot']>) => void;
   /** True while a procedural robot run is active. */
@@ -501,6 +527,14 @@ type State = {
    * `roverEpoch`. */
   armEpoch: number;
   bumpArmEpoch: () => void;
+
+  /** Bumped by the robot runner when it wants the POV camera bridge to
+   * synchronously capture the current frame for object-detection. The
+   * actual blob + bounding boxes flow back through the Promise queue
+   * in `lib/robotCapture.ts` — this counter is just the "trigger"
+   * edge the bridge component listens on. */
+  robotCaptureSignal: number;
+  triggerRobotCapture: () => void;
 
   /** ID of the scene object the arm is currently targeting for
    * pick-and-place. Null when no target is selected. The arm picks
@@ -771,6 +805,11 @@ export const useStore = create<State>()(
     armHomePose: [...BRACCIO_REST_RAD],
     armCameraMount: 'wrist',
     armRandomizeTarget: false,
+    objectDetection: false,
+    captureAtRest: false,
+    objectDetectionWidth: 640,
+    objectDetectionHeight: 480,
+    objectDetectionImagesPerIteration: 1,
   },
   setRobot: (patch) => set((s) => ({ robot: { ...s.robot, ...patch } })),
   robotRunning: false,
@@ -865,6 +904,9 @@ export const useStore = create<State>()(
   setArmJoints: (j) => set({ armJoints: j }),
   armEpoch: 0,
   bumpArmEpoch: () => set((s) => ({ armEpoch: s.armEpoch + 1 })),
+  robotCaptureSignal: 0,
+  triggerRobotCapture: () =>
+    set((s) => ({ robotCaptureSignal: s.robotCaptureSignal + 1 })),
   armTargetId: null,
   setArmTargetId: (id) => set({ armTargetId: id }),
 
@@ -1068,7 +1110,7 @@ export const useStore = create<State>()(
     }),
     {
       name: 'sds-store',
-      version: 5,
+      version: 7,
       storage: createJSONStorage(() => localStorage),
       migrate: (persistedState, version) => {
         if (
@@ -1105,6 +1147,34 @@ export const useStore = create<State>()(
             robot: {
               ...state.robot,
               armRandomizeTarget: state.robot.armRandomizeTarget ?? false,
+            },
+          };
+        }
+        // v5 → v6: backfill the object-detection toggles + capture size
+        // so the new robot-mode object-detection UI gets sensible
+        // defaults instead of `undefined` (which leaves the switch
+        // visually neither on nor off).
+        if (version < 6 && state.robot) {
+          state = {
+            ...state,
+            robot: {
+              ...state.robot,
+              objectDetection: state.robot.objectDetection ?? false,
+              captureAtRest: state.robot.captureAtRest ?? false,
+              objectDetectionWidth: state.robot.objectDetectionWidth ?? 640,
+              objectDetectionHeight: state.robot.objectDetectionHeight ?? 480,
+            },
+          };
+        }
+        // v6 → v7: backfill the per-iteration image count so the new
+        // input has a usable default (1) instead of `undefined`.
+        if (version < 7 && state.robot) {
+          state = {
+            ...state,
+            robot: {
+              ...state.robot,
+              objectDetectionImagesPerIteration:
+                state.robot.objectDetectionImagesPerIteration ?? 1,
             },
           };
         }

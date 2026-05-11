@@ -568,6 +568,72 @@ async function studioGet<T>(path: string, apiKey: string): Promise<T> {
   }
 }
 
+/**
+ * Snapshot of what kind of data a project currently contains. Edge
+ * Impulse projects don't mix freely — an "object detection" impulse and
+ * a "time-series classifier" impulse can both exist on the same
+ * project, but the Studio data tab is dominated by whichever sample
+ * type was ingested first, and uploading the wrong kind tends to either
+ * be rejected or produce a project that won't train. The robot panel
+ * uses this probe to decide whether to upload the sensor stream, the
+ * image stream, or both — anything that wouldn't survive ingestion is
+ * downloaded locally instead.
+ *
+ * Probe strategy: list the first page of raw-data samples (~30 entries)
+ * and bucket by filename extension. PNG/JPG/etc → image; everything
+ * else (typically .json EI data-acquisition or .cbor) → time-series.
+ */
+export type EiProjectDataKinds = {
+  hasImages: boolean;
+  hasTimeSeries: boolean;
+  /** Total samples actually examined (≤ probe page size). 0 means the
+   * project is empty — caller should treat that as "accepts either". */
+  totalChecked: number;
+};
+
+const IMAGE_FILENAME_RE = /\.(png|jpe?g|webp|bmp|gif)$/i;
+
+export async function getEiProjectDataKinds(
+  apiKey: string,
+  projectId: number,
+): Promise<EiProjectDataKinds> {
+  // Sample across categories so a project that only has data in the
+  // testing bucket still classifies correctly. EI's `/raw-data` returns
+  // samples for the requested category; we accept training first
+  // because that's where the bulk of any real project's data lives.
+  const seen = { hasImages: false, hasTimeSeries: false, totalChecked: 0 };
+  for (const category of ['training', 'testing'] as const) {
+    if (seen.hasImages && seen.hasTimeSeries) break;
+    let r: {
+      success: boolean;
+      error?: string;
+      samples?: Array<{ filename?: string }>;
+    };
+    try {
+      r = await studioGet<typeof r>(
+        `/${projectId}/raw-data?category=${category}&limit=30&offset=0`,
+        apiKey,
+      );
+    } catch {
+      // Treat per-category failure as "no data of this category" rather
+      // than hard-failing the probe — the caller can still proceed
+      // with the data it has classified so far.
+      continue;
+    }
+    if (!r.success) continue;
+    const samples = r.samples ?? [];
+    for (const s of samples) {
+      const fn = (s.filename ?? '').toLowerCase();
+      if (!fn) continue;
+      seen.totalChecked += 1;
+      if (IMAGE_FILENAME_RE.test(fn)) seen.hasImages = true;
+      else seen.hasTimeSeries = true;
+      if (seen.hasImages && seen.hasTimeSeries) break;
+    }
+  }
+  return seen;
+}
+
 /** List all projects accessible to the supplied API key. */
 export async function listEiProjects(apiKey: string): Promise<EiProject[]> {
   const r = await studioGet<{
