@@ -268,6 +268,10 @@ export function RobotPanel() {
         // a usable sample; same for 'lidar'. The fused builder pairs
         // them by index and trims to the shorter array, but the
         // single-modality builders reject when their array is empty.
+        if (modality === 'fused' && (imu.length === 0 || lidar.length === 0)) {
+          failed += 1;
+          continue;
+        }
         if (modality === 'imu' && imu.length === 0) {
           failed += 1;
           continue;

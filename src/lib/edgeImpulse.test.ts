@@ -5,10 +5,12 @@ import {
   buildInfoLabelsEntry,
   buildInfoLabelsFile,
   buildIngestionMetadata,
+  buildRoverDataAcquisitionPayload,
   inferIntervalMs,
   resolveBucket,
   uploadCaptures,
   uploadImage,
+  uploadRoverSample,
   uploadSample,
 } from './edgeImpulse';
 import type { Capture, EdgeImpulseConfig } from '../store/useStore';
@@ -374,6 +376,94 @@ describe('uploadSample', () => {
     );
     const [url] = fetchMock.mock.calls[0];
     expect(url).toContain('/api/testing/files');
+  });
+});
+
+describe('rover fused uploads', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+  const imu = [
+    { t: 0, ax: 0, ay: 0, az: 9.81, gx: 0, gy: 0, gz: 0 },
+    { t: 50, ax: 0.1, ay: 0, az: 9.7, gx: 0.01, gy: 0, gz: -0.01 },
+  ];
+  const lidar = [
+    { t: 0, ranges: [1, 2, 3] },
+    { t: 50, ranges: [1.1, 2.1, 3.1] },
+  ];
+
+  beforeEach(() => {
+    fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: async () => 'ok',
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('refuses to build an empty fused payload when either stream is missing', async () => {
+    await expect(
+      buildRoverDataAcquisitionPayload(
+        { device: 'unit-test', hmacKey: '' },
+        imu,
+        [],
+        20,
+        6,
+      ),
+    ).rejects.toThrow(/both IMU and lidar/);
+    await expect(
+      buildRoverDataAcquisitionPayload(
+        { device: 'unit-test', hmacKey: '' },
+        [],
+        lidar,
+        20,
+        6,
+      ),
+    ).rejects.toThrow(/both IMU and lidar/);
+  });
+
+  it('does not upload fused samples unless both IMU and lidar are present', async () => {
+    const missingLidar = await uploadRoverSample(
+      baseCfg,
+      imu,
+      [],
+      20,
+      6,
+      'fused.json',
+    );
+    const missingImu = await uploadRoverSample(
+      baseCfg,
+      [],
+      lidar,
+      20,
+      6,
+      'fused.json',
+    );
+
+    expect(missingLidar.ok).toBe(false);
+    expect(missingImu.ok).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('packs IMU and lidar channels together when both streams exist', async () => {
+    await uploadRoverSample(baseCfg, imu, lidar, 20, 6, 'fused.json');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0];
+    const body = await readMultipartJsonPayload(init);
+    expect(body.payload.sensors.map((s: { name: string }) => s.name)).toEqual([
+      'accX',
+      'accY',
+      'accZ',
+      'gyrX',
+      'gyrY',
+      'gyrZ',
+      'r0',
+      'r1',
+      'r2',
+    ]);
+    expect(body.payload.values).toEqual([
+      [0, 0, 9.81, 0, 0, 0, 1, 2, 3],
+      [0.1, 0, 9.7, 0.01, 0, -0.01, 1.1, 2.1, 3.1],
+    ]);
   });
 });
 

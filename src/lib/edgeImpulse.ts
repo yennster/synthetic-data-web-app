@@ -371,6 +371,9 @@ export async function buildRoverDataAcquisitionPayload(
     values: number[][];
   };
 }> {
+  if (imu.length === 0 || lidar.length === 0) {
+    throw new Error('Rover fused payload requires both IMU and lidar samples');
+  }
   const n = Math.min(imu.length, lidar.length);
   const trimmed = {
     imu: imu.slice(0, n),
@@ -444,8 +447,12 @@ export async function uploadRoverSample(
   fileName: string,
   metadataExtras?: IngestionMetadataExtras,
 ): Promise<UploadResult> {
-  if (imu.length === 0 && lidar.length === 0) {
-    return { ok: false, status: 0, body: 'No samples to upload' };
+  if (imu.length === 0 || lidar.length === 0) {
+    return {
+      ok: false,
+      status: 0,
+      body: 'Fused rover upload requires both IMU and lidar samples',
+    };
   }
   if (!cfg.apiKey) return { ok: false, status: 0, body: 'Missing API key' };
   const body = await buildRoverDataAcquisitionPayload(

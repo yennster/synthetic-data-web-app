@@ -60,23 +60,25 @@ export async function captureFrame(opts: {
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
 
-  r.render(scene, camera);
+  try {
+    r.render(scene, camera);
 
-  // Compute bboxes BEFORE restoring aspect (uses the same matrices we just rendered with).
-  const boxes = computeBoundingBoxes(scene, camera, width, height);
+    // Compute bboxes BEFORE restoring aspect (uses the same matrices we just rendered with).
+    const boxes = computeBoundingBoxes(scene, camera, width, height);
 
-  const blob: Blob = await new Promise((resolve, reject) =>
-    cv.toBlob(
-      (b) => (b ? resolve(b) : reject(new Error('toBlob failed'))),
-      'image/png',
-    ),
-  );
+    const blob: Blob = await new Promise((resolve, reject) =>
+      cv.toBlob(
+        (b) => (b ? resolve(b) : reject(new Error('toBlob failed'))),
+        'image/png',
+      ),
+    );
 
-  // Restore camera aspect — but DON'T dispose the renderer; we reuse it.
-  camera.aspect = prevAspect;
-  camera.updateProjectionMatrix();
-
-  return { blob, boxes };
+    return { blob, boxes };
+  } finally {
+    // Restore camera aspect — but DON'T dispose the renderer; we reuse it.
+    camera.aspect = prevAspect;
+    camera.updateProjectionMatrix();
+  }
 }
 
 /**

@@ -98,14 +98,23 @@ export default function App() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
-    const wantedMode = parseModeQuery(params.get('mode'));
+    const modeParam = params.get('mode');
+    const modeAlias = modeParam?.toLowerCase() ?? null;
+    const wantedMode = parseModeQuery(modeParam);
     if (wantedMode && wantedMode !== useStore.getState().mode) {
       setMode(wantedMode);
     }
     const wantedRobot = params.get('robot');
-    if (wantedRobot === 'arm' || wantedRobot === 'rover') {
+    const robotFromMode =
+      modeAlias === 'arm' || modeAlias === 'rover' ? modeAlias : null;
+    const robotParam = wantedRobot?.toLowerCase() ?? null;
+    const robotKind =
+      robotParam === 'arm' || robotParam === 'rover'
+        ? robotParam
+        : robotFromMode;
+    if (robotKind) {
       const setRobot = useStore.getState().setRobot;
-      setRobot({ kind: wantedRobot });
+      setRobot({ kind: robotKind });
     }
     // Run once at mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -52,6 +52,12 @@ export function RobotPovCamera({
   const lastPreviewMs = useRef(0);
 
   useEffect(() => {
+    return () => {
+      previewTarget.dispose();
+    };
+  }, [previewTarget]);
+
+  useEffect(() => {
     if (!previewCanvas) return;
     const w = Math.max(1, previewCanvas.width);
     const h = Math.max(1, previewCanvas.height);
@@ -71,6 +77,15 @@ export function RobotPovCamera({
     if (now - lastPreviewMs.current < PREVIEW_INTERVAL_MS) return;
     lastPreviewMs.current = now;
 
+    const canvasW = Math.max(1, previewCanvas.width);
+    const canvasH = Math.max(1, previewCanvas.height);
+    if (previewTarget.width !== canvasW || previewTarget.height !== canvasH) {
+      previewTarget.setSize(canvasW, canvasH);
+      pixelBuf.current = new Uint8Array(canvasW * canvasH * 4);
+      camera.aspect = canvasW / canvasH;
+      camera.updateProjectionMatrix();
+    }
+
     const mountName =
       robotKind === 'rover'
         ? 'rover-pov-mount'
@@ -89,9 +104,12 @@ export function RobotPovCamera({
     camera.lookAt(lookPos);
 
     const prevTarget = gl.getRenderTarget();
-    gl.setRenderTarget(previewTarget);
-    gl.render(scene, camera);
-    gl.setRenderTarget(prevTarget);
+    try {
+      gl.setRenderTarget(previewTarget);
+      gl.render(scene, camera);
+    } finally {
+      gl.setRenderTarget(prevTarget);
+    }
 
     const w = previewTarget.width;
     const h = previewTarget.height;

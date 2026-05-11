@@ -139,6 +139,12 @@ function PhysicsAsset({ asset }: { asset: ImportedAsset }) {
   // each position change, so we drive the body type declaratively instead
   // of imperatively (which would get clobbered back to "dynamic" mid-drag).
   const [isDragging, setIsDragging] = useState(false);
+  const lastSyncedPos = useRef<[number, number, number]>([
+    asset.position[0],
+    asset.position[1],
+    asset.position[2],
+  ]);
+  const lastSyncMs = useRef(0);
 
   // Register with the belt transport set
   useEffect(() => {
@@ -161,19 +167,48 @@ function PhysicsAsset({ asset }: { asset: ImportedAsset }) {
       );
       body.setLinvel({ x: 0, y: 0, z: 0 }, true);
       body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+      lastSyncedPos.current = [asset.position[0], RESPAWN_Y, asset.position[2]];
+      updateAsset(asset.id, { position: lastSyncedPos.current });
+      return;
     }
+
+    // Mirror settled physics back to the store so remounts (scale /
+    // physics toggle / reload) keep the USDZ where physics left it.
+    const now = performance.now();
+    if (now - lastSyncMs.current < 250) return;
+    const dx = t.x - lastSyncedPos.current[0];
+    const dy = t.y - lastSyncedPos.current[1];
+    const dz = t.z - lastSyncedPos.current[2];
+    if (dx * dx + dy * dy + dz * dz < 1e-4) return;
+    lastSyncMs.current = now;
+    lastSyncedPos.current = [t.x, t.y, t.z];
+    updateAsset(asset.id, { position: lastSyncedPos.current });
   });
 
-  // Sync slider/drag changes back into the physics body (teleport).
+  // Sync external slider/drag changes back into the physics body
+  // (teleport), while ignoring our own settle-sync writes above.
   useEffect(() => {
     const body = bodyRef.current;
     if (!body) return;
+    const t = body.translation();
+    const dx = asset.position[0] - t.x;
+    const dy = asset.position[1] - t.y;
+    const dz = asset.position[2] - t.z;
+    if (dx * dx + dy * dy + dz * dz < 0.0025) {
+      lastSyncedPos.current = [t.x, t.y, t.z];
+      return;
+    }
     body.setTranslation(
       { x: asset.position[0], y: asset.position[1], z: asset.position[2] },
       true,
     );
     body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    lastSyncedPos.current = [
+      asset.position[0],
+      asset.position[1],
+      asset.position[2],
+    ];
   }, [asset.position]);
 
   useEffect(() => {
