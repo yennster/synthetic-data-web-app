@@ -336,7 +336,7 @@ export function VisionPanel() {
           }
           style={{ marginTop: 4 }}
         >
-          Reset scene
+          ↺ Reset scene
         </button>
       </CollapsibleCard>
 

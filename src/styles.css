@@ -621,7 +621,11 @@ label.field, div.field {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
-  padding: 6px 0;
+  /* No vertical padding so a webcam-control card in its OFF state
+     matches the height of a collapsed `.card-heading-toggle` row —
+     they both sit on the same 13px-line-height baseline below the
+     card's 24px top padding. */
+  padding: 0;
   border: 0;
   background: transparent;
   border-radius: 0;
@@ -662,9 +666,12 @@ label.field, div.field {
    but the off-state is neutral and the on-state is the lone accent fill. */
 .webcam-switch {
   flex: none;
-  width: 40px;
-  height: 22px;
-  padding: 2px;
+  /* Sized to match the 13px line-height of `.card h3` so an OFF
+     webcam-control card is the same height as a collapsed
+     `.card-heading-toggle` heading. */
+  width: 28px;
+  height: 14px;
+  padding: 1px;
   border-radius: var(--r-pill);
   border: 1px solid var(--line-strong);
   background: var(--surface-sunk);
@@ -680,8 +687,8 @@ label.field, div.field {
 .webcam-switch.on:hover { background: var(--accent-hover-soft); }
 .webcam-switch-thumb {
   display: block;
-  width: 16px;
-  height: 16px;
+  width: 10px;
+  height: 10px;
   border-radius: var(--r-pill);
   background: var(--text-muted);
   box-shadow: var(--shadow-1);
@@ -692,7 +699,7 @@ label.field, div.field {
 }
 .webcam-switch.on .webcam-switch-thumb {
   background: var(--accent);
-  transform: translateX(18px);
+  transform: translateX(14px);
 }
 
 /* ---------------------------------------------------------------------- *
