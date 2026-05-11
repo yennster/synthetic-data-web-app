@@ -579,9 +579,17 @@ async function studioGet<T>(path: string, apiKey: string): Promise<T> {
  * image stream, or both — anything that wouldn't survive ingestion is
  * downloaded locally instead.
  *
- * Probe strategy: list the first page of raw-data samples (~30 entries)
- * and bucket by filename extension. PNG/JPG/etc → image; everything
- * else (typically .json EI data-acquisition or .cbor) → time-series.
+ * Probe strategy (most authoritative → least):
+ *
+ *   1. **Project info**: `GET /v1/api/{projectId}` — EI's project
+ *      record has `dataAcquisitionType` / `labelingMethod` /
+ *      `type` flags that directly identify image / object-detection
+ *      projects. When any of those say "image", we're done.
+ *   2. **Raw-data samples**: fall back to listing samples and
+ *      classifying each by structural signals (intervalMs / frequency /
+ *      thumbnailUrl) rather than relying on filename extensions, since
+ *      EI's image samples sometimes carry `.cbor` filenames internally.
+ *   3. **Filename extension**: final fallback only.
  */
 export type EiProjectDataKinds = {
   hasImages: boolean;
@@ -593,21 +601,108 @@ export type EiProjectDataKinds = {
 
 const IMAGE_FILENAME_RE = /\.(png|jpe?g|webp|bmp|gif)$/i;
 
+/** One raw-data sample as returned by EI's `getProjectRawData`. We only
+ *  type the fields the classifier looks at — everything else is
+ *  ignored. All fields are optional because the EI API shape varies
+ *  slightly across project types. */
+type EiRawDataSample = {
+  filename?: string;
+  intervalMs?: number;
+  frequency?: number;
+  length?: number;
+  valuesCount?: number;
+  thumbnailUrl?: string | null;
+  /** Some EI deployments surface a `chartType` field on the data
+   * inspector. `image` is the most direct signal we get. */
+  chartType?: string;
+};
+
+/**
+ * Classify one raw-data sample as `image` or `time-series` using
+ * multiple signals, in priority order. Returns `null` when no signal
+ * fires (e.g. a sample stub with only an `id`).
+ */
+function classifyEiSample(
+  s: EiRawDataSample,
+): 'image' | 'time-series' | null {
+  // 1. Most authoritative: an explicit chartType.
+  if (s.chartType === 'image') return 'image';
+  if (s.chartType === 'time-series') return 'time-series';
+  // 2. Time-series structural signals — non-zero sampling rate or
+  //    multi-step value count. Images report 0 / null for these.
+  if ((s.intervalMs ?? 0) > 0) return 'time-series';
+  if ((s.frequency ?? 0) > 0) return 'time-series';
+  if ((s.length ?? 0) > 0) return 'time-series';
+  if ((s.valuesCount ?? 0) > 1) return 'time-series';
+  // 3. Image structural signal — EI generates thumbnails for image
+  //    samples and leaves it null for time-series.
+  if (s.thumbnailUrl) return 'image';
+  // 4. Filename extension as a last resort.
+  const fn = (s.filename ?? '').toLowerCase();
+  if (IMAGE_FILENAME_RE.test(fn)) return 'image';
+  // No strong signal — skip.
+  return null;
+}
+
+/**
+ * Read `GET /v1/api/{projectId}` and infer whether the project is
+ * obviously image-typed. EI exposes one of several flags depending on
+ * project age — we check the union. Returns `null` when no flag
+ * resolves, so the caller can fall back to the sample probe.
+ */
+async function getEiProjectKindFromInfo(
+  apiKey: string,
+  projectId: number,
+): Promise<'image' | 'time-series' | null> {
+  try {
+    const r = await studioGet<{
+      success: boolean;
+      project?: {
+        dataAcquisitionType?: string;
+        labelingMethod?: string;
+        type?: string;
+        isComputerVisionProject?: boolean;
+      };
+    }>(`/${projectId}`, apiKey);
+    if (!r.success || !r.project) return null;
+    const p = r.project;
+    if (p.isComputerVisionProject === true) return 'image';
+    const blob = `${p.dataAcquisitionType ?? ''} ${p.labelingMethod ?? ''} ${
+      p.type ?? ''
+    }`.toLowerCase();
+    if (/image|vision|bounding|object-detection/.test(blob)) return 'image';
+    if (/time.?series|audio|accelerometer|imu/.test(blob)) return 'time-series';
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export async function getEiProjectDataKinds(
   apiKey: string,
   projectId: number,
 ): Promise<EiProjectDataKinds> {
-  // Sample across categories so a project that only has data in the
-  // testing bucket still classifies correctly. EI's `/raw-data` returns
-  // samples for the requested category; we accept training first
-  // because that's where the bulk of any real project's data lives.
   const seen = { hasImages: false, hasTimeSeries: false, totalChecked: 0 };
+
+  // Authoritative path: project info. Object-detection / image projects
+  // surface a flag here that the raw-data filename heuristic miss when
+  // EI stores ingested images under `.cbor` wrappers.
+  const fromInfo = await getEiProjectKindFromInfo(apiKey, projectId);
+  if (fromInfo) {
+    if (fromInfo === 'image') seen.hasImages = true;
+    else seen.hasTimeSeries = true;
+    seen.totalChecked = 1;
+    return seen;
+  }
+
+  // Sample across categories so a project that only has data in the
+  // testing bucket still classifies correctly.
   for (const category of ['training', 'testing'] as const) {
     if (seen.hasImages && seen.hasTimeSeries) break;
     let r: {
       success: boolean;
       error?: string;
-      samples?: Array<{ filename?: string }>;
+      samples?: EiRawDataSample[];
     };
     try {
       r = await studioGet<typeof r>(
@@ -615,18 +710,15 @@ export async function getEiProjectDataKinds(
         apiKey,
       );
     } catch {
-      // Treat per-category failure as "no data of this category" rather
-      // than hard-failing the probe — the caller can still proceed
-      // with the data it has classified so far.
       continue;
     }
     if (!r.success) continue;
     const samples = r.samples ?? [];
     for (const s of samples) {
-      const fn = (s.filename ?? '').toLowerCase();
-      if (!fn) continue;
+      const kind = classifyEiSample(s);
+      if (!kind) continue;
       seen.totalChecked += 1;
-      if (IMAGE_FILENAME_RE.test(fn)) seen.hasImages = true;
+      if (kind === 'image') seen.hasImages = true;
       else seen.hasTimeSeries = true;
       if (seen.hasImages && seen.hasTimeSeries) break;
     }
