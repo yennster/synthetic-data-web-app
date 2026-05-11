@@ -85,5 +85,42 @@ describe('arm trajectories', () => {
         expect(b[i]).toBeCloseTo(c[i], 6);
       }
     });
+
+    it('pins non-yaw joints to the supplied home pose', () => {
+      // Regression: the original sweep hardcoded shoulder/elbow/wrist
+      // to π/2, which on the floor-mounted base drove the forearm
+      // through the floor. The fix passes `home` through so the
+      // joints stay reachable.
+      const home: [number, number, number, number, number, number] = [
+        1.0, 0.3, 0.9, 1.6, 3.1, 0.8,
+      ];
+      const path = buildArmTrajectory('sweep', { home });
+      const mid = path.sample(0.42);
+      expect(mid[1]).toBeCloseTo(home[1], 9);
+      expect(mid[2]).toBeCloseTo(home[2], 9);
+      expect(mid[3]).toBeCloseTo(home[3], 9);
+      expect(mid[4]).toBeCloseTo(home[4], 9);
+      expect(mid[5]).toBeCloseTo(home[5], 9);
+    });
+  });
+
+  describe('wave', () => {
+    it('only varies wrist pitch, leaving other joints at home', () => {
+      const home: [number, number, number, number, number, number] = [
+        0.9, 0.4, 1.0, 1.5, 3.0, 0.6,
+      ];
+      const path = buildArmTrajectory('wave', { home });
+      // Sample at t=0 (sin = 0) and t=0.125 (sin = 1) so the wrist-
+      // pitch term is at its trough vs peak rather than two phases of
+      // the same zero crossing.
+      const a = path.sample(0.0);
+      const b = path.sample(0.125);
+      expect(a[3]).not.toBeCloseTo(b[3], 2);
+      // Everything except wrist-pitch should be pinned to home.
+      for (const i of [0, 1, 2, 4, 5]) {
+        expect(a[i]).toBeCloseTo(home[i], 9);
+        expect(b[i]).toBeCloseTo(home[i], 9);
+      }
+    });
   });
 });

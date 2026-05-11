@@ -574,9 +574,17 @@ export function RobotPanel() {
                   ? 'Turn pickup randomization off'
                   : 'Turn pickup randomization on'
               }
-              onClick={() =>
-                setRobot({ armRandomizeTarget: !robot.armRandomizeTarget })
-              }
+              onClick={() => {
+                const next = !robot.armRandomizeTarget;
+                setRobot({ armRandomizeTarget: next });
+                // Flipping the switch on should give immediate visual
+                // feedback — randomize once now so the user can see the
+                // pickup hop to a new position before the next run
+                // bumps the armEpoch.
+                if (next) {
+                  useStore.getState().randomizeArmPickupPositions();
+                }
+              }}
               disabled={robotRunning}
             >
               <span className="webcam-switch-thumb" />
