@@ -251,9 +251,16 @@ export function CameraFeed() {
       if (stream) {
         for (const t of stream.getTracks()) t.stop();
       }
-      // Drop any kinematic rotation we were applying so the body returns
-      // to free physics on toggle-off (procedural drops also rely on this
-      // being null-by-default).
+      // Hard-release any kinematic hand control so toggling the webcam off
+      // cannot leave the physics body stuck to a stale pinch target.
+      grabRef.current = false;
+      lastSeenMs.current = 0;
+      smoothedTarget.current = null;
+      smoothedRotation.current = null;
+      setHandDetected(false);
+      setPinchStrength(0);
+      setGrabbed(false);
+      setPinchTarget(null);
       setPinchRotation(null);
     };
   }, [

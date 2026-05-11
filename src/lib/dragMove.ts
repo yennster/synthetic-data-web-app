@@ -1,5 +1,5 @@
 import type { ThreeEvent } from '@react-three/fiber';
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 
@@ -58,6 +58,7 @@ export function useDragMove(opts: {
   onPointerDown: (e: ThreeEvent<PointerEvent>) => void;
   onPointerMove: (e: ThreeEvent<PointerEvent>) => void;
   onPointerUp: (e: ThreeEvent<PointerEvent>) => void;
+  onPointerCancel: (e: ThreeEvent<PointerEvent>) => void;
 } {
   const { getPosition, setPosition, enabled = true, onDragStart, onDragEnd } = opts;
   const dragging = useRef(false);
@@ -71,6 +72,38 @@ export function useDragMove(opts: {
   const altActive = useRef(false);
   const lastClientY = useRef(0);
   const { controls, camera } = useThree();
+
+  const cleanupDrag = (pointerId?: number) => {
+    const wasDragging = dragging.current;
+    dragging.current = false;
+    altActive.current = false;
+    if (controls) (controls as unknown as { enabled: boolean }).enabled = true;
+    if (wasDragging) onDragEnd?.();
+
+    if (wheelHandlerRef.current) {
+      window.removeEventListener('wheel', wheelHandlerRef.current);
+      wheelHandlerRef.current = null;
+    }
+
+    const tgt = captureTarget.current;
+    if (
+      pointerId != null &&
+      tgt &&
+      typeof tgt.releasePointerCapture === 'function'
+    ) {
+      try {
+        tgt.releasePointerCapture(pointerId);
+      } catch {
+        // ignore
+      }
+    }
+    captureTarget.current = null;
+  };
+
+  useEffect(() => {
+    return () => cleanupDrag();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /** Intersect the pointer ray with the drag plane. */
   const intersect = (ray: THREE.Ray): THREE.Vector3 | null => {
@@ -211,30 +244,13 @@ export function useDragMove(opts: {
 
   const endDrag = (e: ThreeEvent<PointerEvent>) => {
     if (!dragging.current) return;
-    dragging.current = false;
-    altActive.current = false;
-    if (controls) (controls as unknown as { enabled: boolean }).enabled = true;
-    onDragEnd?.();
-
-    if (wheelHandlerRef.current) {
-      window.removeEventListener('wheel', wheelHandlerRef.current);
-      wheelHandlerRef.current = null;
-    }
-
-    const tgt = captureTarget.current;
-    if (tgt && typeof tgt.releasePointerCapture === 'function') {
-      try {
-        tgt.releasePointerCapture(e.pointerId);
-      } catch {
-        // ignore
-      }
-    }
-    captureTarget.current = null;
+    cleanupDrag(e.pointerId);
   };
 
   return {
     onPointerDown,
     onPointerMove,
     onPointerUp: endDrag,
+    onPointerCancel: endDrag,
   };
 }

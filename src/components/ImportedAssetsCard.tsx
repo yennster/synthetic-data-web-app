@@ -85,14 +85,16 @@ export function ImportedAssetsCard({
 
   const onImportFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
+    if (disabled) return;
     setStatus('busy', `Importing ${files.length} asset(s)...`);
     let count = 0;
+    let failed = 0;
+    let lastError = '';
     for (const file of Array.from(files)) {
       if (!file.name.toLowerCase().endsWith('.usdz')) {
-        setStatus(
-          'err',
-          `${file.name}: only .usdz files are supported (see README for .usd conversion).`,
-        );
+        failed += 1;
+        lastError = `${file.name}: only .usdz files are supported (see README for .usd conversion).`;
+        setStatus('err', lastError);
         continue;
       }
       try {
@@ -157,10 +159,21 @@ export function ImportedAssetsCard({
         );
         count += 1;
       } catch (e) {
-        setStatus('err', `${file.name}: ${(e as Error).message}`);
+        failed += 1;
+        lastError = `${file.name}: ${(e as Error).message}`;
+        setStatus('err', lastError);
       }
     }
-    setStatus('ok', `Imported ${count} asset(s)`);
+    if (failed === 0) {
+      setStatus('ok', `Imported ${count} asset(s)`);
+    } else if (count > 0) {
+      setStatus(
+        'err',
+        `Imported ${count} asset(s), ${failed} failed: ${lastError}`,
+      );
+    } else {
+      setStatus('err', lastError || 'No assets imported');
+    }
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
