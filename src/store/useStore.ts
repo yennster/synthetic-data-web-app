@@ -134,6 +134,12 @@ export type ImportedAsset = {
   /** When true and `isAnimated`, the renderer advances animation each frame.
    * Toggled from the asset's play/pause control in the panel. */
   animationPlaying: boolean;
+  /** Mode-context that owns this asset. Same semantics as `SceneObject.owner`
+   * — drives both panel-side filtering (the arm panel only edits arm-owned
+   * USDZs, etc.) and scene-side filtering (the arm scene only renders
+   * arm-owned imported assets). Omitting it puts the asset in the legacy
+   * "vision" pool used by detection / anomaly. */
+  owner?: SceneObjectOwner;
 };
 
 /** Serializable subset of `ImportedAsset` written to localStorage. The live
@@ -154,6 +160,9 @@ export type PersistedAsset = {
   overrideMetalness: number;
   isAnimated: boolean;
   animationPlaying: boolean;
+  /** See `ImportedAsset.owner`. Persisted so rehydrated assets land
+   * in the right scene-mode pool. */
+  owner?: SceneObjectOwner;
 };
 
 /** Which mode-context owns a `SceneObject`. Drives both the rendering
@@ -1067,6 +1076,7 @@ export const useStore = create<State>()(
           overrideMetalness: a.overrideMetalness,
           isAnimated: a.isAnimated,
           animationPlaying: a.animationPlaying,
+          owner: a.owner,
         })),
       }),
     },
