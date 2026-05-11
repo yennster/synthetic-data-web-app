@@ -36,7 +36,8 @@ import {
 import { buildArmRosJsonl, buildRoverRosJsonl } from '../lib/rosMessages';
 import { useNumberInput } from '../lib/useNumberInput';
 import { disposeUsdz } from '../lib/usdz';
-import { buildZip, type ZipEntry } from '../lib/zip';
+import type { ZipEntry } from '../lib/zip';
+import { buildZipOffThread } from '../lib/zipWorkerClient';
 import { EiAuthCard } from './EiAuthCard';
 import { ImportedAssetsCard } from './ImportedAssetsCard';
 import { ImuNoiseToggle } from './ImuNoiseToggle';
@@ -205,7 +206,7 @@ export function RobotPanel() {
           const zipName = buildFileName(
             `rover_${event}_rosbag`,
           ).replace(/\.json$/, '.zip');
-          const zip = await buildZip(zipEntries);
+          const zip = await buildZipOffThread(zipEntries);
           await saveBlob(zipName, zip);
         }
         setStatus(
@@ -229,7 +230,7 @@ export function RobotPanel() {
         const zipName = buildFileName(
           `rover_${event}_${infoLabelsEntries.length || zipEntries.length}`,
         ).replace(/\.json$/, '.zip');
-        const zip = await buildZip(entries);
+        const zip = await buildZipOffThread(entries);
         await saveBlob(zipName, zip);
         setStatus(
           cancelled || failed > 0 ? 'err' : 'ok',
@@ -434,7 +435,7 @@ export function RobotPanel() {
             /\.json$/,
             '.zip',
           );
-          const zip = await buildZip(zipEntries);
+          const zip = await buildZipOffThread(zipEntries);
           await saveBlob(zipName, zip);
         }
         setStatus(
@@ -458,7 +459,7 @@ export function RobotPanel() {
         const zipName = buildFileName(
           `arm_${trajectory}_${infoLabelsEntries.length || zipEntries.length}`,
         ).replace(/\.json$/, '.zip');
-        const zip = await buildZip(entries);
+        const zip = await buildZipOffThread(entries);
         await saveBlob(zipName, zip);
         setStatus(
           cancelled || failed > 0 ? 'err' : 'ok',
