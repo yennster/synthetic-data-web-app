@@ -38,6 +38,7 @@ import {
   type EdgeImpulseInfoLabelsEntry,
 } from '../lib/edgeImpulse';
 import { awaitRobotCapture } from '../lib/robotCapture';
+import { applyRealismToBlob } from '../lib/realism';
 import { buildArmRosJsonl, buildRoverRosJsonl } from '../lib/rosMessages';
 import { useNumberInput } from '../lib/useNumberInput';
 import { disposeUsdz } from '../lib/usdz';
@@ -47,6 +48,7 @@ import { EiAuthCard } from './EiAuthCard';
 import { EiInferenceCard } from './EiInferenceCard';
 import { ImportedAssetsCard } from './ImportedAssetsCard';
 import { ImuNoiseToggle } from './ImuNoiseToggle';
+import { RealismCard } from './RealismCard';
 import { SceneObjectsCard } from './SceneObjectsCard';
 
 const ROBOT_KINDS: { value: RobotKind; label: string; hint: string }[] = [
@@ -451,6 +453,11 @@ export function RobotPanel() {
         failed += 1;
         return;
       }
+      // Apply the realism post-process pass (no-op when mode === 'off').
+      // Pixel-level transforms preserve geometry, so cap.boxes are
+      // still valid against the processed blob.
+      const realism = useStore.getState().realism;
+      const blob = await applyRealismToBlob(cap.blob, realism);
       const filename = imageFileName(
         `rover_${event}`,
         iterIdx + 1,
@@ -465,12 +472,15 @@ export function RobotPanel() {
         capture_phase: phase,
         capture_width: cap.width,
         capture_height: cap.height,
+        realism_mode: realism.mode,
+        realism_intensity:
+          realism.mode === 'off' ? 0 : realism.intensity,
       };
       if (routing.imageDest === 'upload') {
         try {
           const res = await uploadImage(
             { ...runEi, label: event },
-            cap.blob,
+            blob,
             filename,
             event,
             cap.boxes,
@@ -486,7 +496,7 @@ export function RobotPanel() {
       } else {
         imageCaptures.push({
           filename,
-          blob: cap.blob,
+          blob,
           boxes: cap.boxes,
           width: cap.width,
           height: cap.height,
@@ -807,6 +817,8 @@ export function RobotPanel() {
         failed += 1;
         return;
       }
+      const realism = useStore.getState().realism;
+      const blob = await applyRealismToBlob(cap.blob, realism);
       const filename = imageFileName(
         `arm_${trajectory}`,
         iterIdx + 1,
@@ -821,12 +833,15 @@ export function RobotPanel() {
         capture_phase: phase,
         capture_width: cap.width,
         capture_height: cap.height,
+        realism_mode: realism.mode,
+        realism_intensity:
+          realism.mode === 'off' ? 0 : realism.intensity,
       };
       if (routing.imageDest === 'upload') {
         try {
           const res = await uploadImage(
             { ...runEi, label: trajectory },
-            cap.blob,
+            blob,
             filename,
             trajectory,
             cap.boxes,
@@ -842,7 +857,7 @@ export function RobotPanel() {
       } else {
         imageCaptures.push({
           filename,
-          blob: cap.blob,
+          blob,
           boxes: cap.boxes,
           width: cap.width,
           height: cap.height,
@@ -1524,6 +1539,10 @@ export function RobotPanel() {
           </>
         )}
       </div>
+
+      {/* Realism only applies to image captures, so the card piggybacks
+          on the same `objectDetection` gate as the inference card. */}
+      {robot.objectDetection && <RealismCard />}
 
       <EiAuthCard showHmac />
 

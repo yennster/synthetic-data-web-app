@@ -9,6 +9,7 @@ import {
   saveBlob,
 } from '../lib/capture';
 import { BELT_TRANSPORTABLES, isOnBelt } from '../lib/beltDynamics';
+import { applyRealismToBlob } from '../lib/realism';
 import {
   createReadbackBlitState,
   ensureReadbackBlitState,
@@ -221,13 +222,20 @@ export function VirtualCamera({
       // into the saved PNG.
       if (helper) helper.visible = false;
 
-      const { blob, boxes } = await captureFrame({
+      const { blob: rawBlob, boxes } = await captureFrame({
         renderer: gl as THREE.WebGLRenderer,
         scene,
         camera: cam,
         width,
         height,
       });
+
+      // Realism post-process — film grain + chromatic aberration +
+      // vignette + color jitter to narrow the sim-to-real gap. Pure
+      // pixel ops so bounding boxes stay valid against the result.
+      // Falls through unchanged when mode is off (the common case).
+      const realism = useStore.getState().realism;
+      const blob = await applyRealismToBlob(rawBlob, realism);
 
       const idx = useStore.getState().captures.length;
       const labelPrefix =
