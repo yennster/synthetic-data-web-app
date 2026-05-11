@@ -13,6 +13,7 @@ import {
   putCustomTexture,
   type TextureKind,
 } from '../lib/textureStore';
+import { CollapsibleCard } from './CollapsibleCard';
 import { EiAuthCard } from './EiAuthCard';
 import { EiInferenceCard } from './EiInferenceCard';
 import { ImportedAssetsCard } from './ImportedAssetsCard';
@@ -171,8 +172,7 @@ export function VisionPanel() {
 
   return (
     <>
-      <div className="card">
-        <h3>Scene</h3>
+      <CollapsibleCard heading="Scene" defaultOpen>
         <label className="field">
           Environment
           <select
@@ -338,7 +338,7 @@ export function VisionPanel() {
         >
           Reset scene
         </button>
-      </div>
+      </CollapsibleCard>
 
       <SceneObjectsCard ownerFilter="vision" />
 
@@ -346,8 +346,7 @@ export function VisionPanel() {
 
       <ObjectCaptureCard />
 
-      <div className="card">
-        <h3>Virtual camera</h3>
+      <CollapsibleCard heading="Virtual camera">
         <div className="row">
           <label className="field">
             Width
@@ -412,12 +411,11 @@ export function VisionPanel() {
             ))}
           </div>
         </label>
-      </div>
+      </CollapsibleCard>
 
       <RealismCard />
 
-      <div className="card capture-card">
-        <h3>Capture</h3>
+      <CollapsibleCard heading="Capture" className="card capture-card">
         {mode === 'anomaly' && (
           <label className="field">
             Batch label
@@ -498,14 +496,13 @@ export function VisionPanel() {
             Clear
           </button>
         </div>
-      </div>
+      </CollapsibleCard>
 
       <EiAuthCard />
 
       <EiInferenceCard previewSource="virtual-camera" />
 
-      <div className="card">
-        <h3>Upload to Edge Impulse</h3>
+      <CollapsibleCard heading="Upload to Edge Impulse">
         {!ei.apiKey && (
           <div style={{ fontSize: 11, color: 'var(--muted)' }}>
             Set your API key in the <strong>Edge Impulse · auth</strong> card.
@@ -541,7 +538,7 @@ export function VisionPanel() {
         >
           ↻ Retrain model
         </button>
-      </div>
+      </CollapsibleCard>
     </>
   );
 }

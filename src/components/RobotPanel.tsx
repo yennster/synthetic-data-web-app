@@ -44,6 +44,7 @@ import { useNumberInput } from '../lib/useNumberInput';
 import { disposeUsdz } from '../lib/usdz';
 import type { ZipEntry } from '../lib/zip';
 import { buildZipOffThread } from '../lib/zipWorkerClient';
+import { CollapsibleCard } from './CollapsibleCard';
 import { EiAuthCard } from './EiAuthCard';
 import { EiInferenceCard } from './EiInferenceCard';
 import { ImportedAssetsCard } from './ImportedAssetsCard';
@@ -1048,8 +1049,7 @@ export function RobotPanel() {
 
   return (
     <>
-      <div className="card">
-        <h3>Robot</h3>
+      <CollapsibleCard heading="Robot" defaultOpen>
         <div
           style={{
             display: 'grid',
@@ -1083,11 +1083,10 @@ export function RobotPanel() {
             ↺ Reset scene
           </button>
         </div>
-      </div>
+      </CollapsibleCard>
 
       {robot.kind === 'rover' ? (
-        <div className="card">
-          <h3>Event</h3>
+        <CollapsibleCard heading="Event" defaultOpen>
           <div
             className="motion-pills trajectory-pills"
             role="radiogroup"
@@ -1118,10 +1117,9 @@ export function RobotPanel() {
             {robot.roverEvent === 'stuck' &&
               'Pin a wheel against an obstacle; vibrate without translation.'}
           </div>
-        </div>
+        </CollapsibleCard>
       ) : (
-        <div className="card">
-          <h3>Trajectory</h3>
+        <CollapsibleCard heading="Trajectory" defaultOpen>
           <ArmTrajectoryPicker
             value={robot.armTrajectory}
             onChange={(t) => setRobot({ armTrajectory: t })}
@@ -1139,7 +1137,7 @@ export function RobotPanel() {
             {robot.armTrajectory === 'draw_circle' &&
               'End-effector traces a horizontal circle via planar IK.'}
           </div>
-        </div>
+        </CollapsibleCard>
       )}
 
       {robot.kind === 'arm' && (
@@ -1247,8 +1245,7 @@ export function RobotPanel() {
         />
       )}
 
-      <div className="card">
-        <h3>Recording</h3>
+      <CollapsibleCard heading="Recording">
         <div className="row">
           <label className="field">
             Count
@@ -1283,7 +1280,7 @@ export function RobotPanel() {
               : '6-channel end-effector IMU per sample.'}
         </div>
         <ImuNoiseToggle />
-      </div>
+      </CollapsibleCard>
 
       {robot.kind === 'rover' && (
         <SceneObjectsCard
@@ -1311,8 +1308,7 @@ export function RobotPanel() {
 
       {robot.kind === 'rover' && (
         <>
-          <div className="card">
-            <h3>Lidar / ToF ring</h3>
+          <CollapsibleCard heading="Lidar / ToF ring">
             <label className="field">
               Beams {robot.lidarBins}
               <input
@@ -1339,9 +1335,8 @@ export function RobotPanel() {
                 disabled={robotRunning}
               />
             </label>
-          </div>
-          <div className="card">
-            <h3>Sensor modality</h3>
+          </CollapsibleCard>
+          <CollapsibleCard heading="Sensor modality">
             <div
               className="motion-pills trajectory-pills"
               role="radiogroup"
@@ -1376,7 +1371,7 @@ export function RobotPanel() {
               {robot.uploadModality === 'lidar' &&
                 'Lidar only. Useful for environment-classification models.'}
             </div>
-          </div>
+          </CollapsibleCard>
         </>
       )}
 
@@ -1554,8 +1549,7 @@ export function RobotPanel() {
         <EiInferenceCard previewSource="robot-pov" />
       )}
 
-      <div className="card">
-        <h3>Generate</h3>
+      <CollapsibleCard heading="Generate">
         <div style={{ fontSize: 11, color: 'var(--muted)' }}>
           {robot.kind === 'rover' ? (
             <>
@@ -1636,7 +1630,7 @@ export function RobotPanel() {
             {`⚡ Generate & ${hasApiKey ? 'upload' : 'download'} ${robot.count} samples`}
           </button>
         )}
-      </div>
+      </CollapsibleCard>
     </>
   );
 }
@@ -1796,8 +1790,7 @@ function ArmCameraMountCard({ disabled }: { disabled: boolean }) {
     { value: 'gripper', label: 'Gripper', hint: 'Between the fingers, looking at the grasp point.' },
   ];
   return (
-    <div className="card">
-      <h3>POV camera mount</h3>
+    <CollapsibleCard heading="POV camera mount">
       <div
         className="motion-pills trajectory-pills"
         role="radiogroup"
@@ -1824,7 +1817,7 @@ function ArmCameraMountCard({ disabled }: { disabled: boolean }) {
       <div style={{ fontSize: 11, color: 'var(--muted)' }}>
         {OPTIONS.find((o) => o.value === mount)?.hint}
       </div>
-    </div>
+    </CollapsibleCard>
   );
 }
 

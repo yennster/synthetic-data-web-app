@@ -21,6 +21,7 @@ import { randomPreReleaseMs } from '../lib/proceduralMotion';
 import { useNumberInput } from '../lib/useNumberInput';
 import type { ZipEntry } from '../lib/zip';
 import { buildZipOffThread } from '../lib/zipWorkerClient';
+import { CollapsibleCard } from './CollapsibleCard';
 import { EiAuthCard } from './EiAuthCard';
 import { ImuNoiseToggle } from './ImuNoiseToggle';
 
@@ -614,8 +615,7 @@ export function MotionPanel() {
 
   return (
     <>
-      <div className="card">
-        <h3>Object</h3>
+      <CollapsibleCard heading="Object" defaultOpen>
         <select
           value={objectKind}
           onChange={(e) => setObjectKind(e.target.value as ObjectKind)}
@@ -663,10 +663,9 @@ export function MotionPanel() {
         <div style={{ fontSize: 11, color: 'var(--muted)' }}>
           IMU samples are 6-channel: accelerometer (m/s²) + gyroscope (rad/s).
         </div>
-      </div>
+      </CollapsibleCard>
 
-      <div className="card">
-        <h3>Recording</h3>
+      <CollapsibleCard heading="Recording">
         <label className="field">
           Label
           <input
@@ -700,10 +699,9 @@ export function MotionPanel() {
           {samples.length} samples · {durationSec.toFixed(2)}s
         </div>
         <ImuNoiseToggle />
-      </div>
+      </CollapsibleCard>
 
-      <div className="card">
-        <h3>Procedural motions</h3>
+      <CollapsibleCard heading="Procedural motions">
         <div style={{ fontSize: 11, color: 'var(--muted)' }}>
           Generate N samples automatically for the selected motion class.
           Each iteration records one labelled IMU trace. Webcam tracking is
@@ -885,12 +883,11 @@ export function MotionPanel() {
             } ${drops.count} samples`}
           </button>
         )}
-      </div>
+      </CollapsibleCard>
 
       <EiAuthCard showHmac />
 
-      <div className="card">
-        <h3>Upload to Edge Impulse</h3>
+      <CollapsibleCard heading="Upload to Edge Impulse">
         {!ei.apiKey && (
           <div style={{ fontSize: 11, color: 'var(--muted)' }}>
             Set your API key in the <strong>Edge Impulse · auth</strong>{' '}
@@ -918,7 +915,7 @@ export function MotionPanel() {
         >
           ↻ Retrain model
         </button>
-      </div>
+      </CollapsibleCard>
     </>
   );
 }

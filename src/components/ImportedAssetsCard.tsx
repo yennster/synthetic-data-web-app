@@ -11,6 +11,7 @@ import {
   type ImportedAsset,
   type SceneObjectOwner,
 } from '../store/useStore';
+import { CollapsibleCard } from './CollapsibleCard';
 
 type OwnerFilter = SceneObjectOwner | 'vision';
 
@@ -190,10 +191,10 @@ export function ImportedAssetsCard({
   };
 
   return (
-    <div className="card">
-      <h3>
-        {title} ({filtered.length})
-      </h3>
+    <CollapsibleCard
+      heading={`${title} (${filtered.length})`}
+      badge={filtered.length > 0 ? String(filtered.length) : undefined}
+    >
       <input
         ref={fileInputRef}
         type="file"
@@ -249,7 +250,7 @@ export function ImportedAssetsCard({
           </>
         )}
       </div>
-    </div>
+    </CollapsibleCard>
   );
 }
 

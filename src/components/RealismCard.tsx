@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { CollapsibleCard } from './CollapsibleCard';
 import { useStore, type RealismMode } from '../store/useStore';
 
 /**
@@ -30,88 +30,54 @@ const MODES: { value: RealismMode; label: string; hint: string }[] = [
 export function RealismCard() {
   const realism = useStore((s) => s.realism);
   const setRealism = useStore((s) => s.setRealism);
-  // Open when the user has opted in (so the intensity slider is one
-  // click away), collapsed when off (so it doesn't eat sidebar space).
-  const [open, setOpen] = useState(realism.mode !== 'off');
   const active = realism.mode !== 'off';
 
   return (
-    <div className="card">
-      <button
-        type="button"
-        onClick={() => setOpen((b) => !b)}
-        aria-expanded={open}
-        className="card-heading-toggle"
+    <CollapsibleCard
+      heading="Realism"
+      defaultOpen={active}
+      badge={active ? `${realism.mode} · ${(realism.intensity * 100).toFixed(0)}%` : undefined}
+    >
+      <div
+        className="motion-pills trajectory-pills"
+        role="radiogroup"
+        aria-label="Realism mode"
       >
-        <span>Realism</span>
-        {active && !open && (
-          <span
-            style={{
-              marginLeft: 'auto',
-              fontSize: 10,
-              color: 'var(--accent)',
-              fontWeight: 500,
-              letterSpacing: '0.08em',
-            }}
+        {MODES.map((m) => (
+          <label
+            key={m.value}
+            className={`motion-pill ${realism.mode === m.value ? 'on' : ''}`}
+            title={m.hint}
           >
-            {realism.mode} · {(realism.intensity * 100).toFixed(0)}%
-          </span>
-        )}
-        <span
-          className="section-toggle-chevron"
-          style={{
-            transform: open ? 'rotate(90deg)' : 'rotate(0deg)',
-            marginLeft: active && !open ? '0' : 'auto',
-          }}
-          aria-hidden
-        >
-          ▸
-        </span>
-      </button>
-      {open && (
-        <>
-          <div
-            className="motion-pills trajectory-pills"
-            role="radiogroup"
-            aria-label="Realism mode"
-          >
-            {MODES.map((m) => (
-              <label
-                key={m.value}
-                className={`motion-pill ${realism.mode === m.value ? 'on' : ''}`}
-                title={m.hint}
-              >
-                <input
-                  type="radio"
-                  name="realism-mode"
-                  value={m.value}
-                  checked={realism.mode === m.value}
-                  onChange={() => setRealism({ mode: m.value })}
-                />
-                {m.label}
-              </label>
-            ))}
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-            {MODES.find((m) => m.value === realism.mode)?.hint}
-          </div>
-          {realism.mode !== 'off' && (
-            <label className="field">
-              Intensity {(realism.intensity * 100).toFixed(0)}%
-              <input
-                type="range"
-                min={0.05}
-                max={1}
-                step={0.05}
-                value={realism.intensity}
-                onChange={(e) =>
-                  setRealism({ intensity: Number(e.target.value) })
-                }
-              />
-            </label>
-          )}
-        </>
+            <input
+              type="radio"
+              name="realism-mode"
+              value={m.value}
+              checked={realism.mode === m.value}
+              onChange={() => setRealism({ mode: m.value })}
+            />
+            {m.label}
+          </label>
+        ))}
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+        {MODES.find((m) => m.value === realism.mode)?.hint}
+      </div>
+      {realism.mode !== 'off' && (
+        <label className="field">
+          Intensity {(realism.intensity * 100).toFixed(0)}%
+          <input
+            type="range"
+            min={0.05}
+            max={1}
+            step={0.05}
+            value={realism.intensity}
+            onChange={(e) =>
+              setRealism({ intensity: Number(e.target.value) })
+            }
+          />
+        </label>
       )}
-    </div>
+    </CollapsibleCard>
   );
 }

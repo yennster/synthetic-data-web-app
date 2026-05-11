@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { detectPlatform, type PlatformInfo } from '../lib/platform';
+import { CollapsibleCard } from './CollapsibleCard';
 
 /**
  * Apple's RealityKit Object Capture turns a fan of photos of a real-world
@@ -22,12 +23,9 @@ const HELLO_PHOTOGRAMMETRY_URL =
 
 export function ObjectCaptureCard() {
   const platform: PlatformInfo = useMemo(() => detectPlatform(), []);
-  const [open, setOpen] = useState(false);
 
   return (
-    <div className="card">
-      <h3>Capture from real life</h3>
-
+    <CollapsibleCard heading="Capture from real life">
       <p style={{ margin: 0, color: 'var(--muted)', fontSize: 12, lineHeight: 1.4 }}>
         Use Apple's{' '}
         <a href={APPLE_DOC_URL} target="_blank" rel="noreferrer">
@@ -39,24 +37,6 @@ export function ObjectCaptureCard() {
 
       <PlatformBadge platform={platform} />
 
-      <button
-        type="button"
-        onClick={() => setOpen((b) => !b)}
-        aria-expanded={open}
-        className="section-toggle"
-      >
-        <span>{open ? 'Hide instructions' : 'How to capture'}</span>
-        <span
-          className="section-toggle-chevron"
-          style={{ transform: open ? 'rotate(90deg)' : 'rotate(0deg)' }}
-          aria-hidden
-        >
-          ▸
-        </span>
-      </button>
-
-      {open && (
-        <>
       <ol
         style={{
           margin: 0,
@@ -97,9 +77,7 @@ export function ObjectCaptureCard() {
           CLI on a folder of photos to produce a USDZ headlessly.
         </p>
       )}
-        </>
-      )}
-    </div>
+    </CollapsibleCard>
   );
 }
 
