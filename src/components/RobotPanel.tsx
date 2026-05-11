@@ -38,7 +38,7 @@ import {
   type EdgeImpulseInfoLabelsEntry,
 } from '../lib/edgeImpulse';
 import { awaitRobotCapture } from '../lib/robotCapture';
-import { applyRealismToBlob } from '../lib/realism';
+import { applyRealismToBlob, resetDiffusionBudget } from '../lib/realism';
 import { buildArmRosJsonl, buildRoverRosJsonl } from '../lib/rosMessages';
 import { useNumberInput } from '../lib/useNumberInput';
 import { disposeUsdz } from '../lib/usdz';
@@ -369,6 +369,7 @@ export function RobotPanel() {
     }
     setRobotRunning(true);
     resetRobotCaptures();
+    resetDiffusionBudget();
     let uploaded = 0;
     let captured = 0;
     let failed = 0;
@@ -742,6 +743,7 @@ export function RobotPanel() {
     }
     setRobotRunning(true);
     resetRobotCaptures();
+    resetDiffusionBudget();
     let uploaded = 0;
     let captured = 0;
     let failed = 0;

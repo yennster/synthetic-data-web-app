@@ -1,4 +1,5 @@
 import { CollapsibleCard } from './CollapsibleCard';
+import { DIFFUSION_BUDGET } from '../lib/realism';
 import { useStore, type RealismMode } from '../store/useStore';
 
 /**
@@ -23,7 +24,11 @@ const MODES: { value: RealismMode; label: string; hint: string }[] = [
     value: 'diffusion',
     label: 'Diffusion',
     hint:
-      'Server-side img2img / ControlNet (coming soon). For now this falls back to the Random pass.',
+      `Server-side img2img via the Hugging Face free tier. The first ${DIFFUSION_BUDGET} ` +
+      `images of each capture / batch run through the diffusion model; ` +
+      `the rest fall back to the Random pass so a 50-frame batch doesn't ` +
+      `stall on rate limits. Bounding boxes may shift slightly — only use ` +
+      `for visual prototyping, not as detection ground truth.`,
   },
 ];
 

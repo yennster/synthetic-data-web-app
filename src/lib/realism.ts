@@ -216,27 +216,91 @@ export function applyRandomRealism(
 }
 
 /**
- * Apply the random realism pass to a captured PNG blob. Returns a
- * fresh PNG blob; the input blob is not mutated. The PNG is decoded
- * via `createImageBitmap` (browser-supported, off-thread on Chromium)
- * into an OffscreenCanvas (or a regular canvas in jsdom), the pixel
- * transforms run, and the canvas is re-encoded.
+ * How many img2img calls a single batch is allowed to spend on the
+ * Hugging Face free tier before the realism pass falls back to the
+ * local Random transform. Tuned so a worst-case cold-start of ~10s
+ * per image still finishes in under 30s — beyond that the user
+ * notices the wait and the rest of the batch would queue up anyway.
  *
- * For the `random` mode this stays a PNG so bounding boxes line up
- * to the same pixel grid that produced them. Future `diffusion` mode
- * will go through a server endpoint instead.
+ * Exported so the UI can show "first N of this batch" without having
+ * to import a magic number directly.
+ */
+export const DIFFUSION_BUDGET = 3;
+
+let diffusionBudgetRemaining = DIFFUSION_BUDGET;
+
+/** Reset the per-batch HF budget. Call at the start of every batch
+ * (and every single-shot capture) so the next sequence of diffusion
+ * calls starts with the full quota. */
+export function resetDiffusionBudget(): void {
+  diffusionBudgetRemaining = DIFFUSION_BUDGET;
+}
+
+/** Visible to the UI / tests — read-only snapshot of how many HF calls
+ * are still available in the current batch. */
+export function getDiffusionBudgetRemaining(): number {
+  return diffusionBudgetRemaining;
+}
+
+/**
+ * Apply the realism pass to a captured PNG blob. Returns a fresh PNG;
+ * the input blob is not mutated.
+ *
+ * - `off`: return the input unchanged.
+ * - `random`: decode → run pixel transforms → re-encode (pure
+ *   client-side, ~10ms, bounding-box-preserving).
+ * - `diffusion`: for the first `DIFFUSION_BUDGET` calls of a batch,
+ *   POST to `/api/realism-diffusion` (Vercel Function → HF Inference
+ *   img2img). On any error — and for every call after the budget is
+ *   spent — silently fall back to the `random` pass so the batch
+ *   never stalls.
  */
 export async function applyRealismToBlob(
   blob: Blob,
   opts: { mode: 'off' | 'random' | 'diffusion'; intensity: number; rng?: Rng },
 ): Promise<Blob> {
   if (opts.mode === 'off' || opts.intensity <= 0) return blob;
-  if (opts.mode === 'diffusion') {
-    // Diffusion path is a future server endpoint — for now fall back
-    // to the random pass so the toggle is never a silent no-op while
-    // the feature lands incrementally.
-    // TODO(diffusion): POST to /api/realism, fall back on error.
+  if (opts.mode === 'diffusion' && diffusionBudgetRemaining > 0) {
+    // Decrement up front: even if the call fails, we've spent the
+    // budget slot on the attempt. This keeps a slow / throttled HF
+    // backend from burning through the whole budget on retries.
+    diffusionBudgetRemaining -= 1;
+    try {
+      const diffused = await callDiffusionEndpoint(blob, opts.intensity);
+      if (diffused) return diffused;
+    } catch {
+      // Fall through to random.
+    }
   }
+  return applyRandomToBlob(blob, opts.intensity, opts.rng ?? Math.random);
+}
+
+async function callDiffusionEndpoint(
+  blob: Blob,
+  intensity: number,
+): Promise<Blob | null> {
+  // Best-effort: if we're running under vitest / SSR where `fetch`
+  // exists but `/api/realism-diffusion` doesn't, the response will be
+  // a 404 and we return null so the caller falls back to random.
+  const res = await fetch('/api/realism-diffusion', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'image/png',
+      'x-realism-intensity': String(intensity),
+    },
+    body: blob,
+  });
+  if (!res.ok) return null;
+  const ct = res.headers.get('content-type') ?? '';
+  if (!ct.startsWith('image/')) return null;
+  return res.blob();
+}
+
+async function applyRandomToBlob(
+  blob: Blob,
+  intensity: number,
+  rng: Rng,
+): Promise<Blob> {
   const bitmap = await createImageBitmap(blob);
   const w = bitmap.width;
   const h = bitmap.height;
@@ -255,8 +319,7 @@ export async function applyRealismToBlob(
   ctx.drawImage(bitmap as unknown as CanvasImageSource, 0, 0);
   bitmap.close();
   const imageData = ctx.getImageData(0, 0, w, h);
-  const rng = opts.rng ?? Math.random;
-  applyRandomRealism(imageData.data, w, h, opts.intensity, rng);
+  applyRandomRealism(imageData.data, w, h, intensity, rng);
   ctx.putImageData(imageData, 0, 0);
   // `convertToBlob` on OffscreenCanvas, `toBlob` on HTMLCanvasElement
   // — branch over the union so TypeScript is happy on both paths.
