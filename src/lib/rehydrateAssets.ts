@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useStore } from '../store/useStore';
 import { getAssetBlob, deleteAssetBlob } from './assetStore';
 import { loadUsdz } from './usdz';
+import { boundsFromBox } from './importedAssetBounds';
 
 /**
  * Re-import every USDZ asset that was in the scene before the last reload.
@@ -55,7 +56,7 @@ export function useRehydrateAssets(): void {
           const file = new File([blob], `${meta.name}.usdz`, {
             type: 'model/vnd.usdz+zip',
           });
-          const { object, handle, isAnimated } = await loadUsdz(file);
+          const { object, handle, isAnimated, localBox } = await loadUsdz(file);
           addAsset({
             id: meta.id,
             name: meta.name,
@@ -64,6 +65,7 @@ export function useRehydrateAssets(): void {
             position: meta.position,
             rotation: meta.rotation,
             scale: meta.scale,
+            bounds: meta.bounds ?? boundsFromBox(localBox),
             physics: meta.physics,
             overrideMaterial: meta.overrideMaterial,
             overrideColor: meta.overrideColor,
@@ -74,6 +76,7 @@ export function useRehydrateAssets(): void {
             // value is a hint but the loader is authoritative.
             isAnimated,
             animationPlaying: meta.animationPlaying && isAnimated,
+            owner: meta.owner,
           });
           restored += 1;
         } catch (err) {

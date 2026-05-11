@@ -4,7 +4,11 @@ import { useFrame } from '@react-three/fiber';
 import { RigidBody, type RapierRigidBody } from '@react-three/rapier';
 import { BELT_TRANSPORTABLES } from '../lib/beltDynamics';
 import { useDragMove } from '../lib/dragMove';
-import { useStore, type ImportedAsset } from '../store/useStore';
+import {
+  useStore,
+  type ImportedAsset,
+  type SceneObjectOwner,
+} from '../store/useStore';
 
 // See SpawnedObjects for the rationale — same rescue, same thresholds.
 const FLOOR_RESCUE_Y = -3;
@@ -85,13 +89,17 @@ function useUsdzAnimation(asset: ImportedAsset) {
   });
 }
 
+export function ImportedAssetPrimitive({ asset }: { asset: ImportedAsset }) {
+  useLabelTagging(asset);
+  useMaterialOverride(asset);
+  useUsdzAnimation(asset);
+  return <primitive object={asset.object} />;
+}
+
 /** Visual-only path: transforms applied via parent group. */
 function VisualAsset({ asset }: { asset: ImportedAsset }) {
   const groupRef = useRef<THREE.Group>(null);
   const updateAsset = useStore((s) => s.updateAsset);
-  useLabelTagging(asset);
-  useMaterialOverride(asset);
-  useUsdzAnimation(asset);
   useEffect(() => {
     if (groupRef.current) {
       groupRef.current.userData.label = asset.label;
@@ -112,7 +120,7 @@ function VisualAsset({ asset }: { asset: ImportedAsset }) {
       scale={asset.scale}
       {...dragHandlers}
     >
-      <primitive object={asset.object} />
+      <ImportedAssetPrimitive asset={asset} />
     </group>
   );
 }
@@ -131,9 +139,6 @@ function PhysicsAsset({ asset }: { asset: ImportedAsset }) {
   // each position change, so we drive the body type declaratively instead
   // of imperatively (which would get clobbered back to "dynamic" mid-drag).
   const [isDragging, setIsDragging] = useState(false);
-  useLabelTagging(asset);
-  useMaterialOverride(asset);
-  useUsdzAnimation(asset);
 
   // Register with the belt transport set
   useEffect(() => {
@@ -212,31 +217,70 @@ function PhysicsAsset({ asset }: { asset: ImportedAsset }) {
       userData={{ label: asset.label, assetId: asset.id }}
     >
       <group scale={asset.scale} {...dragHandlers}>
-        <primitive object={asset.object} />
+        <ImportedAssetPrimitive asset={asset} />
       </group>
     </RigidBody>
   );
 }
 
-function Asset({ asset }: { asset: ImportedAsset }) {
+function Asset({
+  asset,
+  forceVisual,
+}: {
+  asset: ImportedAsset;
+  forceVisual?: boolean;
+}) {
   // Remount the physics path when scale changes so the convex-hull collider
   // gets recomputed at the new size.
-  const key = asset.physics
+  const usePhysics = asset.physics && !forceVisual;
+  const key = usePhysics
     ? `phys-${asset.id}-${asset.scale.toFixed(3)}`
     : `vis-${asset.id}`;
-  return asset.physics ? (
+  return usePhysics ? (
     <PhysicsAsset key={key} asset={asset} />
   ) : (
     <VisualAsset key={key} asset={asset} />
   );
 }
 
-export function ImportedAssets() {
+function assetMatchesOwner(
+  asset: ImportedAsset,
+  ownerFilter?: SceneObjectOwner | 'vision',
+): boolean {
+  if (!ownerFilter) return true;
+  return ownerFilter === 'vision'
+    ? asset.owner == null
+    : asset.owner === ownerFilter;
+}
+
+export function ImportedAssets({
+  ownerFilter,
+  excludeIds,
+  physicsMode = 'asset',
+}: {
+  /** Restrict rendering to assets whose owner matches this value.
+   * `'vision'` matches the legacy untagged pool. */
+  ownerFilter?: SceneObjectOwner | 'vision';
+  /** Skip these ids, used by the arm to let MuJoCo render the active
+   * pickup target at its simulated pose. */
+  excludeIds?: ReadonlyArray<string>;
+  /** Robotics uses MuJoCo, not Rapier, for contacts. Force imported robot
+   * assets down the visual path so their rendered pose stays aligned with
+   * the static MuJoCo obstacle / pickup approximation. */
+  physicsMode?: 'asset' | 'visual';
+}) {
   const assets = useStore((s) => s.assets);
+  const filtered = assets
+    .filter((a) => assetMatchesOwner(a, ownerFilter))
+    .filter((a) => !excludeIds?.includes(a.id));
   return (
     <>
-      {assets.map((a) => (
-        <Asset key={a.id} asset={a} />
+      {filtered.map((a) => (
+        <Asset
+          key={a.id}
+          asset={a}
+          forceVisual={physicsMode === 'visual'}
+        />
       ))}
     </>
   );

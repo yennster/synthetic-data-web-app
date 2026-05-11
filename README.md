@@ -72,7 +72,7 @@ Created with Claude Code.
 - **Sensor modality picker** for the rover: upload **Fused (IMU+lidar)**, **IMU only**, or **Lidar only** to compare model accuracy or train one tower at a time.
 - **ROS 2 export**: toggle on to also write canonical `sensor_msgs/Imu` + `sensor_msgs/LaserScan` JSONL bundles alongside the EI payload — ready to replay through any ROS 2 pipeline.
 - Synthetic IMU noise model (MathWorks `imuSensor`-style: Allan-variance noise density, bias instability, scale-factor error, ADC quantization, saturation) applied to motion / rover / arm IMU paths. Defaults match an LSM6DSO at ±4 g / ±2000 dps.
-- Manual object spawning (pillars / crates / cones) via the **Scene obstacles** card; obstacles and pickup targets are draggable with the same `Shift+drag` controls as detection mode.
+- Manual object spawning (pillars / crates / cones) and USDZ imports via the **Scene obstacles** / **Pickup objects** / **Imported** cards; obstacles and pickup targets are draggable with the same `Shift+drag` controls as detection mode.
 - First-person POV camera (front-mounted on rover, wrist-mounted on arm) renders into the corner overlay so you can see what the robot's onboard camera would see during the trajectory.
 
 - URL deep links: `?mode=robotics&robot=arm` lands directly on the arm rig.

@@ -65,6 +65,7 @@ Alternatively, unzip the WebAssembly deployment locally and upload `edge-impulse
 2. Choose your robot rig in the **Robot** card: **Rover** (ground vehicle) or **Arm** (Braccio arm).
 3. Set up the environment:
    - Add obstacles or pickup targets via the **Scene obstacles** / **Pickup objects** cards.
+   - Drop `.usdz` files into **Imported obstacles** / **Imported pickups** to use scanned or CAD assets in the robot scene.
    - Drag objects manually with `Shift+drag` to position them.
    - Click **Reset scene** to clear the robot's pose and home the arm.
 4. **For the Rover:**

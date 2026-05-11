@@ -12,7 +12,8 @@ import { ROVER_DIMS } from '../lib/mujoco/roverDims';
 import { sampleImu, type NoiseStateRef } from '../lib/mujoco/imuSensor';
 import type { RoverObstacle } from '../lib/mujoco/roverMjcf';
 import { loadMujocoModule } from '../lib/mujoco/runtime';
-import { useStore } from '../store/useStore';
+import { getImportedAssetScaledSize } from '../lib/importedAssetBounds';
+import { useStore, type ImportedAsset } from '../store/useStore';
 
 /**
  * Physics-backed differential-drive rover. MuJoCo owns the chassis
@@ -66,6 +67,23 @@ function sceneObjectsToObstacles(
       r: Math.max(0.05, o.scale * 0.32),
       height: 0.2,
     }));
+}
+
+function importedAssetsToObstacles(
+  assets: ReadonlyArray<ImportedAsset>,
+): RoverObstacle[] {
+  return assets
+    .filter((a) => a.owner === 'rover')
+    .map((a) => {
+      const [w, h, d] = getImportedAssetScaledSize(a);
+      return {
+        id: a.id,
+        x: a.position[0],
+        z: a.position[2],
+        r: Math.max(0.05, Math.hypot(w, d) / 2),
+        height: Math.max(0.02, h / 2),
+      };
+    });
 }
 
 function useRoverSim(): RoverSim | null {
@@ -342,7 +360,10 @@ function RoverController({ sim }: { sim: RoverSim | null }) {
       return;
     }
     const state = useStore.getState();
-    const mjcfObstacles = sceneObjectsToObstacles(state.sceneObjects);
+    const mjcfObstacles = [
+      ...sceneObjectsToObstacles(state.sceneObjects),
+      ...importedAssetsToObstacles(state.assets),
+    ];
     // Rebuild the model with the current obstacle set so MuJoCo's
     // collision system has bodies to hit. This is a no-op if the
     // obstacle list hasn't changed since the last iteration.

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { Group } from 'three';
 import { useStore } from './useStore';
 import { BRACCIO_REST_RAD } from '../lib/braccio';
 
@@ -232,6 +233,64 @@ describe('randomizeArmPickupPositions', () => {
     // Untagged distractor must keep its original position untouched.
     const distractorAfter = after.find((o) => o.id === distractorIdBefore);
     expect(distractorAfter?.position).toEqual(distractorPosBefore);
+  });
+
+  it('rewrites arm-owned imported assets using their floor origin', () => {
+    useStore.getState().addAsset({
+      id: 'asset-arm',
+      name: 'bolt',
+      label: 'pickup',
+      object: new Group(),
+      position: [9, 0, 9],
+      rotation: [0, 0, 0],
+      scale: 0.05,
+      bounds: { size: [1, 1, 1], maxDim: 1 },
+      physics: false,
+      overrideMaterial: false,
+      overrideColor: '#ffffff',
+      overrideRoughness: 0.5,
+      overrideMetalness: 0,
+      handle: null,
+      isAnimated: false,
+      animationPlaying: false,
+      owner: 'arm',
+    });
+    useStore.getState().addAsset({
+      id: 'asset-rover',
+      name: 'crate',
+      label: 'obstacle',
+      object: new Group(),
+      position: [3, 0, 3],
+      rotation: [0, 0, 0],
+      scale: 1,
+      bounds: { size: [1, 1, 1], maxDim: 1 },
+      physics: false,
+      overrideMaterial: false,
+      overrideColor: '#ffffff',
+      overrideRoughness: 0.5,
+      overrideMetalness: 0,
+      handle: null,
+      isAnimated: false,
+      animationPlaying: false,
+      owner: 'rover',
+    });
+
+    useStore.getState().randomizeArmPickupPositions(seededRng(11));
+
+    const armAsset = useStore
+      .getState()
+      .assets.find((a) => a.id === 'asset-arm');
+    const roverAsset = useStore
+      .getState()
+      .assets.find((a) => a.id === 'asset-rover');
+    expect(armAsset?.position[1]).toBe(0);
+    const r = Math.sqrt(
+      (armAsset?.position[0] ?? 0) ** 2 +
+        (armAsset?.position[2] ?? 0) ** 2,
+    );
+    expect(r).toBeGreaterThanOrEqual(0.11 - 1e-9);
+    expect(r).toBeLessThanOrEqual(0.22 + 1e-9);
+    expect(roverAsset?.position).toEqual([3, 0, 3]);
   });
 
   it('is a no-op when there are no arm-owned objects', () => {

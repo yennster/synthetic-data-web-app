@@ -485,6 +485,7 @@ function RoverScene() {
     <>
       <group ref={obstaclesRef}>
         <SpawnedObjects ownerFilter="rover" />
+        <ImportedAssets ownerFilter="rover" physicsMode="visual" />
       </group>
       <Rover obstaclesRef={obstaclesRef} />
     </>
@@ -506,6 +507,11 @@ function ArmScene() {
     <>
       <BraccioArm />
       <SpawnedObjects ownerFilter="arm" excludeIds={excludeIds} />
+      <ImportedAssets
+        ownerFilter="arm"
+        excludeIds={excludeIds}
+        physicsMode="visual"
+      />
     </>
   );
 }
@@ -648,7 +654,7 @@ export function Scene({
                 Keeps robotics-tagged objects from leaking into the
                 vision capture frames. */}
             <SpawnedObjects ownerFilter="vision" />
-            <ImportedAssets />
+            <ImportedAssets ownerFilter="vision" />
           </>
         )}
       </Physics>
