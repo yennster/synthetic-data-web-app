@@ -1,20 +1,16 @@
 import { useFrame } from '@react-three/fiber';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
-import {
-  applyImuNoise,
-  makeImuNoiseState,
-  type ImuNoiseState,
-} from '../lib/imuNoise';
 import { scanLidar } from '../lib/lidar';
 import {
   buildEventPath,
-  detectContact,
   type ParametricPath,
   type ObstacleDisc,
 } from '../lib/rover';
 import { RoverSim } from '../lib/mujoco/RoverSim';
 import { ROVER_DIMS } from '../lib/mujoco/roverDims';
+import { sampleImu, type NoiseStateRef } from '../lib/mujoco/imuSensor';
+import type { RoverObstacle } from '../lib/mujoco/roverMjcf';
 import { loadMujocoModule } from '../lib/mujoco/runtime';
 import { useStore } from '../store/useStore';
 
@@ -45,17 +41,32 @@ const WHEEL_R = ROVER_DIMS.wheelR;
 const WHEEL_T = ROVER_DIMS.wheelT;
 const RIDE_HEIGHT = ROVER_DIMS.rideHeight;
 const HEAD_SIZE = ROVER_DIMS.headSize;
-const CHASSIS_DISC_R = ROVER_DIMS.chassisDiscR;
-
 const VISUAL_SCAN_HZ = 20;
 const RECORD_HZ = 20;
 
-/** Magnitude of the bumper-contact force, scaled by penetration. The
- * mapping (60× cap 200 N) is tuned so the resulting accelerometer
- * spike sits in the same ballpark as the previous synthetic version
- * (≈4–8 m/s²) — a real Arduino-class accelerometer's signal range. */
-const CONTACT_FORCE_GAIN = 60;
-const CONTACT_FORCE_CAP = 200;
+/** Map a rover-owned scene object to a `RoverObstacle` for the MJCF.
+ * Position + bounding radius use the same conventions the lidar /
+ * trajectory code uses (scale × 0.32). Height is fixed at a small
+ * column so cylinders barely poke above the chassis — they're meant
+ * to be hit, not climbed. */
+function sceneObjectsToObstacles(
+  objects: ReadonlyArray<{
+    id: string;
+    owner?: string;
+    position: [number, number, number];
+    scale: number;
+  }>,
+): RoverObstacle[] {
+  return objects
+    .filter((o) => o.owner === 'rover')
+    .map((o) => ({
+      id: o.id,
+      x: o.position[0],
+      z: o.position[2],
+      r: Math.max(0.05, o.scale * 0.32),
+      height: 0.2,
+    }));
+}
 
 function useRoverSim(): RoverSim | null {
   const [sim, setSim] = useState<RoverSim | null>(null);
@@ -331,14 +342,21 @@ function RoverController({ sim }: { sim: RoverSim | null }) {
       return;
     }
     const state = useStore.getState();
-    const obstacles: ObstacleDisc[] = state.sceneObjects
-      .filter((o) => o.owner === 'rover')
-      .map((o) => ({
-        x: o.position[0],
-        z: o.position[2],
-        r: Math.max(0.05, o.scale * 0.32),
-      }));
-    pathRef.current = buildEventPath(event, obstacles, Math.random);
+    const mjcfObstacles = sceneObjectsToObstacles(state.sceneObjects);
+    // Rebuild the model with the current obstacle set so MuJoCo's
+    // collision system has bodies to hit. This is a no-op if the
+    // obstacle list hasn't changed since the last iteration.
+    sim.rebuildWithObstacles(mjcfObstacles);
+    // The trajectory engine still uses the disc-radius obstacle
+    // representation to plan paths that aim at / around them. The
+    // shape is purely for trajectory generation; collisions during the
+    // run come from MuJoCo's body contacts.
+    const trajectoryObstacles: ObstacleDisc[] = mjcfObstacles.map((o) => ({
+      x: o.x,
+      z: o.z,
+      r: o.r,
+    }));
+    pathRef.current = buildEventPath(event, trajectoryObstacles, Math.random);
     startMs.current = performance.now();
     // Snap the chassis to the path's start pose so the first physics
     // step isn't a PD chase from wherever the previous iteration left
@@ -383,47 +401,18 @@ function RoverImuSampler({
 }) {
   const recordAccum = useRef(0);
   const recordPeriod = 1 / RECORD_HZ;
-  const noiseState = useRef<ImuNoiseState | null>(null);
+  const noiseStateRef = useRef<NoiseStateRef>({ current: null });
 
   useFrame((_, dt) => {
     if (!sim) return;
 
-    // Contact detection: run every frame so the impulse is applied
-    // continuously while the chassis disc overlaps an obstacle.
-    // Reading the rig's world position would also work, but the sim's
-    // pose is the source of truth this frame (the rig hasn't been
-    // updated yet for this tick).
-    const liveState = useStore.getState();
-    const obstacles: ObstacleDisc[] = liveState.sceneObjects
-      .filter((o) => o.owner === 'rover')
-      .map((o) => ({
-        x: o.position[0],
-        z: o.position[2],
-        r: Math.max(0.05, o.scale * 0.32),
-      }));
-    const pose = sim.readPose();
-    const contact = detectContact(
-      { x: pose.x, z: pose.z },
-      CHASSIS_DISC_R,
-      obstacles,
-    );
-    useStore.getState().setRoverInContact(!!contact);
-    if (contact) {
-      const dx = pose.x - contact.obstacle.x;
-      const dz = pose.z - contact.obstacle.z;
-      const dlen = Math.max(1e-3, Math.sqrt(dx * dx + dz * dz));
-      const nx = dx / dlen;
-      const nz = dz / dlen;
-      const mag = Math.min(
-        CONTACT_FORCE_CAP,
-        contact.penetration * CONTACT_FORCE_GAIN,
-      );
-      sim.applyPlanarForce(nx * mag, nz * mag);
-    } else {
-      sim.applyPlanarForce(0, 0);
-    }
-
     sim.step(dt);
+    const pose = sim.readPose();
+    // Push the contact flag to the store so the rig material can show
+    // the bumper state. MuJoCo's collision detector runs inside
+    // `mj_step` above, so this is just a query against the latest
+    // contact list — no overlap math here.
+    useStore.getState().setRoverInContact(sim.chassisInContact());
     // Force the rig's transform now so the lidar (which reads
     // `rigRef.current.localToWorld`) sees this frame's pose, not the
     // previous one.
@@ -438,29 +427,10 @@ function RoverImuSampler({
     const sampleDt = recordAccum.current;
     recordAccum.current = 0;
 
-    const imu = sim.readImu();
-    const noiseCfg = useStore.getState().imuNoise;
-    if (!noiseState.current) noiseState.current = makeImuNoiseState(noiseCfg);
-    const noisy = applyImuNoise(
-      imu.accel,
-      imu.gyro,
-      noiseState.current,
-      noiseCfg,
-      sampleDt,
-    );
-
-    const { robotRunning, pushRobotImuSample } = useStore.getState();
-    if (robotRunning) {
-      pushRobotImuSample({
-        t: performance.now(),
-        ax: noisy.accel[0],
-        ay: noisy.accel[1],
-        az: noisy.accel[2],
-        gx: noisy.gyro[0],
-        gy: noisy.gyro[1],
-        gz: noisy.gyro[2],
-      });
-    }
+    const { robotRunning, pushRobotImuSample, imuNoise } = useStore.getState();
+    if (!robotRunning) return;
+    const sample = sampleImu(sim, noiseStateRef.current, imuNoise, sampleDt);
+    pushRobotImuSample(sample);
   });
 
   return null;

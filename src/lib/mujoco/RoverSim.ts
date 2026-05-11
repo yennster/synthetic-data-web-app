@@ -16,8 +16,9 @@ import {
   ROVER_ACTUATOR_NAMES,
   ROVER_JOINT_NAMES,
   ROVER_IMU_SENSOR_NAMES,
-  ROVER_MJCF,
   ROVER_CHASSIS_BODY,
+  roverMjcf,
+  type RoverObstacle,
 } from './roverMjcf';
 import type { MujocoModule } from './runtime';
 import type { ImuReading } from './BraccioSim';
@@ -25,24 +26,38 @@ import type { ImuReading } from './BraccioSim';
 export type RoverPose = { x: number; z: number; heading: number };
 
 export class RoverSim {
-  private actuatorIds: number[];
-  private chassisBodyId: number;
-  private jointQposAdr: number[];
-  private jointDofAdr: number[];
-  private sensorAdr: { accel: number; gyro: number; quat: number; pos: number };
-  private model: ReturnType<MujocoModule['MjModel']['from_xml_string']>;
-  private data: InstanceType<MujocoModule['MjData']>;
+  private actuatorIds!: number[];
+  private chassisBodyId!: number;
+  private chassisGeomId!: number;
+  private jointQposAdr!: number[];
+  private jointDofAdr!: number[];
+  private sensorAdr!: { accel: number; gyro: number; quat: number; pos: number };
+  private model!: ReturnType<MujocoModule['MjModel']['from_xml_string']>;
+  private data!: InstanceType<MujocoModule['MjData']>;
   private mujoco: MujocoModule;
+  private currentObstacles: ReadonlyArray<RoverObstacle> = [];
 
   constructor(mujoco: MujocoModule) {
     this.mujoco = mujoco;
-    this.model = mujoco.MjModel.from_xml_string(ROVER_MJCF);
-    this.data = new mujoco.MjData(this.model);
+    this._compileFor([]);
+  }
+
+  /** Build a fresh model+data pair for the given obstacle set. Used at
+   * construction and whenever the obstacle list changes. The previous
+   * pair is disposed first so the WASM heap doesn't accumulate dead
+   * MuJoCo objects per iteration. */
+  private _compileFor(obstacles: ReadonlyArray<RoverObstacle>): void {
+    if (this.data) this.data.delete();
+    if (this.model) this.model.delete();
+    this.model = this.mujoco.MjModel.from_xml_string(roverMjcf(obstacles));
+    this.data = new this.mujoco.MjData(this.model);
+    this.currentObstacles = obstacles;
 
     this.actuatorIds = ROVER_ACTUATOR_NAMES.map(
       (n) => this.model.actuator(n).id,
     );
     this.chassisBodyId = this.model.body(ROVER_CHASSIS_BODY).id;
+    this.chassisGeomId = this.model.geom('g_chassis').id;
 
     const jntQposAdr = this.model.jnt_qposadr as Int32Array;
     const jntDofAdr = this.model.jnt_dofadr as Int32Array;
@@ -60,6 +75,36 @@ export class RoverSim {
       quat: sensorAdr[this.model.sensor(ROVER_IMU_SENSOR_NAMES.quat).id],
       pos: sensorAdr[this.model.sensor(ROVER_IMU_SENSOR_NAMES.pos).id],
     };
+  }
+
+  /** Rebuild the sim with a new obstacle set. Skips the rebuild if the
+   * obstacle list is structurally unchanged — cheap pointer / scalar
+   * comparison so the controller can call this on every iteration
+   * without worrying about wasted compiles. */
+  rebuildWithObstacles(obstacles: ReadonlyArray<RoverObstacle>): void {
+    if (this._obstaclesEqual(obstacles, this.currentObstacles)) return;
+    this._compileFor(obstacles);
+  }
+
+  private _obstaclesEqual(
+    a: ReadonlyArray<RoverObstacle>,
+    b: ReadonlyArray<RoverObstacle>,
+  ): boolean {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      const x = a[i];
+      const y = b[i];
+      if (
+        x.id !== y.id ||
+        x.x !== y.x ||
+        x.z !== y.z ||
+        x.r !== y.r ||
+        x.height !== y.height
+      ) {
+        return false;
+      }
+    }
+    return true;
   }
 
   reset(): void {
@@ -88,24 +133,29 @@ export class RoverSim {
     ctrl[this.actuatorIds[2]] = pose.heading;
   }
 
-  /** Apply a world-frame impulse to the chassis along the planar
-   * (x, z) axes. The yaw DOF receives no torque — bumper hits are
-   * lateral. Magnitude is in newtons; the call should happen each
-   * frame the contact persists, so callers should pass a per-frame
-   * force, not an accumulated one. Setting (0, 0) clears the spike.
-   *
-   * MuJoCo applies `qfrc_applied` for one integration step, then the
-   * integrator carries forward only through the integrator's own
-   * dynamics — there's no "fade" we have to model by hand. Writing the
-   * same force each frame produces a sustained push; writing once and
-   * stopping produces a transient. The classifier sees the difference. */
-  applyPlanarForce(fx: number, fz: number): void {
-    const q = this.data.qfrc_applied as Float64Array;
-    q[this.jointDofAdr[0]] = fx;
-    q[this.jointDofAdr[1]] = fz;
-    // yaw DOF stays zeroed each frame — `setTargets` doesn't touch it
-    // either, so leftover torque from a previous frame would be a bug.
-    q[this.jointDofAdr[2]] = 0;
+  /** True iff the chassis geom is in contact with anything this step.
+   * Reads `data.ncon` (number of detected contacts) and scans the
+   * contact list for entries involving the chassis geom. Used by the
+   * sampler to drive the in-contact indicator on the rig — the actual
+   * IMU spike comes from MuJoCo's contact solver running normally
+   * inside `mj_step`. */
+  chassisInContact(): boolean {
+    const ncon = this.data.ncon as number;
+    if (ncon === 0) return false;
+    // `data.contact` is a copy-on-access vector — getting it once per
+    // call is fine, but we delete it after use to avoid heap leaks.
+    const contacts = this.data.contact;
+    let inContact = false;
+    for (let i = 0; i < contacts.size(); i++) {
+      const c = contacts.get(i);
+      if (!c) continue;
+      if (c.geom1 === this.chassisGeomId || c.geom2 === this.chassisGeomId) {
+        inContact = true;
+      }
+      c.delete();
+    }
+    contacts.delete();
+    return inContact;
   }
 
   step(dtSec: number): void {

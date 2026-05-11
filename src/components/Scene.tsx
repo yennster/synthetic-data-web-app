@@ -6,23 +6,13 @@ import {
   OrbitControls,
   SoftShadows,
 } from '@react-three/drei';
-import {
-  Physics,
-  RigidBody,
-  type RapierRigidBody,
-} from '@react-three/rapier';
+import { Physics } from '@react-three/rapier';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
-import {
-  angularVelocityFromQuats as angVelFromQuats,
-  cameraRelativeToWorld,
-} from '../lib/handMath';
-import { computeImuReading } from '../lib/imu';
-import {
-  applyImuNoise,
-  makeImuNoiseState,
-  type ImuNoiseState,
-} from '../lib/imuNoise';
+import { cameraRelativeToWorld } from '../lib/handMath';
+import { MotionSim } from '../lib/mujoco/MotionSim';
+import { loadMujocoModule } from '../lib/mujoco/runtime';
+import { sampleImu, type NoiseStateRef } from '../lib/mujoco/imuSensor';
 import { useStore, type ObjectKind } from '../store/useStore';
 import { BraccioArm } from './BraccioArm';
 import { Conveyor } from './Conveyor';
@@ -117,79 +107,77 @@ function cameraYawAngle(camera: THREE.Camera): number {
   return Math.atan2(dx, dz);
 }
 
-/**
- * Three.js wrapper around the pure `angVelFromQuats` helper — keeps the
- * unit tests in `handMath.test.ts` decoupled from three.js while letting
- * the per-frame loop reuse a single pre-allocated `Vector3` for the
- * world-frame angular velocity it returns.
- */
-function angularVelocityFromQuats(
-  qPrev: THREE.Quaternion,
-  qCur: THREE.Quaternion,
-  dt: number,
-  out: THREE.Vector3,
-): THREE.Vector3 {
-  const w = angVelFromQuats(
-    [qPrev.x, qPrev.y, qPrev.z, qPrev.w],
-    [qCur.x, qCur.y, qCur.z, qCur.w],
-    dt,
-  );
-  return out.set(w[0], w[1], w[2]);
-}
-
 // ---------- Motion-mode body ----------
+//
+// Physics-backed manipulated body, powered by MuJoCo via `MotionSim`.
+// The three.js mesh below is a pure render target — every frame we
+// read the sim's pose and copy it onto the mesh. Grab/release is a
+// weld equality constraint between a mocap "hand" body and the
+// free-joint manipulated body inside MuJoCo; the runtime toggles
+// `eq_active[grab]` when the pinch state changes. Throw / push /
+// shake velocities written by the procedural-motion runner reach the
+// integrator through `sim.release({ linvel, angvel })`.
+
+const PINCH_LERP = 0.35;
+
 function ManipulatedObject() {
-  const bodyRef = useRef<RapierRigidBody>(null);
+  const objectKind = useStore((s) => s.objectKind);
   const meshRef = useRef<THREE.Mesh>(null);
 
-  const prevPos = useRef(new THREE.Vector3(0, 2, 0));
+  // Async sim load. The same WASM is shared with the arm + rover, so
+  // entering motion mode after robotics mode is instant.
+  const [sim, setSim] = useState<MotionSim | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    let local: MotionSim | null = null;
+    loadMujocoModule().then((mujoco) => {
+      if (cancelled) return;
+      local = new MotionSim(mujoco, objectKind);
+      setSim(local);
+    });
+    return () => {
+      cancelled = true;
+      local?.dispose();
+    };
+    // Empty deps — the sim is created once, and `loadShape` handles
+    // kind changes below without rebuilding the component.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Hot-swap the shape when the user toggles object kind. `loadShape`
+  // recompiles the model (~ms for these small MJCFs) and resets state.
+  useEffect(() => {
+    if (!sim) return;
+    sim.loadShape(objectKind);
+    sim.resetToSpawn();
+    // Reset noise state on remount so a fresh shape gets its own
+    // bias-drift trajectory (matches the pre-MuJoCo behavior).
+    noiseStateRef.current.current = null;
+  }, [sim, objectKind]);
+
+  // IMU noise + sample-rate gating. `sampleAccumulator` tracks elapsed
+  // time since the last emitted sample so we emit at most one per
+  // frame regardless of `sampleRateHz` — same anti-aliasing rule as
+  // the old Rapier path.
   const sampleAccumulator = useRef(0);
-  const wasGrabbed = useRef(false);
-  const releaseVel = useRef(new THREE.Vector3());
+  const noiseStateRef = useRef<NoiseStateRef>({ current: null });
 
-  // IMU sampling state — explicit pose history per sample period. We derive
-  // linvel/angvel from these deltas instead of reading body.linvel/angvel,
-  // because Rapier reports both as zero while the body is kinematic (held
-  // by a pinch). With pose deltas the IMU stays correct in both kinematic
-  // and dynamic phases — including a hand-driven rotation while pinched
-  // and the entire procedural-shake recording window.
-  const sampleInit = useRef(false);
-  const prevSamplePos = useRef(new THREE.Vector3());
-  const prevSampleQuat = useRef(new THREE.Quaternion());
-  const prevSampleLinvel = useRef(new THREE.Vector3());
-  // Per-IMU noise state (Allan-variance bias drift + per-axis scale
-  // factor). Reset alongside `sampleInit` when the body is remounted
-  // for a different shape so the bias doesn't carry between objects.
-  const noiseState = useRef<ImuNoiseState | null>(null);
-
-  const objectKind = useStore((s) => s.objectKind);
-
-  // Reused per-frame to map hand-tracking input through pinchTargetToWorld
-  // — see helper above for the math.
+  // Per-frame scratch for the camera-yaw composition of pinchRotation
+  // and the pinch-target world-space mapping.
   const camBackH = useRef(new THREE.Vector3());
   const camRightH = useRef(new THREE.Vector3());
   const worldVec = useRef(new THREE.Vector3());
-  // Reused per-sample scratch for IMU pose-delta math.
-  const angVelWorld = useRef(new THREE.Vector3());
-  // Reused per-frame scratch for camera-yaw composition of pinchRotation.
   const yawAxis = useRef(new THREE.Vector3(0, 1, 0));
   const yawQuat = useRef(new THREE.Quaternion());
-  const handQuatScratch = useRef(new THREE.Quaternion());
-
-  // Body remount (objectKind change) gives us a fresh body at a different
-  // pose — drop the IMU history so we don't emit a one-sample velocity
-  // spike from the pre-remount position. Also reset the synthetic
-  // noise state so a fresh object gets its own bias-drift trajectory
-  // and per-axis scale-factor errors.
-  useEffect(() => {
-    sampleInit.current = false;
-    noiseState.current = null;
-  }, [objectKind]);
+  const handQuat = useRef(new THREE.Quaternion());
+  // Cached hand pose so we can compute a release velocity from the
+  // last few frames of pinch motion.
+  const prevHandPos = useRef(new THREE.Vector3(0, 2, 0));
+  const releaseLinvel = useRef<[number, number, number]>([0, 0, 0]);
+  const wasGrabbed = useRef(false);
 
   useFrame((state, dt) => {
-    const body = bodyRef.current;
-    if (!body) return;
-
+    if (!sim) return;
     const {
       isGrabbed,
       pinchTarget,
@@ -197,15 +185,12 @@ function ManipulatedObject() {
       sampleRateHz,
       isRecording,
       pushSample,
+      imuNoise,
     } = useStore.getState();
 
     if (isGrabbed && pinchTarget) {
-      if (body.bodyType() !== 2) {
-        body.setBodyType(2, true);
-        body.setLinvel({ x: 0, y: 0, z: 0 }, true);
-        body.setAngvel({ x: 0, y: 0, z: 0 }, true);
-      }
-      const cur = body.translation();
+      // Map the pinch target through the camera-yaw basis (same
+      // transform we use for the marker mesh below).
       pinchTargetToWorld(
         pinchTarget,
         state.camera,
@@ -213,208 +198,113 @@ function ManipulatedObject() {
         camRightH.current,
         worldVec.current,
       );
-      const next = new THREE.Vector3(cur.x, cur.y, cur.z).lerp(
-        worldVec.current,
-        FOLLOW_LERP,
-      );
-      body.setNextKinematicTranslation({ x: next.x, y: next.y, z: next.z });
+      // Lerp from the current hand pose for visual smoothing — the
+      // raw hand-tracking signal is jittery, and unfiltered jitter
+      // produces a noisy IMU trace. The lerp factor matches the
+      // pre-migration FOLLOW_LERP so the recorded shake signature is
+      // unchanged.
+      const next = new THREE.Vector3(
+        prevHandPos.current.x,
+        prevHandPos.current.y,
+        prevHandPos.current.z,
+      ).lerp(worldVec.current, PINCH_LERP);
+
+      // Composed orientation: camera yaw × hand rotation. Skips the
+      // composition (identity quat) when the hand-tracker hasn't
+      // produced a rotation yet — typical at the very start of a grab.
+      let qw = 1,
+        qx = 0,
+        qy = 0,
+        qz = 0;
       if (pinchRotation) {
-        // Compose with camera yaw so the held body's rotation tracks the
-        // hand even after the user orbits the scene — same yaw basis as
-        // the position mapping above.
         const yaw = cameraYawAngle(state.camera);
         yawQuat.current.setFromAxisAngle(yawAxis.current, yaw);
-        handQuatScratch.current.set(
+        handQuat.current.set(
           pinchRotation[0],
           pinchRotation[1],
           pinchRotation[2],
           pinchRotation[3],
         );
-        const composed = yawQuat.current.multiply(handQuatScratch.current);
-        body.setNextKinematicRotation({
-          x: composed.x,
-          y: composed.y,
-          z: composed.z,
-          w: composed.w,
-        });
+        const composed = yawQuat.current.multiply(handQuat.current);
+        qx = composed.x;
+        qy = composed.y;
+        qz = composed.z;
+        qw = composed.w;
       }
-      releaseVel.current.set(
-        (next.x - prevPos.current.x) / Math.max(dt, 1e-3),
-        (next.y - prevPos.current.y) / Math.max(dt, 1e-3),
-        (next.z - prevPos.current.z) / Math.max(dt, 1e-3),
-      );
-      prevPos.current.copy(next);
-      wasGrabbed.current = true;
-    } else {
-      if (wasGrabbed.current) {
-        body.setBodyType(0, true);
-        body.setLinvel(
-          {
-            x: releaseVel.current.x,
-            y: releaseVel.current.y,
-            z: releaseVel.current.z,
-          },
-          true,
+      // MuJoCo mocap_quat is (w, x, y, z); three.js is (x, y, z, w).
+      // Repack at the boundary.
+      if (!wasGrabbed.current) {
+        // First frame of a fresh grab. Seed `prevHandPos` at the
+        // target so the velocity sampled this frame is zero — without
+        // this, a grab right after a release would inherit the post-
+        // release world position and produce a spurious linvel of
+        // metres/second on the very first sample.
+        prevHandPos.current.copy(worldVec.current);
+        sim.grab(
+          [worldVec.current.x, worldVec.current.y, worldVec.current.z],
+          [qw, qx, qy, qz],
         );
-        // One-shot angular-velocity hint from the procedural-motion
-        // runner. Without it, Rapier zeroes the kinematic body's angvel
-        // on type-switch and a flat cube can land without any post-impact
-        // torque — the gyroscope channel ends up flat at zero. Consume
-        // and clear so a subsequent user-driven release isn't affected.
-        const { nextReleaseAngVel, setNextReleaseAngVel } = useStore.getState();
-        if (nextReleaseAngVel) {
-          body.setAngvel(
-            {
-              x: nextReleaseAngVel[0],
-              y: nextReleaseAngVel[1],
-              z: nextReleaseAngVel[2],
-            },
-            true,
-          );
-          setNextReleaseAngVel(null);
-        }
-        wasGrabbed.current = false;
+      } else {
+        sim.setHandPose([next.x, next.y, next.z], [qw, qx, qy, qz]);
       }
-      const cur = body.translation();
-      prevPos.current.set(cur.x, cur.y, cur.z);
+
+      // Cache the per-frame velocity so a release picks up the throw
+      // direction without an explicit sample. dt floor avoids div-by-
+      // zero on the first frame.
+      const ddt = Math.max(dt, 1e-3);
+      releaseLinvel.current = [
+        (next.x - prevHandPos.current.x) / ddt,
+        (next.y - prevHandPos.current.y) / ddt,
+        (next.z - prevHandPos.current.z) / ddt,
+      ];
+      prevHandPos.current.copy(next);
+      wasGrabbed.current = true;
+    } else if (wasGrabbed.current) {
+      // Pinch just released. Hand off the linvel we tracked while
+      // grabbed and consume any one-shot angvel the procedural runner
+      // staged for throws (see store comment for the rationale).
+      const { nextReleaseAngVel, setNextReleaseAngVel } = useStore.getState();
+      sim.release({
+        linvel: releaseLinvel.current,
+        angvel: nextReleaseAngVel ?? undefined,
+      });
+      if (nextReleaseAngVel) setNextReleaseAngVel(null);
+      wasGrabbed.current = false;
     }
 
-    // IMU sampling.
-    //
-    // The previous version computed acceleration by *double* finite-
-    // differencing the body's position (pos→linvel→accel, each over one
-    // `period`) and ran a `while (accum >= period)` loop, so a 60 fps
-    // render with a 100 Hz request would emit two samples per frame
-    // sharing the same `body.translation()`. That collapsed every other
-    // sample's linvel to zero and the second derivative spiked to
-    // ±|V|/period — ~500 m/s² of pure aliasing on top of the real signal.
-    //
-    // Now: we read Rapier's integrator state (`body.linvel()`) when the
-    // body is dynamic — that's smooth, drift-free, and only needs *one*
-    // numerical differentiation to get acceleration. During kinematic
-    // phases (held by a pinch, or driven by the procedural-motions
-    // controller) Rapier reports linvel = 0, so we fall back to a single
-    // position delta — same accuracy as before but only one division.
-    //
-    // We also emit at most one sample per frame and divide by the actual
-    // elapsed time since the last sample, not the nominal period — that
-    // removes the same-frame duplicate-emit aliasing entirely.
+    sim.step(dt);
+
+    // Mirror MuJoCo's pose onto the visual mesh. xquat is (w, x, y, z),
+    // three.js Quaternion is (x, y, z, w) — repack.
+    const pose = sim.readPose();
+    if (meshRef.current) {
+      meshRef.current.position.set(pose.pos[0], pose.pos[1], pose.pos[2]);
+      meshRef.current.quaternion.set(
+        pose.quat[1],
+        pose.quat[2],
+        pose.quat[3],
+        pose.quat[0],
+      );
+    }
+
+    // IMU sampling at the configured rate, gated on the accumulator
+    // so a 60 fps render with a 100 Hz request emits ≤ 1 sample/frame.
     const period = 1 / sampleRateHz;
     sampleAccumulator.current += dt;
-    if (sampleAccumulator.current >= period) {
+    if (sampleAccumulator.current >= period && isRecording) {
       const sampleDt = sampleAccumulator.current;
       sampleAccumulator.current = 0;
-
-      const t = body.translation();
-      const r = body.rotation();
-      const curPos = new THREE.Vector3(t.x, t.y, t.z);
-      const curQuat = new THREE.Quaternion(r.x, r.y, r.z, r.w);
-
-      // First sample after init (or remount) seeds the history with no
-      // emission — otherwise the apparent acceleration would jump from a
-      // zero baseline.
-      if (!sampleInit.current) {
-        prevSamplePos.current.copy(curPos);
-        prevSampleQuat.current.copy(curQuat);
-        prevSampleLinvel.current.set(0, 0, 0);
-        sampleInit.current = true;
-        return;
-      }
-
-      const isDynamic = body.bodyType() === 0;
-      const linvel = new THREE.Vector3();
-      if (isDynamic) {
-        const lv = body.linvel();
-        linvel.set(lv.x, lv.y, lv.z);
-      } else {
-        linvel
-          .copy(curPos)
-          .sub(prevSamplePos.current)
-          .divideScalar(sampleDt);
-      }
-      angularVelocityFromQuats(
-        prevSampleQuat.current,
-        curQuat,
-        sampleDt,
-        angVelWorld.current,
-      );
-      const reading = computeImuReading({
-        linvel: [linvel.x, linvel.y, linvel.z],
-        prevLinvel: [
-          prevSampleLinvel.current.x,
-          prevSampleLinvel.current.y,
-          prevSampleLinvel.current.z,
-        ],
-        angVelWorld: [
-          angVelWorld.current.x,
-          angVelWorld.current.y,
-          angVelWorld.current.z,
-        ],
-        qCur: [curQuat.x, curQuat.y, curQuat.z, curQuat.w],
-        dt: sampleDt,
-        gWorld: [GRAVITY[0], GRAVITY[1], GRAVITY[2]],
-      });
-
-      prevSamplePos.current.copy(curPos);
-      prevSampleQuat.current.copy(curQuat);
-      prevSampleLinvel.current.copy(linvel);
-
-      // Apply MathWorks-style sensor noise to the clean reading. The
-      // noise state's bias accumulators advance in place each tick so
-      // the recorded trace contains realistic Allan-variance bias
-      // wandering, not just per-sample white noise.
-      const noiseCfg = useStore.getState().imuNoise;
-      if (!noiseState.current) noiseState.current = makeImuNoiseState(noiseCfg);
-      const noisy = applyImuNoise(
-        [reading.ax, reading.ay, reading.az],
-        [reading.gx, reading.gy, reading.gz],
-        noiseState.current,
-        noiseCfg,
-        sampleDt,
-      );
-
-      if (isRecording) {
-        pushSample({
-          t: performance.now(),
-          ax: noisy.accel[0],
-          ay: noisy.accel[1],
-          az: noisy.accel[2],
-          gx: noisy.gyro[0],
-          gy: noisy.gyro[1],
-          gz: noisy.gyro[2],
-        });
-      }
+      const sample = sampleImu(sim, noiseStateRef.current, imuNoise, sampleDt);
+      pushSample(sample);
+    } else if (sampleAccumulator.current >= period) {
+      // Not recording — drain the accumulator anyway so the next
+      // recording's first sample starts at the right phase, not at
+      // whatever fractional time happens to have accumulated.
+      sampleAccumulator.current = 0;
     }
   });
 
-  // Collider auto-shape is immutable on a RigidBody, so switching kinds
-  // (cube ↔ phone ↔ sphere) needs a fresh body to get the right collider.
-  // The `key` below remounts on kind change, which also resets the body's
-  // pose to the position prop — no separate translation reset needed.
-  const collider: 'cuboid' | 'ball' | 'hull' =
-    objectKind === 'cube' || objectKind === 'phone'
-      ? 'cuboid'
-      : objectKind === 'sphere'
-        ? 'ball'
-        : 'hull';
-
-  return (
-    <RigidBody
-      key={objectKind}
-      ref={bodyRef}
-      colliders={collider}
-      restitution={0.45}
-      friction={0.6}
-      position={[0, 2, 0]}
-      linearDamping={0.05}
-      angularDamping={0.1}
-      // Continuous collision detection so a fast release / lost-hand drop
-      // doesn't tunnel through the thin ground plane.
-      ccd
-    >
-      <ManipulatedMesh kind={objectKind} meshRef={meshRef} />
-    </RigidBody>
-  );
+  return <ManipulatedMesh kind={objectKind} meshRef={meshRef} />;
 }
 
 function ManipulatedMesh({
@@ -602,14 +492,20 @@ function RoverScene() {
 }
 
 /** Arm scene: the Braccio rig + the user's arm-owned pickup objects.
- * Same `ownerFilter` story — the arm scene only renders objects added
- * through the arm panel (owner='arm'), so rover obstacles or vision-
- * mode objects don't appear here. */
+ * The active pickup target (matching `armTargetId`) is omitted from
+ * the SpawnedObjects render — `BraccioArm`'s `ArmTargetMesh` draws it
+ * at MuJoCo's settled pose so the fingers can physically grasp it.
+ * Other arm-owned objects stay as kinematic scenery. */
 function ArmScene() {
+  const armTargetId = useStore((s) => s.armTargetId);
+  const excludeIds = useMemo(
+    () => (armTargetId ? [armTargetId] : undefined),
+    [armTargetId],
+  );
   return (
     <>
       <BraccioArm />
-      <SpawnedObjects ownerFilter="arm" />
+      <SpawnedObjects ownerFilter="arm" excludeIds={excludeIds} />
     </>
   );
 }
