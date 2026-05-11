@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Analytics } from '@vercel/analytics/react';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import { Hud } from './components/Hud';
 import { InferenceOverlay } from './components/InferenceOverlay';
 import { Sidebar } from './components/Sidebar';
@@ -285,6 +286,7 @@ export default function App() {
       )}
       <Sidebar drawerOpen={drawerOpen} onClose={() => setDrawerOpen(false)} />
       <Analytics />
+      <SpeedInsights />
     </div>
   );
 }
