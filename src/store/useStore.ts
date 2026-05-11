@@ -824,14 +824,25 @@ export const useStore = create<State>()(
   },
   randomizeArmPickupPositions: (rng = Math.random) => {
     // The Braccio's reachable workspace is a half-annulus in front of
-    // the base. Sample (radius ∈ [0.08, 0.18], angle ∈ [0, π]) and
+    // the base. Sample (radius ∈ [0.11, 0.22], angle ∈ [0, π]) and
     // convert to xz. Angle == 0 puts the target along +z; angle == π
     // puts it along -z. Y stays at half the cube extent so the body
     // rests on the floor with zero penetration. Each arm-owned object
     // gets an independent draw — when the user has several, they
     // spread out instead of stacking.
-    const R_MIN = 0.08;
-    const R_MAX = 0.18;
+    //
+    // Range derivation:
+    //   - R_MIN = 0.11: outside the 0.08 m base plate (plus a small
+    //     gap) so the cube doesn't visually sit on / inside the arm
+    //     mount when randomized.
+    //   - R_MAX = 0.22: just inside the IK reach envelope for a
+    //     gripper tip near the floor. The reachable annulus given
+    //     shoulder = elbow = 0.125 m and wrist-to-tip = 0.16 m caps
+    //     at √(0.25² − 0.074²) ≈ 0.238 m radially when the tip is at
+    //     y ≈ 0; 0.22 leaves headroom so IK doesn't run flat against
+    //     the workspace boundary.
+    const R_MIN = 0.11;
+    const R_MAX = 0.22;
     set((s) => ({
       sceneObjects: s.sceneObjects.map((o) => {
         if (o.owner !== 'arm') return o;
