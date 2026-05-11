@@ -1537,10 +1537,10 @@ export function RobotPanel() {
         )}
       </div>
 
-      {/* Realism is always available in robotics for parity with the
-          vision panels. It only modifies image captures, so it's a
-          no-op for sensor-only runs. */}
-      <RealismCard />
+      {/* Realism only modifies image captures, so gate on
+          objectDetection — sensor-only runs (IMU / lidar) don't
+          produce images for the pass to touch. */}
+      {robot.objectDetection && <RealismCard />}
 
       <EiAuthCard showHmac />
 
