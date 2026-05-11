@@ -414,6 +414,8 @@ export function VisionPanel() {
         </label>
       </div>
 
+      <RealismCard />
+
       <div className="card capture-card">
         <h3>Capture</h3>
         {mode === 'anomaly' && (
@@ -497,8 +499,6 @@ export function VisionPanel() {
           </button>
         </div>
       </div>
-
-      <RealismCard />
 
       <EiAuthCard />
 
