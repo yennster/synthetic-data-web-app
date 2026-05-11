@@ -20,15 +20,15 @@ Run trained Edge Impulse YOLO / MobileNet / FOMO models **directly in-browser** 
 
 Built with AI coding assistants.
 
-![Synthetic Data Studio · Object Detection mode](docs/screenshot-detection.png)
+![Synthetic Data Studio · Object Detection mode](docs/screenshots/screenshot-detection.png)
 
 *Object detection mode: 6 labelled objects on a scrolling conveyor belt, virtual capture camera shown as the orange frustum gizmo, live preview in the bottom-left corner.*
 
-![Synthetic Data Studio · Motion mode](docs/screenshot-motion.png)
+![Synthetic Data Studio · Motion mode](docs/screenshots/screenshot-motion.png)
 
 *Motion mode: pinch the cube with your hand to grab it, throw it onto the ground, record the accelerometer trace.*
 
-![Synthetic Data Studio · Robotics mode](docs/screenshot-robotics.png)
+![Synthetic Data Studio · Robotics mode](docs/screenshots/screenshot-robotics.png)
 
 *Robotics mode: rover scene with lidar / ToF beams, obstacle objects, onboard POV preview, and the robotics generator controls.*
 

@@ -1366,11 +1366,14 @@ export function RobotPanel() {
       )}
 
       <div className="card">
-        <h3>Object detection</h3>
+        {/* When OFF the card collapses to "Object detection · OFF" +
+            the toggle so the sidebar stays compact for users who only
+            want sensor data. Flipping it on expands the help text +
+            sub-controls (capture phase, count, output size). */}
         <div className="webcam-control">
           <div className="webcam-control-copy">
             <div className="webcam-control-heading">
-              <span className="webcam-control-title">Enabled</span>
+              <h3 style={{ margin: 0 }}>Object detection</h3>
               <span
                 className={`webcam-control-state ${
                   robot.objectDetection ? 'on' : 'off'
@@ -1379,21 +1382,23 @@ export function RobotPanel() {
                 {robot.objectDetection ? 'On' : 'Off'}
               </span>
             </div>
-            <div className="webcam-control-help">
-              Snap{' '}
-              {robot.captureAtRest
-                ? 1
-                : robot.objectDetectionImagesPerIteration}{' '}
-              POV-camera image
-              {(robot.captureAtRest
-                ? 1
-                : robot.objectDetectionImagesPerIteration) === 1
-                ? ''
-                : 's'}{' '}
-              per iteration with 2D bounding boxes. EI accepts only one
-              data type per project — the runner probes the project and
-              routes the other to a local zip.
-            </div>
+            {robot.objectDetection && (
+              <div className="webcam-control-help">
+                Snap{' '}
+                {robot.captureAtRest
+                  ? 1
+                  : robot.objectDetectionImagesPerIteration}{' '}
+                POV-camera image
+                {(robot.captureAtRest
+                  ? 1
+                  : robot.objectDetectionImagesPerIteration) === 1
+                  ? ''
+                  : 's'}{' '}
+                per iteration with 2D bounding boxes. EI accepts only one
+                data type per project — the runner probes the project
+                and routes the other to a local zip.
+              </div>
+            )}
           </div>
           <button
             type="button"

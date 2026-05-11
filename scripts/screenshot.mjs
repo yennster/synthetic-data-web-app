@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rawTarget = (process.argv[2] || 'detection').toLowerCase();
-const outDir = path.join(__dirname, '..', 'docs');
+const outDir = path.join(__dirname, '..', 'docs', 'screenshots');
 const usdzPath = process.argv[3];
 const enablePhysics = process.argv[4] === 'physics';
 
