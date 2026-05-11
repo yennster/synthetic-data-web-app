@@ -18,6 +18,7 @@ import { randomPreReleaseMs } from '../lib/proceduralMotion';
 import { useNumberInput } from '../lib/useNumberInput';
 import { buildZip, type ZipEntry } from '../lib/zip';
 import { EiAuthCard } from './EiAuthCard';
+import { ImuNoiseToggle } from './ImuNoiseToggle';
 
 const OBJECTS: { value: ObjectKind; label: string }[] = [
   { value: 'cube', label: 'Cube' },
@@ -649,6 +650,7 @@ export function MotionPanel() {
         <div style={{ fontSize: 12, color: 'var(--muted)' }}>
           {samples.length} samples · {durationSec.toFixed(2)}s
         </div>
+        <ImuNoiseToggle />
       </div>
 
       <div className="card">
