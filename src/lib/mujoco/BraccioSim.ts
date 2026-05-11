@@ -31,6 +31,7 @@ import {
   BRACCIO_IMU_SENSOR_NAMES,
   BRACCIO_JOINT_NAMES,
   BRACCIO_MJCF,
+  BRACCIO_TARGET,
   apertureToFingerSlide,
 } from './braccioMjcf';
 import type { MujocoModule } from './runtime';
@@ -62,6 +63,8 @@ export class BraccioSim {
   private actuatorIds: number[];
   private gripActuatorIds: number[];
   private jointQposAdr: number[];
+  private targetJointQposAdr: number;
+  private targetBodyId: number;
   private sensorAdr: { accel: number; gyro: number; quat: number; pos: number };
   private model: ReturnType<MujocoModule['MjModel']['from_xml_string']>;
   private data: InstanceType<MujocoModule['MjData']>;
@@ -93,6 +96,8 @@ export class BraccioSim {
     this.jointQposAdr = BRACCIO_JOINT_NAMES.map(
       (n) => jntQposAdr[this.model.jnt(n).id],
     );
+    this.targetJointQposAdr = jntQposAdr[this.model.jnt(BRACCIO_TARGET.joint).id];
+    this.targetBodyId = this.model.body(BRACCIO_TARGET.body).id;
 
     const sensorAdr = this.model.sensor_adr as Int32Array;
     this.sensorAdr = {
@@ -213,6 +218,47 @@ export class BraccioSim {
       // boundary.
       quat: [s[q], s[q + 1], s[q + 2], s[q + 3]],
       pos: [s[p], s[p + 1], s[p + 2]],
+    };
+  }
+
+  /** Place the pickup target at a specific world position with
+   * identity orientation and zero velocity. Called at the start of a
+   * pick_place run to align MuJoCo's target body with the user's
+   * selected scene object. */
+  placeTarget(pos: [number, number, number]): void {
+    const qpos = this.data.qpos as Float64Array;
+    const adr = this.targetJointQposAdr;
+    qpos[adr + 0] = pos[0];
+    qpos[adr + 1] = pos[1];
+    qpos[adr + 2] = pos[2];
+    qpos[adr + 3] = 1; // qw
+    qpos[adr + 4] = 0;
+    qpos[adr + 5] = 0;
+    qpos[adr + 6] = 0;
+    // Clear the target's joint velocity slots (DOF addr is the same as
+    // qpos for the first 3 slots since this is a free joint without a
+    // quat-conversion; the angular DOFs occupy slots 3..5 in qvel).
+    const jntDofAdr = this.model.jnt_dofadr as Int32Array;
+    const dofAdr = jntDofAdr[this.model.jnt(BRACCIO_TARGET.joint).id];
+    const qvel = this.data.qvel as Float64Array;
+    for (let i = 0; i < 6; i++) qvel[dofAdr + i] = 0;
+    this.mujoco.mj_forward(this.model, this.data);
+  }
+
+  /** World-frame pose of the pickup target. Used by the rig to render
+   * the cube wherever MuJoCo has settled it after gripper interaction.
+   * Quaternion comes out as (w, x, y, z). */
+  readTargetPose(): {
+    pos: [number, number, number];
+    quat: [number, number, number, number];
+  } {
+    const xpos = this.data.xpos as Float64Array;
+    const xquat = this.data.xquat as Float64Array;
+    const i = this.targetBodyId * 3;
+    const j = this.targetBodyId * 4;
+    return {
+      pos: [xpos[i], xpos[i + 1], xpos[i + 2]],
+      quat: [xquat[j], xquat[j + 1], xquat[j + 2], xquat[j + 3]],
     };
   }
 

@@ -7,12 +7,8 @@ import {
   type ArmParametricPath,
 } from '../lib/armTrajectories';
 import { BraccioSim } from '../lib/mujoco/BraccioSim';
+import { sampleImu, type NoiseStateRef } from '../lib/mujoco/imuSensor';
 import { loadMujocoModule } from '../lib/mujoco/runtime';
-import {
-  applyImuNoise,
-  makeImuNoiseState,
-  type ImuNoiseState,
-} from '../lib/imuNoise';
 import { useStore } from '../store/useStore';
 
 /**
@@ -327,7 +323,44 @@ export function BraccioArm() {
       </group>
       <ArmController sim={sim} />
       <ArmImuSampler sim={sim} />
+      <ArmTargetMesh sim={sim} />
     </>
+  );
+}
+
+/**
+ * Renders the MuJoCo-owned pickup target as a small cube. The mesh's
+ * pose is driven by `sim.readTargetPose()` each frame, so it tracks
+ * the integrator — including the lift + drop arcs that come from
+ * the gripper closing on it. The visual block size (3 cm) matches
+ * the half-extents of the MJCF `g_target` geom.
+ *
+ * This replaces what `SpawnedObjects` would render for the active arm
+ * target; `ArmScene` in `Scene.tsx` filters that ID out so we don't
+ * draw two cubes on top of each other.
+ */
+function ArmTargetMesh({ sim }: { sim: BraccioSim | null }) {
+  const meshRef = useRef<THREE.Mesh>(null);
+  useFrame(() => {
+    if (!sim) return;
+    const pose = sim.readTargetPose();
+    const m = meshRef.current;
+    if (!m) return;
+    m.position.set(pose.pos[0], pose.pos[1], pose.pos[2]);
+    // MuJoCo quat is (w, x, y, z); three.js is (x, y, z, w).
+    m.quaternion.set(pose.quat[1], pose.quat[2], pose.quat[3], pose.quat[0]);
+  });
+  return (
+    <mesh ref={meshRef} castShadow>
+      <boxGeometry args={[0.03, 0.03, 0.03]} />
+      <meshStandardMaterial
+        color="#5eead4"
+        emissive="#0d4d44"
+        emissiveIntensity={0.3}
+        roughness={0.4}
+        metalness={0.2}
+      />
+    </mesh>
   );
 }
 
@@ -372,6 +405,13 @@ function ArmController({ sim }: { sim: BraccioSim | null }) {
         z: target.position[2],
       };
     }
+    // Place MuJoCo's pickup target at the user's selected position so
+    // the gripper actually closes on something. The cube y is clamped
+    // a smidge above the floor so it doesn't intersect on spawn. For
+    // non-pick-place trajectories we still place it — the user can
+    // see it as a static scene element even when the arm isn't
+    // trying to grasp.
+    sim.placeTarget([pickup.x, pickup.y, pickup.z]);
     pathRef.current = buildArmTrajectory(trajectory, {
       pickup,
       drop,
@@ -410,7 +450,7 @@ function ArmController({ sim }: { sim: BraccioSim | null }) {
 function ArmImuSampler({ sim }: { sim: BraccioSim | null }) {
   const recordAccum = useRef(0);
   const recordPeriod = 1 / RECORD_HZ;
-  const noiseState = useRef<ImuNoiseState | null>(null);
+  const noiseStateRef = useRef<NoiseStateRef>({ current: null });
 
   useFrame((_, dt) => {
     if (!sim) return;
@@ -419,30 +459,10 @@ function ArmImuSampler({ sim }: { sim: BraccioSim | null }) {
     const sampleDt = recordAccum.current;
     recordAccum.current = 0;
 
-    const imu = sim.readImu();
-
-    const noiseCfg = useStore.getState().imuNoise;
-    if (!noiseState.current) noiseState.current = makeImuNoiseState(noiseCfg);
-    const noisy = applyImuNoise(
-      imu.accel,
-      imu.gyro,
-      noiseState.current,
-      noiseCfg,
-      sampleDt,
-    );
-
-    const { robotRunning, pushRobotImuSample } = useStore.getState();
-    if (robotRunning) {
-      pushRobotImuSample({
-        t: performance.now(),
-        ax: noisy.accel[0],
-        ay: noisy.accel[1],
-        az: noisy.accel[2],
-        gx: noisy.gyro[0],
-        gy: noisy.gyro[1],
-        gz: noisy.gyro[2],
-      });
-    }
+    const { robotRunning, pushRobotImuSample, imuNoise } = useStore.getState();
+    if (!robotRunning) return;
+    const sample = sampleImu(sim, noiseStateRef.current, imuNoise, sampleDt);
+    pushRobotImuSample(sample);
   });
 
   return null;

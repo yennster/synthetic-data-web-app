@@ -64,7 +64,19 @@ export const BRACCIO_MJCF = `
 
   <worldbody>
     <light name="top" pos="0 2 0" dir="0 -1 0" diffuse="1 1 1"/>
-    <geom name="floor" type="plane" size="2 2 0.1" material="grid" pos="0 0 0" zaxis="0 1 0"/>
+    <geom name="floor" type="plane" size="2 2 0.1" material="grid" pos="0 0 0" zaxis="0 1 0"
+          friction="0.8 0.05 0.005"/>
+
+    <!-- Pickup target. A free-joint cube the size of a real Braccio
+         demo block (~3 cm), placed by the arm controller at run start
+         to match the user's selected scene object. Friction tuned so
+         the gripper fingers can hold it under load without slipping.
+         Mass is small (15 g) — matches the EI sticker-block density. -->
+    <body name="target" pos="0.18 0.015 0.12">
+      <freejoint name="j_target"/>
+      <geom name="g_target" type="box" size="0.015 0.015 0.015" mass="0.015"
+            rgba="0.37 0.92 0.83 1" friction="2.0 0.1 0.01"/>
+    </body>
 
     <!-- Mounting plate (matches the cosmetic disc in the three.js rig). -->
     <geom name="plate" type="cylinder" pos="0 ${(L.plateThickness / 2).toFixed(4)} 0"
@@ -121,15 +133,21 @@ export const BRACCIO_MJCF = `
                      finger's slide range [0, HALF_GRIP]. -->
                 <body name="finger_l" pos="0 ${(L.fingerLength / 2 + 0.02).toFixed(4)} 0">
                   <joint name="j_grip_l" type="slide" axis="-1 0 0" range="0 ${HALF_GRIP.toFixed(4)}"/>
+                  <!-- High friction on the gripper pads so closing the
+                       jaws traps the target via Coulomb friction (real
+                       parallel-jaw arms grip the same way — soft pads
+                       with high coefficient of friction). -->
                   <geom name="g_finger_l" type="box"
                         size="0.009 ${(L.fingerLength / 2).toFixed(4)} 0.012"
-                        rgba="0.23 0.27 0.32 1" mass="0.005"/>
+                        rgba="0.23 0.27 0.32 1" mass="0.005"
+                        friction="2.0 0.1 0.01"/>
                 </body>
                 <body name="finger_r" pos="0 ${(L.fingerLength / 2 + 0.02).toFixed(4)} 0">
                   <joint name="j_grip_r" type="slide" axis="1 0 0" range="0 ${HALF_GRIP.toFixed(4)}"/>
                   <geom name="g_finger_r" type="box"
                         size="0.009 ${(L.fingerLength / 2).toFixed(4)} 0.012"
-                        rgba="0.23 0.27 0.32 1" mass="0.005"/>
+                        rgba="0.23 0.27 0.32 1" mass="0.005"
+                        friction="2.0 0.1 0.01"/>
                 </body>
               </body>
             </body>
@@ -186,6 +204,14 @@ export const BRACCIO_JOINT_NAMES = [
 ] as const;
 
 export const BRACCIO_GRIP_ACTUATOR_NAMES = ['a_grip_l', 'a_grip_r'] as const;
+
+/** Names used by `BraccioSim` to interact with the pickup target. The
+ * free joint name is needed for qpos addressing; the body name is the
+ * accessor for world-frame pose readouts (xpos/xquat). */
+export const BRACCIO_TARGET = {
+  body: 'target',
+  joint: 'j_target',
+} as const;
 
 export const BRACCIO_IMU_SENSOR_NAMES = {
   accel: 'imu_accel',

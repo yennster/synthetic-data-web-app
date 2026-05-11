@@ -254,20 +254,28 @@ function SpawnedMesh({ obj }: { obj: SceneObject }) {
 
 export function SpawnedObjects({
   ownerFilter,
+  excludeIds,
 }: {
   /** Restrict rendering to objects whose `owner` matches this value.
    * `'vision'` matches the legacy untagged pool (objects added through
    * the detection / anomaly panels). Omit to render every object. */
   ownerFilter?: SceneObjectOwner | 'vision';
+  /** Skip these object ids. Used to hide the arm's active pickup
+   * target — that object is rendered by `BraccioArm`'s `ArmTargetMesh`
+   * at MuJoCo's settled pose so it can be physically grasped, and
+   * including it here too would draw two cubes on top of each other. */
+  excludeIds?: ReadonlyArray<string>;
 } = {}) {
   const sceneObjects = useStore((s) => s.sceneObjects);
-  const filtered = ownerFilter
-    ? sceneObjects.filter((o) =>
-        ownerFilter === 'vision'
-          ? o.owner == null
-          : o.owner === ownerFilter,
-      )
-    : sceneObjects;
+  const filtered = (
+    ownerFilter
+      ? sceneObjects.filter((o) =>
+          ownerFilter === 'vision'
+            ? o.owner == null
+            : o.owner === ownerFilter,
+        )
+      : sceneObjects
+  ).filter((o) => !excludeIds?.includes(o.id));
   return (
     <>
       {filtered.map((obj) => {
