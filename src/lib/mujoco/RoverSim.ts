@@ -30,7 +30,6 @@ export class RoverSim {
   private chassisBodyId!: number;
   private chassisGeomId!: number;
   private jointQposAdr!: number[];
-  private jointDofAdr!: number[];
   private sensorAdr!: { accel: number; gyro: number; quat: number; pos: number };
   private model!: ReturnType<MujocoModule['MjModel']['from_xml_string']>;
   private data!: InstanceType<MujocoModule['MjData']>;
@@ -60,12 +59,8 @@ export class RoverSim {
     this.chassisGeomId = this.model.geom('g_chassis').id;
 
     const jntQposAdr = this.model.jnt_qposadr as Int32Array;
-    const jntDofAdr = this.model.jnt_dofadr as Int32Array;
     this.jointQposAdr = ROVER_JOINT_NAMES.map(
       (n) => jntQposAdr[this.model.jnt(n).id],
-    );
-    this.jointDofAdr = ROVER_JOINT_NAMES.map(
-      (n) => jntDofAdr[this.model.jnt(n).id],
     );
 
     const sensorAdr = this.model.sensor_adr as Int32Array;

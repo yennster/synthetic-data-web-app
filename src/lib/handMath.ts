@@ -130,45 +130,6 @@ export function quatFromBasis(right: Vec3, up: Vec3, forward: Vec3): Quat {
 }
 
 /**
- * World-frame angular velocity (rad/s) implied by two body rotations sampled
- * `dt` seconds apart. Returns `[ωx, ωy, ωz]`.
- *
- * Handles the short-arc flip (so a 359° rotation reads as -1°, not +359°)
- * and degenerate cases where the rotation between samples is too small to
- * extract a stable axis. Pure math version of the same routine used by the
- * Scene's per-sample IMU loop — kept here so the IMU-during-kinematic-pinch
- * fix has unit-test coverage.
- */
-export function angularVelocityFromQuats(qPrev: Quat, qCur: Quat, dt: number): Vec3 {
-  // dq = qCur * qPrev^-1 (quaternion multiplication; inverse of unit quat
-  // is its conjugate).
-  const ax = qCur[0],
-    ay = qCur[1],
-    az = qCur[2],
-    aw = qCur[3];
-  const bx = -qPrev[0],
-    by = -qPrev[1],
-    bz = -qPrev[2],
-    bw = qPrev[3];
-  let dx = aw * bx + ax * bw + ay * bz - az * by;
-  let dy = aw * by - ax * bz + ay * bw + az * bx;
-  let dz = aw * bz + ax * by - ay * bx + az * bw;
-  let dw = aw * bw - ax * bx - ay * by - az * bz;
-  if (dw < 0) {
-    dx = -dx;
-    dy = -dy;
-    dz = -dz;
-    dw = -dw;
-  }
-  if (dw >= 0.9999999) return [0, 0, 0];
-  const angle = 2 * Math.acos(Math.min(1, dw));
-  const s = Math.sqrt(Math.max(0, 1 - dw * dw));
-  if (s < 1e-9) return [0, 0, 0];
-  const k = angle / dt / s;
-  return [dx * k, dy * k, dz * k];
-}
-
-/**
  * Derive a unit quaternion describing the hand's orientation in camera space
  * from a MediaPipe landmark set. Body-local axes map as:
  *   +Y → palm "up" (wrist 0 → middle MCP 9)

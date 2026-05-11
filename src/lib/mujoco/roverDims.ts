@@ -13,8 +13,4 @@ export const ROVER_DIMS = {
   wheelT: 0.07,
   rideHeight: 0.05,
   headSize: 0.18,
-  /** Bounding-circle radius used by contact detection. Slightly larger
-   * than the chassis half-diagonal so the contact event triggers a hair
-   * before geometric overlap, matching how a real bumper switch fires. */
-  chassisDiscR: 0.36,
 } as const;

@@ -1,9 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import {
-  buildEventPath,
-  detectContact,
-  type ObstacleDisc,
-} from './rover';
+import { buildEventPath, type ObstacleDisc } from './rover';
+
+/** Local helper — the rover used to ship a `detectContact` function for
+ * its kinematic collision spike; now that the live runtime uses
+ * MuJoCo's contact solver, the test keeps the distance check inline.
+ * Returns true if the rover's chassis disc overlaps any obstacle. */
+function chassisOverlaps(
+  rover: { x: number; z: number },
+  chassisRadius: number,
+  obstacles: ReadonlyArray<ObstacleDisc>,
+): boolean {
+  for (const o of obstacles) {
+    const dx = rover.x - o.x;
+    const dz = rover.z - o.z;
+    const d = Math.sqrt(dx * dx + dz * dz);
+    if (o.r + chassisRadius - d > 0) return true;
+  }
+  return false;
+}
 
 /**
  * Deterministic RNG for tests — a tiny linear-congruential generator
@@ -108,39 +122,8 @@ describe('rover trajectories', () => {
       for (let i = 0; i <= 20; i++) {
         const t = i / 20;
         const p = path.sample(t);
-        const contact = detectContact(p, CHASSIS_R, obstacles);
-        expect(contact).not.toBeNull();
+        expect(chassisOverlaps(p, CHASSIS_R, obstacles)).toBe(true);
       }
     });
-  });
-});
-
-describe('contact detection', () => {
-  it('returns null when the rover is clear of every obstacle', () => {
-    const obstacles: ObstacleDisc[] = [
-      { x: 1, z: 0, r: 0.3 },
-      { x: -1, z: 0, r: 0.3 },
-    ];
-    expect(detectContact({ x: 0, z: 0 }, 0.3, obstacles)).toBeNull();
-  });
-
-  it('reports overlap with the first colliding obstacle', () => {
-    const a: ObstacleDisc = { x: 0.4, z: 0, r: 0.3 };
-    const b: ObstacleDisc = { x: -0.4, z: 0, r: 0.3 };
-    const result = detectContact({ x: 0.3, z: 0 }, 0.3, [a, b]);
-    expect(result).not.toBeNull();
-    if (!result) throw new Error('null');
-    expect(result.obstacle).toBe(a);
-    expect(result.penetration).toBeGreaterThan(0);
-  });
-
-  it('penetration scales with how far into the obstacle the rover is', () => {
-    const o: ObstacleDisc = { x: 0, z: 0, r: 0.5 };
-    const shallow = detectContact({ x: 0.79, z: 0 }, 0.3, [o]);
-    const deep = detectContact({ x: 0.5, z: 0 }, 0.3, [o]);
-    expect(shallow).not.toBeNull();
-    expect(deep).not.toBeNull();
-    if (!shallow || !deep) throw new Error('null');
-    expect(deep.penetration).toBeGreaterThan(shallow.penetration);
   });
 });

@@ -26,11 +26,7 @@
  * raw world coordinates.
  */
 
-import {
-  BRACCIO_LIMITS_RAD,
-  BRACCIO_LINKS,
-  gripperServoRadFromAperture,
-} from './braccio';
+import { BRACCIO_LIMITS_RAD, BRACCIO_LINKS } from './braccio';
 
 /** Solver output: six joint values in the same order the rig expects.
  * Joints 0..4 are servo radians (clamped to spec limits); joint 5 is
@@ -44,51 +40,6 @@ export type BraccioJointVector = [
   number,
   number,
 ];
-
-/** Approximate "tip" position of the gripper in the chain's local frame
- * for a given joint vector. Used for rest poses, debugging and tests.
- * Mirrors the rig's nested-group composition exactly so a forward-then-
- * inverse round trip lands within numeric error. */
-export function braccioForwardKinematics(
-  joints: BraccioJointVector,
-): { x: number; y: number; z: number } {
-  const [yaw, sh, el, wp] = joints;
-  const L = BRACCIO_LINKS;
-  // Plant the plane angle from the base yaw.
-  const planeX = Math.sin(yaw);
-  const planeZ = Math.cos(yaw);
-  // Position the wrist-pitch joint via shoulder+elbow link composition.
-  // The chain raises the upper arm by `shoulder` length about its
-  // pitch axis, then bends the forearm by `elbow`, then the wrist-
-  // pitch carrier by `wristPitch`. Each link is renderered as a vertical
-  // box whose tip lies at `+L` along the parent's local Y after the
-  // joint rotation — exactly the offsets you'd see on the physical
-  // Braccio CAD.
-  // We solve for the wrist-pitch joint's position (the tip of the
-  // forearm) in the chain plane. Subtract the base pivot (plate
-  // height) so the math is in the rotating base's frame.
-  const baseHeight = L.plateThickness + L.base;
-  // Shoulder rotation lifts the upper arm in the plane.
-  const ux = Math.sin(sh) * L.shoulder;
-  const uy = Math.cos(sh) * L.shoulder;
-  // Elbow rotates the forearm relative to the upper arm.
-  const elbowAngle = sh + el; // accumulated pitch in the plane
-  const fx = ux + Math.sin(elbowAngle) * L.elbow;
-  const fy = uy + Math.cos(elbowAngle) * L.elbow;
-  // Wrist pitch then orients the wrist carrier; the tool-center point
-  // is one wrist-roll link beyond plus a finger length, projected by
-  // the cumulative pitch.
-  const wristAngle = elbowAngle + wp;
-  const tipX =
-    fx + Math.sin(wristAngle) * (L.wristPitch + L.wristRoll + L.fingerLength);
-  const tipY =
-    fy + Math.cos(wristAngle) * (L.wristPitch + L.wristRoll + L.fingerLength);
-  return {
-    x: planeX * tipX,
-    y: baseHeight + tipY,
-    z: planeZ * tipX,
-  };
-}
 
 /**
  * Solve for joint angles that place the gripper tip at `target` (world
@@ -175,21 +126,6 @@ export function solveBraccioIk(
   }
   out[5] = Math.max(0, Math.min(1, out[5]));
   return out;
-}
-
-/** Bake an aperture-based gripper command into a joint vector by
- * mapping aperture → servo-radians via the published Braccio mapping.
- * Useful when an upstream control loop wants to reason in servo units. */
-export function withGripperServo(
-  joints: BraccioJointVector,
-  apertureNorm: number,
-): BraccioJointVector {
-  // Visual-aperture stays as the normalized 0..1 the renderer expects;
-  // here we round-trip through the servo mapping to confirm it stays
-  // inside spec.
-  const servo = gripperServoRadFromAperture(apertureNorm);
-  void servo; // keeps the import live for the round-trip semantics
-  return [joints[0], joints[1], joints[2], joints[3], joints[4], apertureNorm];
 }
 
 /**

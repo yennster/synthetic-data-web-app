@@ -32,12 +32,22 @@ src/
 │   ├── handTracking.ts           // HandLandmarker + pinch math
 │   ├── usdz.ts                   // OpenUSD WASM loader wrapper, dispose helper
 │   ├── beltDynamics.ts           // Shared belt geometry + transportable-bodies set
-│   ├── rover.ts                  // Path generators + contact detector
+│   ├── rover.ts                  // Procedural path generators (cruise / collision / stuck)
 │   ├── lidar.ts                  // Raycaster wrapper for the ToF / lidar ring
 │   ├── braccio.ts                // Braccio joint limits + link lengths
 │   ├── braccioIk.ts              // Analytical IK solver + lerp helper
 │   ├── armTrajectories.ts        // Parametric joint-space trajectory generators
 │   ├── imuNoise.ts               // LSM6DSO-calibrated synthetic noise model
+│   ├── mujoco/                   // MuJoCo (WebAssembly) physics + sensor pipeline
+│   │   ├── runtime.ts            //   Lazy WASM loader (singleton, ?url-resolved binary)
+│   │   ├── imuSensor.ts          //   sampleImu() — single IMU codepath across all modes
+│   │   ├── braccioMjcf.ts        //   MJCF for the arm + pickup target
+│   │   ├── BraccioSim.ts         //   Arm wrapper: step, set joint targets, read sensors
+│   │   ├── roverDims.ts          //   Shared chassis / wheel dimensions
+│   │   ├── roverMjcf.ts          //   MJCF generator (chassis + dynamic obstacles)
+│   │   ├── RoverSim.ts           //   Rover wrapper: planar chassis + MJCF rebuild
+│   │   ├── motionMjcf.ts         //   MJCF templates per ObjectKind
+│   │   └── MotionSim.ts          //   Motion-mode wrapper: grab/release via weld eq
 │   ├── dragMove.ts               // Shift+drag pointer-event handlers (XZ plane)
 │   ├── capture.ts                // Off-screen render, bbox projection, download helper
 │   ├── edgeImpulse.ts            // Ingestion API + Studio API (list projects, fetch deployment)
@@ -50,34 +60,63 @@ src/
     └── useStore.ts               // Zustand store (single source of truth)
 ```
 
-## How the IMU signal is computed
+## Physics + sensors: one pipeline (MuJoCo WASM)
 
-A real IMU has two sensors: an accelerometer and a gyroscope. We emit both per tick.
+Every scene that records IMU data — motion mode, the Braccio arm, the rover — runs on **MuJoCo**, compiled to WebAssembly via [`@mujoco/mujoco`](https://www.npmjs.com/package/@mujoco/mujoco). The visual rigs are still three.js (and still in React Three Fiber's `useFrame` loop); MuJoCo owns the dynamics, contact solver, and sensors. Each mode has a small `*Sim` wrapper in `lib/mujoco/` that owns one `MjModel` + `MjData` pair and exposes a handful of typed methods:
 
-**Accelerometer** measures **proper acceleration** — what you feel relative to free-fall, *not* coordinate acceleration:
+| Mode    | Wrapper      | Body topology                                                |
+|---------|--------------|--------------------------------------------------------------|
+| Motion  | `MotionSim`  | Free-joint manipulated body + mocap "hand" + weld equality. The shape (cube/sphere/phone/…) is baked into a per-kind MJCF that gets recompiled on `loadShape()`. |
+| Arm     | `BraccioSim` | 5 revolute joints + 2 mirrored slide fingers + free-joint pickup target. Position actuators on every joint; the pickup target is moved with `placeTarget()` and grasped via friction. |
+| Rover   | `RoverSim`   | Planar chassis (x slide, z slide, yaw hinge) + N static obstacle bodies. `rebuildWithObstacles()` recompiles the model when the scene's rover obstacles change. |
 
+The WASM binary is ~8.6 MB and only loads when one of these scenes mounts (lazy `import()` in `lib/mujoco/runtime.ts`). Vite's `?url` import + an Emscripten `locateFile` hook resolve the `.wasm` next to the JS module.
+
+### IMU readout — one codepath
+
+Each `*Sim` implements `ImuSource`:
+
+```ts
+interface ImuSource {
+  readImu(): {
+    accel: [number, number, number]; // body-frame, gravity-included (m/s²)
+    gyro:  [number, number, number]; // body-frame angular velocity (rad/s)
+    quat:  [number, number, number, number]; // world orientation, (w, x, y, z)
+    pos:   [number, number, number];         // world position (m)
+  };
+}
 ```
-a_proper = a_inertial − g_world
-```
 
-where `g_world = (0, −9.81, 0)`.
+`accel` / `gyro` come straight from MuJoCo's `accelerometer` and `gyro` sensors attached to a site at the IMU mount point. No finite-difference math, no body-frame rotation in JS — MuJoCo does the physics. Both `BraccioSim`, `RoverSim`, and `MotionSim` produce the same shape.
 
-Per sampling tick (at most one per render frame, using the actual time elapsed since the last sample):
+`sampleImu(source, noiseStateRef, cfg, dt)` in `lib/mujoco/imuSensor.ts` is the single entry point every per-frame sampler calls. It:
 
-- **Dynamic body** — read Rapier's integrator state (`body.linvel()`), differentiate once over `sampleDt` to get inertial acceleration, subtract `g_world`, rotate into the body's local frame.
-- **Kinematic body** (held by a pinch, or driven by the procedural-motions controller) — Rapier reports `linvel = 0`, so we fall back to a single position-delta over `sampleDt` for the velocity estimate, then differentiate as above.
+1. Reads the IMU off the source.
+2. Lazily initializes the LSM6DSO-calibrated noise state (`lib/imuNoise.ts`) — Allan-variance bias drift + per-axis scale-factor errors.
+3. Applies noise in place so the drift accumulator advances between calls.
+4. Stamps the sample with `performance.now()` and returns it.
 
-This is one finite-difference, not two. An earlier version chained two — pos → velocity → accel, each divided by the nominal period — and combined with multiple sample emissions per frame produced ±500 m/s² aliasing spikes (the same body position got read twice in one frame, the second sample's "velocity" collapsed to zero, and the next frame's first sample saw `(V − 0)/period` ≈ 100 × V).
+Stationary body → `accel ≈ (0, +9.81, 0)` (gravity-loaded reaction); free-fall → `≈ (0, 0, 0)`; a body spinning at 1 rad/s about its own up-axis → `gyro ≈ (0, ~1, 0)`. Same convention everywhere.
 
-So: stationary object reads `(0, +9.81, 0)` (ground pushes up against gravity), freefall reads `(0, 0, 0)`, hand-driven shake gives a realistic IMU waveform.
+### Motion mode: grab / release without body-type switching
 
-### Initial spin on procedural release
+The manipulated body is a real free-joint body in MuJoCo. A mocap body called `hand` represents where the user's pinch is in world space, and a `weld` equality constraint between the two is toggled via `data.eq_active[0]`:
 
-Rapier zeroes a kinematic body's angular velocity when it switches back to dynamic, and a symmetric cube can land flat with no post-impact torque — both of which leave the gyroscope channel as a flat zero line. The procedural-motion runner therefore writes a one-shot `nextReleaseAngVel` hint into the store before each `releaseBody()` call, and the manipulator's kinematic→dynamic transition consumes it via `body.setAngvel(...)`. Magnitudes are tuned per motion class (drop ≈ 3 rad/s, push ≈ 2 rad/s, throw ≈ 5 rad/s) — a real-world drop almost always carries some initial spin, so matching that gives EI a richer 6-channel signal to discriminate from. User-driven manual recordings don't set the hint, so they keep the natural release behavior.
+- **Grab** (`sim.grab(pos, quat)`) → set `eq_active[0] = 1` and write `mocap_pos` / `mocap_quat`. The weld pulls the body to follow the hand; the integrator runs normally, so the accelerometer reads true proper acceleration of the constrained motion.
+- **Pose updates** while grabbed (`sim.setHandPose(...)`) → just rewrite the mocap pose.
+- **Release** (`sim.release({ linvel?, angvel? })`) → set `eq_active[0] = 0` and optionally write velocity into `qvel`. Gravity takes over from the next step.
 
-**Gyroscope** measures **angular velocity** in the sensor's own body frame, in rad/s. Rapier reports `body.angvel()` in world space; we rotate it by the body's inverse orientation quaternion (the same `qInv` used for the accelerometer transform) to land in body coordinates. So: stationary object reads `(0, 0, 0)`, a body spinning around its own up-axis at 90°/s reads `(0, ~1.57, 0)`, etc.
+`nextReleaseAngVel` in the store still exists — the procedural-motion runner writes a one-shot angvel hint before release so a symmetric cube doesn't land with a dead-flat gyroscope channel. Magnitudes are tuned per class (drop ≈ 3 rad/s, push ≈ 2 rad/s, throw ≈ 5 rad/s).
 
-Both sensors share the same per-sample timestamp so EI's signal-processing blocks can do windowed feature extraction (DSP, spectral analysis) across all 6 channels.
+### Arm: real grasping
+
+The Braccio MJCF contains a free-joint cube body (`target`) and high-friction gripper finger geoms. At the start of a `pick_place` run, `BraccioSim.placeTarget(pos)` writes the cube to the user's selected scene position with zero velocity. The trajectory's IK keyframes close the gripper at the right time and the fingers physically trap the cube via Coulomb friction. `SpawnedObjects` in `Scene.tsx` filters the active target id so the visual scene doesn't draw two cubes (the kinematic three.js mesh and MuJoCo's owned mesh would otherwise overlap).
+
+### Rover: MuJoCo-native collisions
+
+When the rover's "Reset scene" auto-spawns obstacles or the user adds them, `RoverSim.rebuildWithObstacles()` recompiles the model with one static cylinder body per obstacle. `mj_step()` runs MuJoCo's contact solver each frame, and `sim.chassisInContact()` reads `data.ncon` + the contact list to flip the bumper indicator. The accelerometer spike on impact comes from the solver's constraint forces — no hand-tuned `qfrc_applied` magnitude, no disc-circle math. Trajectory generation still uses the obstacle disc representation for path planning (the trajectory code is unchanged).
+
+Lidar stays on three.js raycasts against the obstacle group — pulling N rangefinder sites into the MJCF would add overhead per `lidarBins` setting without a measurable signal-quality gain.
 
 ## How bounding boxes are computed
 
@@ -97,9 +136,10 @@ Result: tight axis-aligned 2D boxes in pixel coordinates with top-left origin �
 | What | Where | Default |
 |---|---|---|
 | Pinch-on / pinch-off thresholds | `CameraFeed.tsx` | 0.65 / 0.45 |
-| Kinematic follow smoothing | `Scene.tsx` `FOLLOW_LERP` | 0.35 |
-| Restitution (bounciness) | `Scene.tsx` `RigidBody` | 0.45 |
-| Friction | `Scene.tsx` `Ground` | 0.8 |
+| Pinch follow smoothing | `Scene.tsx` `PINCH_LERP` | 0.35 |
+| Motion-mode geom friction / mass | `motionMjcf.ts` (per-kind) | 0.6 friction · ~0.12 kg |
+| Weld constraint compliance | `motionMjcf.ts` `solref` | `"0.015 1"` (15 ms time constant) |
+| Floor friction | `motionMjcf.ts` / `roverMjcf.ts` / `braccioMjcf.ts` | 0.6 – 0.8 |
 | Sample rate (motion) | UI / `useStore.ts` | 100 Hz |
 | Sample rate (robotics) | `docs/robotics.md` | 20 Hz |
 | Capture resolution | UI | 640 × 480 |
@@ -110,6 +150,8 @@ Result: tight axis-aligned 2D boxes in pixel coordinates with top-left origin �
 | Lidar bins | UI / `useStore.ts` | 16 |
 | Lidar max range | UI / `useStore.ts` | 20 m |
 | Braccio rest pose | `braccio.ts` | all joints at 0 rad (aperture 0) |
+| MuJoCo timestep | per-MJCF `<option timestep>` | 2 ms (arm) · 5 ms (rover, motion) |
+| Step catch-up cap | each `*Sim.step()` | 25 steps / frame (~50–125 ms wall-clock) |
 
 ## Edge Impulse payload formats
 
