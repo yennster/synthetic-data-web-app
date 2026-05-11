@@ -144,6 +144,8 @@ export function RobotPanel() {
   const setRobotCancelRequested = useStore((s) => s.setRobotCancelRequested);
   const bumpRoverEpoch = useStore((s) => s.bumpRoverEpoch);
   const bumpArmEpoch = useStore((s) => s.bumpArmEpoch);
+  const bumpRobotCaptures = useStore((s) => s.bumpRobotCaptures);
+  const resetRobotCaptures = useStore((s) => s.resetRobotCaptures);
   const clearLidarSamples = useStore((s) => s.clearLidarSamples);
   const clearRobotImuSamples = useStore((s) => s.clearRobotImuSamples);
   const setRoverPose = useStore((s) => s.setRoverPose);
@@ -191,6 +193,7 @@ export function RobotPanel() {
     const event: RoverEvent = robot.roverEvent;
     setRobotCancelRequested(false);
     setRobotRunning(true);
+    resetRobotCaptures();
     let uploaded = 0;
     let captured = 0;
     let failed = 0;
@@ -325,8 +328,10 @@ export function RobotPanel() {
                 meta,
               );
             }
-            if (res.ok) uploaded += 1;
-            else failed += 1;
+            if (res.ok) {
+              uploaded += 1;
+              bumpRobotCaptures();
+            } else failed += 1;
           } catch {
             failed += 1;
           }
@@ -363,6 +368,7 @@ export function RobotPanel() {
             }),
           );
           captured += 1;
+          bumpRobotCaptures();
         }
         if (robot.rosExport) {
           // Each iteration becomes one rosbag.jsonl. The runner
@@ -419,6 +425,7 @@ export function RobotPanel() {
     const trajectory: ArmTrajectory = robot.armTrajectory;
     setRobotCancelRequested(false);
     setRobotRunning(true);
+    resetRobotCaptures();
     let uploaded = 0;
     let captured = 0;
     let failed = 0;
@@ -540,8 +547,10 @@ export function RobotPanel() {
               fileName,
               meta,
             );
-            if (res.ok) uploaded += 1;
-            else failed += 1;
+            if (res.ok) {
+              uploaded += 1;
+              bumpRobotCaptures();
+            } else failed += 1;
           } catch {
             failed += 1;
           }
@@ -560,6 +569,7 @@ export function RobotPanel() {
             }),
           );
           captured += 1;
+          bumpRobotCaptures();
         }
         if (robot.rosExport) {
           // Bundle end-effector IMU + joint-state stream into a ROS 2
