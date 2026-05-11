@@ -120,9 +120,17 @@ export function motionMjcf(kind: ObjectKind): string {
          toggles eq_active[0] = 1 on grab and 0 on release.
          solref controls compliance: a moderately soft weld (15 ms
          time-constant) so the IMU reads a credible acceleration
-         while the hand drags the body, instead of a teleport. -->
+         while the hand drags the body, instead of a teleport.
+
+         relpose is critical: MuJoCo's default ("0 0 0 0 0 0 0") tells
+         the weld to enforce the body's relative pose at qpos0 — i.e.
+         the hand/object spawn offset baked into the MJCF — which
+         would leave the cube floating one meter above the hand
+         forever. The explicit identity ("0 0 0 1 0 0 0") pins the
+         object exactly to the hand's pose whenever the weld is
+         active. -->
     <weld name="grab" body1="hand" body2="object" active="false"
-          solref="0.015 1"/>
+          solref="0.015 1" relpose="0 0 0 1 0 0 0"/>
   </equality>
 
   <sensor>
