@@ -190,6 +190,59 @@ describe('sceneObjects', () => {
   });
 });
 
+describe('randomizeArmPickupPositions', () => {
+  /** Tiny deterministic RNG so the assertions can hit specific values
+   * without flaking — same shape as the rover-trajectory tests. */
+  function seededRng(seed: number): () => number {
+    let s = seed >>> 0;
+    return () => {
+      s = (s * 1664525 + 1013904223) >>> 0;
+      return s / 0x100000000;
+    };
+  }
+
+  it('rewrites every arm-owned position into the reachable annulus', () => {
+    useStore.getState().addArmPickupTarget('cube');
+    useStore.getState().addArmPickupTarget('cube');
+    useStore.getState().addArmPickupTarget('cube');
+    // A non-arm object should NOT be touched — confirms the owner filter.
+    useStore.getState().addSceneObject('cube', 'distractor');
+    const distractorIdBefore = useStore
+      .getState()
+      .sceneObjects.find((o) => o.owner == null)?.id;
+    const distractorPosBefore = useStore
+      .getState()
+      .sceneObjects.find((o) => o.id === distractorIdBefore)?.position;
+
+    useStore.getState().randomizeArmPickupPositions(seededRng(7));
+
+    const after = useStore.getState().sceneObjects;
+    for (const o of after) {
+      if (o.owner !== 'arm') continue;
+      // Reachable workspace: radius ∈ [0.08, 0.18], angle ∈ [0, π].
+      const r = Math.sqrt(o.position[0] ** 2 + o.position[2] ** 2);
+      expect(r).toBeGreaterThanOrEqual(0.08 - 1e-9);
+      expect(r).toBeLessThanOrEqual(0.18 + 1e-9);
+      // Angle ∈ [0, π] means x ≥ 0 — front half-circle only.
+      expect(o.position[0]).toBeGreaterThanOrEqual(-1e-9);
+      // Y stays at half the cube extent so the body rests on the floor.
+      expect(o.position[1]).toBeCloseTo(0.015, 9);
+    }
+
+    // Untagged distractor must keep its original position untouched.
+    const distractorAfter = after.find((o) => o.id === distractorIdBefore);
+    expect(distractorAfter?.position).toEqual(distractorPosBefore);
+  });
+
+  it('is a no-op when there are no arm-owned objects', () => {
+    useStore.getState().addSceneObject('sphere');
+    const before = useStore.getState().sceneObjects;
+    useStore.getState().randomizeArmPickupPositions(seededRng(1));
+    const after = useStore.getState().sceneObjects;
+    expect(after).toEqual(before);
+  });
+});
+
 describe('motion recording', () => {
   it('startRecording sets the flag and resets samples', () => {
     useStore.setState({ samples: [{ t: 0, ax: 0, ay: 0, az: 1, gx: 0, gy: 0, gz: 0 }] });

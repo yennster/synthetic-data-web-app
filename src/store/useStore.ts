@@ -378,6 +378,13 @@ type State = {
      * scene-graph anchors each frame, so adding a new mount just
      * means adding a pair of named groups in `BraccioArm.tsx`. */
     armCameraMount: 'base' | 'shoulder' | 'elbow' | 'wrist' | 'gripper';
+    /** When true, the procedural runner re-samples a random reachable
+     * position for every arm-owned pickup object at the start of each
+     * `pick_place` iteration. Useful for generating diverse training
+     * data without dragging the cube between runs. The sampler stays
+     * inside the published Braccio reach envelope (radius 8–18 cm,
+     * base-yaw half-circle) so every randomized target is graspable. */
+    armRandomizeTarget: boolean;
   };
   setRobot: (patch: Partial<State['robot']>) => void;
   /** True while a procedural robot run is active. */
@@ -464,6 +471,13 @@ type State = {
    * Returns the new object's id so the caller can target it for
    * pick-and-place. */
   addArmPickupTarget: (kind?: ObjectKind, label?: string) => string;
+  /** Re-sample a random reachable position for every arm-owned scene
+   * object. Position stays on the floor (y = 0.015 = cube half-extent
+   * above the floor); xz is drawn uniformly from the Braccio's
+   * reachable workspace (radius 8–18 cm, base-yaw half-circle
+   * 0–π). Called by the BraccioArm controller on each iteration when
+   * `armRandomizeTarget` is on. */
+  randomizeArmPickupPositions: (rng?: () => number) => void;
   removeSceneObject: (id: string) => void;
   updateSceneObject: (id: string, patch: Partial<SceneObject>) => void;
   clearSceneObjects: () => void;
@@ -702,6 +716,7 @@ export const useStore = create<State>()(
     rosExport: false,
     armHomePose: [...BRACCIO_REST_RAD],
     armCameraMount: 'wrist',
+    armRandomizeTarget: false,
   },
   setRobot: (patch) => set((s) => ({ robot: { ...s.robot, ...patch } })),
   robotRunning: false,
@@ -806,6 +821,32 @@ export const useStore = create<State>()(
     };
     set((s) => ({ sceneObjects: [...s.sceneObjects, obj] }));
     return id;
+  },
+  randomizeArmPickupPositions: (rng = Math.random) => {
+    // The Braccio's reachable workspace is a half-annulus in front of
+    // the base. Sample (radius ∈ [0.08, 0.18], angle ∈ [0, π]) and
+    // convert to xz. Angle == 0 puts the target along +z; angle == π
+    // puts it along -z. Y stays at half the cube extent so the body
+    // rests on the floor with zero penetration. Each arm-owned object
+    // gets an independent draw — when the user has several, they
+    // spread out instead of stacking.
+    const R_MIN = 0.08;
+    const R_MAX = 0.18;
+    set((s) => ({
+      sceneObjects: s.sceneObjects.map((o) => {
+        if (o.owner !== 'arm') return o;
+        const radius = R_MIN + rng() * (R_MAX - R_MIN);
+        const angle = rng() * Math.PI;
+        return {
+          ...o,
+          position: [
+            Math.sin(angle) * radius,
+            0.015,
+            Math.cos(angle) * radius,
+          ],
+        };
+      }),
+    }));
   },
   removeSceneObject: (id) =>
     set((s) => ({ sceneObjects: s.sceneObjects.filter((o) => o.id !== id) })),
@@ -919,32 +960,47 @@ export const useStore = create<State>()(
     }),
     {
       name: 'sds-store',
-      version: 4,
+      version: 5,
       storage: createJSONStorage(() => localStorage),
       migrate: (persistedState, version) => {
         if (
-          version >= 4 ||
           !persistedState ||
           typeof persistedState !== 'object'
         ) {
           return persistedState;
         }
-        const state = persistedState as Partial<State>;
-        const robot = state.robot;
-        if (
-          !robot ||
-          (robot.armHomePose &&
-            !isPose(robot.armHomePose, OLD_BRACCIO_REST_RAD))
-        ) {
-          return persistedState;
+        let state = persistedState as Partial<State>;
+        // v3 → v4: reset stale Braccio rest poses to the new default.
+        if (version < 4) {
+          const robot = state.robot;
+          if (
+            robot &&
+            robot.armHomePose &&
+            isPose(robot.armHomePose, OLD_BRACCIO_REST_RAD)
+          ) {
+            state = {
+              ...state,
+              robot: {
+                ...robot,
+                armHomePose: [...BRACCIO_REST_RAD],
+              },
+            };
+          }
         }
-        return {
-          ...state,
-          robot: {
-            ...robot,
-            armHomePose: [...BRACCIO_REST_RAD],
-          },
-        };
+        // v4 → v5: backfill the new `armRandomizeTarget` toggle so users
+        // whose persisted `robot` was saved before this field existed
+        // get a usable default instead of an `undefined` that breaks the
+        // toggle UI.
+        if (version < 5 && state.robot) {
+          state = {
+            ...state,
+            robot: {
+              ...state.robot,
+              armRandomizeTarget: state.robot.armRandomizeTarget ?? false,
+            },
+          };
+        }
+        return state;
       },
       // Persist only the bits worth restoring: scene primitives, scene
       // settings, capture config, mode, and asset *metadata* (the live

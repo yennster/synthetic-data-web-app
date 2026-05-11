@@ -386,7 +386,19 @@ function ArmController({ sim }: { sim: BraccioSim | null }) {
       pathRef.current = null;
       return;
     }
-    const state = useStore.getState();
+    let state = useStore.getState();
+    // If the user toggled "randomize pickup positions" on, re-sample
+    // every arm-owned object's xz before we read the active target.
+    // Only does anything for pick_place — the other trajectory classes
+    // don't reference scene objects, so shuffling them mid-run would
+    // just churn the scene for no signal benefit.
+    if (
+      state.robot.armRandomizeTarget &&
+      state.robot.armTrajectory === 'pick_place'
+    ) {
+      state.randomizeArmPickupPositions();
+      state = useStore.getState();
+    }
     const targetId = state.armTargetId;
     // World position of the cube body. The IK targets are derived from
     // this — see comment block below for the bottom-of-cube reasoning.
