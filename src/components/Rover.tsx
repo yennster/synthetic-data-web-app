@@ -328,7 +328,17 @@ function LidarFan({
   });
 
   return (
-    <lineSegments ref={linesRef} geometry={geom}>
+    // The named handle lets the POV-camera bridge find this mesh and
+    // hide it just before an object-detection capture so the beam
+    // overlay doesn't get burned into the training image. Live preview
+    // keeps showing the beams (they only flip invisible for the one
+    // synchronous render call inside `captureFrame`).
+    <lineSegments
+      ref={linesRef}
+      geometry={geom}
+      name="rover-lidar-fan"
+      userData={{ hideForCapture: true }}
+    >
       <lineBasicMaterial
         color="#5eead4"
         transparent

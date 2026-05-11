@@ -20,15 +20,15 @@ Run trained Edge Impulse YOLO / MobileNet / FOMO models **directly in-browser** 
 
 Built with AI coding assistants.
 
-![Synthetic Data Studio · Object Detection mode](docs/screenshot-detection.png)
+![Synthetic Data Studio · Object Detection mode](docs/screenshots/screenshot-detection.png)
 
 *Object detection mode: 6 labelled objects on a scrolling conveyor belt, virtual capture camera shown as the orange frustum gizmo, live preview in the bottom-left corner.*
 
-![Synthetic Data Studio · Motion mode](docs/screenshot-motion.png)
+![Synthetic Data Studio · Motion mode](docs/screenshots/screenshot-motion.png)
 
 *Motion mode: pinch the cube with your hand to grab it, throw it onto the ground, record the accelerometer trace.*
 
-![Synthetic Data Studio · Robotics mode](docs/screenshot-robotics.png)
+![Synthetic Data Studio · Robotics mode](docs/screenshots/screenshot-robotics.png)
 
 *Robotics mode: rover scene with lidar / ToF beams, obstacle objects, onboard POV preview, and the robotics generator controls.*
 
@@ -61,9 +61,9 @@ Built with AI coding assistants.
 - Direct upload to EI with bounding boxes attached; one-click retrain.
 - Scene state persists across reloads (primitives, USDZ assets, camera settings).
 
-**Edge Impulse model inference (vision modes)**
+**Edge Impulse model inference (vision + robot POV)**
 - Fetch a built WebAssembly deployment straight from your project, or upload `.js` + `.wasm` manually.
-- Live inference at ~5 Hz on the virtual-camera preview; bounding boxes / FOMO centroids / visual-anomaly heatmap.
+- Live inference at ~5 Hz on the virtual-camera preview (detection / anomaly) **or** the rover / arm POV preview (robotics with object detection enabled); bounding boxes / FOMO centroids / visual-anomaly heatmap.
 
 **Robotics mode**
 - Two synthetic robot rigs in one mode behind a kind toggle:
@@ -74,6 +74,8 @@ Built with AI coding assistants.
 - Synthetic IMU noise model (MathWorks `imuSensor`-style: Allan-variance noise density, bias instability, scale-factor error, ADC quantization, saturation) applied to motion / rover / arm IMU paths. Defaults match an LSM6DSO at ±4 g / ±2000 dps.
 - Manual object spawning (pillars / crates / cones) and USDZ imports via the **Scene obstacles** / **Pickup objects** / **Imported** cards; obstacles and pickup targets are draggable with the same `Shift+drag` controls as detection mode.
 - First-person POV camera (front-mounted on rover, wrist-mounted on arm) renders into the corner overlay so you can see what the robot's onboard camera would see during the trajectory.
+- **Object detection capture**: toggle on to layer image capture (with auto-projected 2D bounding boxes) on top of the sensor recording. The runner probes the linked EI project's data type up-front and asks you to confirm — matching data uploads, conflicting data downloads as a local zip with `bounding_boxes.labels`. Configurable N images per iteration (mid-motion) or one image at rest. Lidar / ToF beams are auto-hidden from the captured PNGs.
+- **Live model inference on the POV preview**: when object detection is on, load an Edge Impulse WebAssembly deployment and run it against the rover / arm POV at 5 Hz to see what the onboard model would detect.
 
 - URL deep links: `?mode=robotics&robot=arm` lands directly on the arm rig.
 

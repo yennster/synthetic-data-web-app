@@ -6,6 +6,7 @@ import {
   buildInfoLabelsFile,
   buildIngestionMetadata,
   buildRoverDataAcquisitionPayload,
+  getEiProjectDataKinds,
   inferIntervalMs,
   resolveBucket,
   uploadCaptures,
@@ -773,5 +774,248 @@ describe('uploadCaptures', () => {
       done: 2,
       failed: 0,
     });
+  });
+});
+
+describe('getEiProjectDataKinds', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  /** Build a stub that routes by URL substring:
+   *   - `/<id>` (no `/raw-data`, no `category=`) → project info
+   *   - `/raw-data?category=training`            → training samples
+   *   - `/raw-data?category=testing`             → testing samples
+   *
+   * `samplesByCategory` accepts arbitrary sample objects so individual
+   * tests can exercise the structural-signal classifier (intervalMs,
+   * thumbnailUrl, etc.) without hand-rolling fetch handlers each time.
+   * `projectInfo` is omitted entirely from the response when unset, so
+   * the production code's `!r.project` guard correctly falls through
+   * to the raw-data path. */
+  function stubEi(opts: {
+    projectInfo?: Record<string, unknown> | null;
+    samplesByCategory?: Record<string, unknown[]>;
+  }) {
+    fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/raw-data')) {
+        const m = url.match(/category=(\w+)/);
+        const category = m?.[1] ?? 'training';
+        const samples = opts.samplesByCategory?.[category] ?? [];
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          text: async () => JSON.stringify({ success: true, samples }),
+        };
+      }
+      // Project info endpoint.
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: async () =>
+          JSON.stringify(
+            opts.projectInfo === null
+              ? { success: false, error: 'no project info' }
+              : { success: true, project: opts.projectInfo ?? {} },
+          ),
+      };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+  }
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('reports empty when both project info and samples are empty', async () => {
+    stubEi({ projectInfo: null });
+    const r = await getEiProjectDataKinds('ei_test', 42);
+    expect(r).toEqual({
+      hasImages: false,
+      hasTimeSeries: false,
+      totalChecked: 0,
+    });
+  });
+
+  it('uses isComputerVisionProject from /<id> as the authoritative signal', async () => {
+    // The bug we are fixing: an image-typed object-detection project
+    // (the user's "Conveyor Belt Cans" project) was getting
+    // misclassified as time-series because raw-data filenames don't
+    // carry an extension. Project info should short-circuit to image.
+    stubEi({
+      projectInfo: { isComputerVisionProject: true },
+      // Even if raw-data is empty, the project-info short-circuit
+      // wins — no second fetch should be needed.
+      samplesByCategory: { training: [], testing: [] },
+    });
+    const r = await getEiProjectDataKinds('ei_test', 42);
+    expect(r.hasImages).toBe(true);
+    expect(r.hasTimeSeries).toBe(false);
+    // Only one fetch — to /<id>. Raw-data should never have been queried.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).not.toContain('/raw-data');
+  });
+
+  it('infers image from labelingMethod="bounding-boxes" in project info', async () => {
+    stubEi({
+      projectInfo: { labelingMethod: 'bounding-boxes' },
+    });
+    const r = await getEiProjectDataKinds('ei_test', 42);
+    expect(r.hasImages).toBe(true);
+    expect(r.hasTimeSeries).toBe(false);
+  });
+
+  it('infers image from dataAcquisitionType containing "image"', async () => {
+    stubEi({
+      projectInfo: { dataAcquisitionType: 'image' },
+    });
+    const r = await getEiProjectDataKinds('ei_test', 42);
+    expect(r.hasImages).toBe(true);
+  });
+
+  it('infers time-series from dataAcquisitionType="accelerometer"', async () => {
+    stubEi({
+      projectInfo: { dataAcquisitionType: 'accelerometer' },
+    });
+    const r = await getEiProjectDataKinds('ei_test', 42);
+    expect(r.hasTimeSeries).toBe(true);
+    expect(r.hasImages).toBe(false);
+  });
+
+  it('falls back to raw-data when project info has no useful flags', async () => {
+    stubEi({
+      projectInfo: { dataAcquisitionType: 'unknown' },
+      samplesByCategory: {
+        training: [{ filename: 'a.png' }],
+        testing: [],
+      },
+    });
+    const r = await getEiProjectDataKinds('ei_test', 42);
+    expect(r.hasImages).toBe(true);
+  });
+
+  it('classifies time-series samples by intervalMs > 0', async () => {
+    stubEi({
+      projectInfo: null,
+      samplesByCategory: {
+        training: [{ filename: '1.cbor', intervalMs: 10, valuesCount: 2000 }],
+        testing: [],
+      },
+    });
+    const r = await getEiProjectDataKinds('ei_test', 42);
+    expect(r.hasTimeSeries).toBe(true);
+    expect(r.hasImages).toBe(false);
+  });
+
+  it('classifies image samples by thumbnailUrl even without an extension', async () => {
+    // Regression test for the user's bug: EI stores ingested images
+    // under `.cbor` filenames internally. The filename-only classifier
+    // misread these as time-series. Thumbnails are the structural
+    // signal that survives the storage detail.
+    stubEi({
+      projectInfo: null,
+      samplesByCategory: {
+        training: [
+          { filename: '1.cbor', thumbnailUrl: 'https://example/thumb.png' },
+        ],
+        testing: [],
+      },
+    });
+    const r = await getEiProjectDataKinds('ei_test', 42);
+    expect(r.hasImages).toBe(true);
+    expect(r.hasTimeSeries).toBe(false);
+  });
+
+  it('classifies images via explicit chartType="image"', async () => {
+    stubEi({
+      projectInfo: null,
+      samplesByCategory: {
+        training: [{ chartType: 'image' }],
+        testing: [],
+      },
+    });
+    const r = await getEiProjectDataKinds('ei_test', 42);
+    expect(r.hasImages).toBe(true);
+  });
+
+  it('still uses filename extension as a last resort', async () => {
+    stubEi({
+      projectInfo: null,
+      samplesByCategory: {
+        training: [
+          { filename: 'a.png' },
+          { filename: 'b.JPG' },
+          { filename: 'c.jpeg' },
+          { filename: 'd.webp' },
+        ],
+        testing: [],
+      },
+    });
+    const r = await getEiProjectDataKinds('ei_test', 42);
+    expect(r.hasImages).toBe(true);
+  });
+
+  it('flags mixed projects when both types appear across categories', async () => {
+    stubEi({
+      projectInfo: null,
+      samplesByCategory: {
+        training: [{ filename: 'snap.png' }],
+        testing: [{ intervalMs: 10, valuesCount: 2000 }],
+      },
+    });
+    const r = await getEiProjectDataKinds('ei_test', 42);
+    expect(r.hasImages).toBe(true);
+    expect(r.hasTimeSeries).toBe(true);
+  });
+
+  it('short-circuits the testing fetch once both flags are set', async () => {
+    stubEi({
+      projectInfo: null,
+      samplesByCategory: {
+        training: [
+          { filename: 'snap.png' },
+          { intervalMs: 10, valuesCount: 2000 },
+        ],
+        testing: [{ filename: 'other.png' }],
+      },
+    });
+    await getEiProjectDataKinds('ei_test', 42);
+    // /<id> + /raw-data?category=training — no testing fetch.
+    const urls = fetchMock.mock.calls.map((c) => c[0] as string);
+    expect(urls.some((u) => u.includes('category=training'))).toBe(true);
+    expect(urls.some((u) => u.includes('category=testing'))).toBe(false);
+  });
+
+  it('skips samples that yield no signal at all', async () => {
+    stubEi({
+      projectInfo: null,
+      samplesByCategory: {
+        training: [
+          {}, // no fields → null classification, skipped
+          { filename: '' }, // empty filename → null, skipped
+          { filename: '1.cbor' }, // unrecognized ext → null, skipped
+          { filename: 'real.png' }, // image fallback hits
+        ],
+        testing: [],
+      },
+    });
+    const r = await getEiProjectDataKinds('ei_test', 42);
+    expect(r.hasImages).toBe(true);
+    expect(r.totalChecked).toBe(1);
+  });
+
+  it('sends the API key via x-api-key on every fetch', async () => {
+    stubEi({
+      projectInfo: null,
+      samplesByCategory: {
+        training: [{ filename: 'x.png' }],
+        testing: [{ filename: 'y.png' }],
+      },
+    });
+    await getEiProjectDataKinds('my-key', 7);
+    for (const call of fetchMock.mock.calls) {
+      const [, init] = call;
+      expect(init.headers['x-api-key']).toBe('my-key');
+    }
+    // First call is the project info on /<id>, then raw-data per category.
+    expect(fetchMock.mock.calls[0][0]).toMatch(/\/7$/);
   });
 });

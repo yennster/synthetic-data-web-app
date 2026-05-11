@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rawTarget = (process.argv[2] || 'detection').toLowerCase();
-const outDir = path.join(__dirname, '..', 'docs');
+const outDir = path.join(__dirname, '..', 'docs', 'screenshots');
 const usdzPath = process.argv[3];
 const enablePhysics = process.argv[4] === 'physics';
 
@@ -202,6 +202,13 @@ async function seedScene(page, target) {
         .getState()
         .sceneObjects.find((o) => o.owner === 'arm');
       state.setArmTargetId(firstArmObject?.id ?? null);
+      // Mirror the rover screenshot: expose object detection + the
+      // shared inference card in the arm-specific docs image.
+      state.setRobot({
+        objectDetection: true,
+        captureAtRest: false,
+        objectDetectionImagesPerIteration: 2,
+      });
       return;
     }
 
@@ -216,6 +223,11 @@ async function seedScene(page, target) {
       rosExport: target.fileName.includes('rover'),
       count: 10,
       durationMs: 3000,
+      // Show the object-detection + inference cards in the rover
+      // dedicated screenshot so the docs reflect the new feature.
+      objectDetection: target.fileName.includes('rover'),
+      captureAtRest: false,
+      objectDetectionImagesPerIteration: 3,
     });
     const obstacles = [
       [

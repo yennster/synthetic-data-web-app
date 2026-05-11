@@ -235,6 +235,11 @@ export default function App() {
               height={previewPixelH}
               style={{ transform: 'none' }}
             />
+            <InferenceOverlay
+              width={previewW}
+              height={previewH}
+              pixelRatio={previewDpr}
+            />
             <TouchResizeHandle />
           </div>
         )}

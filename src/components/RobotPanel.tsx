@@ -4,6 +4,7 @@ import {
   ALL_ROVER_UPLOAD_MODALITIES,
   useStore,
   type AccelSample,
+  type BoundingBox,
   type ImportedAsset,
   type LidarSample,
   type RobotKind,
@@ -20,7 +21,7 @@ import {
   type ArmPickupTargetMetadata,
 } from '../lib/armPickupOutcome';
 import { BRACCIO_LIMITS_RAD, BRACCIO_REST_RAD } from '../lib/braccio';
-import { saveBlob } from '../lib/capture';
+import { buildBoundingBoxLabelsFile, saveBlob } from '../lib/capture';
 import {
   buildDataAcquisitionPayload,
   buildFileName,
@@ -28,17 +29,22 @@ import {
   buildInfoLabelsFile,
   buildLidarDataAcquisitionPayload,
   buildRoverDataAcquisitionPayload,
+  getEiProjectDataKinds,
+  listEiProjects,
+  uploadImage,
   uploadLidarSample,
   uploadRoverSample,
   uploadSample,
   type EdgeImpulseInfoLabelsEntry,
 } from '../lib/edgeImpulse';
+import { awaitRobotCapture } from '../lib/robotCapture';
 import { buildArmRosJsonl, buildRoverRosJsonl } from '../lib/rosMessages';
 import { useNumberInput } from '../lib/useNumberInput';
 import { disposeUsdz } from '../lib/usdz';
 import type { ZipEntry } from '../lib/zip';
 import { buildZipOffThread } from '../lib/zipWorkerClient';
 import { EiAuthCard } from './EiAuthCard';
+import { EiInferenceCard } from './EiInferenceCard';
 import { ImportedAssetsCard } from './ImportedAssetsCard';
 import { ImuNoiseToggle } from './ImuNoiseToggle';
 import { SceneObjectsCard } from './SceneObjectsCard';
@@ -136,6 +142,149 @@ class CancelledError extends Error {
   }
 }
 
+/**
+ * Routing decision for an object-detection-enabled run: which stream
+ * gets uploaded to Edge Impulse, which gets downloaded locally.
+ *
+ * `imageDest === sensorDest === 'upload'` is allowed: an empty project
+ * or one that already contains both kinds of data can accept both. The
+ * conflict cases (image-only project, time-series-only project) split
+ * the destinations.
+ */
+type ObjectDetectionRouting = {
+  imageDest: 'upload' | 'download';
+  sensorDest: 'upload' | 'download';
+  /** Human-readable rationale shown in the status bar before the run
+   * starts, so the user knows up-front where each stream will land. */
+  rationale: string;
+};
+
+/**
+ * Resolve the project ID to probe. Project-scoped API keys (the common
+ * case) only ever expose one project — we use it implicitly. Multi-
+ * project keys would need a Studio picker; for now we fall back to the
+ * first project and surface a warning in the rationale, since the
+ * RobotPanel doesn't yet host a project selector.
+ */
+async function resolveEiProjectId(
+  apiKey: string,
+): Promise<{ id: number; name: string } | null> {
+  try {
+    const projects = await listEiProjects(apiKey);
+    if (projects.length === 0) return null;
+    return { id: projects[0].id, name: projects[0].name };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Probe the EI project and confirm with the user how the two streams
+ * (image + sensor) should be routed. Mutually-exclusive project types
+ * (image-only or time-series-only) trigger a confirm dialog explaining
+ * which stream will be downloaded locally instead of uploaded.
+ *
+ * Returns `null` if the user cancels.
+ */
+async function decideObjectDetectionRouting(opts: {
+  apiKey: string;
+}): Promise<ObjectDetectionRouting | null> {
+  const project = await resolveEiProjectId(opts.apiKey);
+  if (!project) {
+    // No project ID — either the key is invalid or the user has no
+    // accessible projects. Fall back to upload-both; the actual EI
+    // upload call will surface the credential error per-sample.
+    return {
+      imageDest: 'upload',
+      sensorDest: 'upload',
+      rationale: 'Could not resolve EI project — uploading both streams blindly.',
+    };
+  }
+  let kinds: { hasImages: boolean; hasTimeSeries: boolean; totalChecked: number };
+  try {
+    kinds = await getEiProjectDataKinds(opts.apiKey, project.id);
+  } catch (e) {
+    return {
+      imageDest: 'upload',
+      sensorDest: 'upload',
+      rationale: `Could not probe ${project.name}: ${(e as Error).message}. Uploading both.`,
+    };
+  }
+  if (kinds.totalChecked === 0) {
+    // Empty project — anything goes. Default to upload-both so the
+    // user can pick a path in the Studio afterward.
+    return {
+      imageDest: 'upload',
+      sensorDest: 'upload',
+      rationale: `${project.name} is empty — uploading both streams.`,
+    };
+  }
+  if (kinds.hasImages && !kinds.hasTimeSeries) {
+    const ok = window.confirm(
+      `Edge Impulse project "${project.name}" contains image data, not time-series.\n\n` +
+        `• Images (with bounding boxes) will be uploaded to the project.\n` +
+        `• Sensor data (IMU${'lidar'.length ? '/lidar' : ''}) will be saved as a local zip.\n\n` +
+        `Continue?`,
+    );
+    if (!ok) return null;
+    return {
+      imageDest: 'upload',
+      sensorDest: 'download',
+      rationale: `${project.name} accepts images only — sensor data → local zip.`,
+    };
+  }
+  if (kinds.hasTimeSeries && !kinds.hasImages) {
+    const ok = window.confirm(
+      `Edge Impulse project "${project.name}" contains time-series sensor data, not images.\n\n` +
+        `• Sensor data will be uploaded to the project.\n` +
+        `• Images (with bounding boxes) will be saved as a local zip.\n\n` +
+        `Continue?`,
+    );
+    if (!ok) return null;
+    return {
+      imageDest: 'download',
+      sensorDest: 'upload',
+      rationale: `${project.name} accepts time-series only — images → local zip.`,
+    };
+  }
+  // Project already mixes both kinds (rare but valid) — upload both.
+  return {
+    imageDest: 'upload',
+    sensorDest: 'upload',
+    rationale: `${project.name} contains both image and sensor data — uploading both.`,
+  };
+}
+
+/**
+ * Trigger the in-canvas POV-camera bridge to snap a frame and resolve
+ * with the resulting blob + bounding boxes. Returns `null` if the bridge
+ * isn't mounted or the capture failed.
+ */
+async function captureRobotFrame(): Promise<{
+  blob: Blob;
+  boxes: BoundingBox[];
+  width: number;
+  height: number;
+} | null> {
+  const promise = awaitRobotCapture();
+  useStore.getState().triggerRobotCapture();
+  // Bridge resolves within one or two animation frames. Cap the wait
+  // so we don't hang the runner if the canvas isn't mounted.
+  const timeout = new Promise<null>((resolve) =>
+    setTimeout(() => resolve(null), 2000),
+  );
+  return Promise.race([promise, timeout]);
+}
+
+/** EI bounding-box filename suffix. Detection mode uses `.png`; we
+ *  follow the same convention so the sidecar file resolves correctly. */
+function imageFileName(stem: string, idx: number, suffix = ''): string {
+  const ts = new Date().toISOString().replace(/[:.]/g, '-').replace('Z', '');
+  const safe = (stem || 'capture').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const idxStr = String(idx).padStart(4, '0');
+  return `${safe}${suffix ? `_${suffix}` : ''}.${ts}.${idxStr}.png`;
+}
+
 export function RobotPanel() {
   const robot = useStore((s) => s.robot);
   const setRobot = useStore((s) => s.setRobot);
@@ -191,56 +340,159 @@ export function RobotPanel() {
     const runEi = { ...ei, apiKey: ei.apiKey.trim() };
     const shouldUpload = runEi.apiKey.length > 0;
     const event: RoverEvent = robot.roverEvent;
+    const objectDetection = robot.objectDetection;
+    const captureAtRest = robot.captureAtRest;
     setRobotCancelRequested(false);
+    // Probe the EI project up-front so the user confirms the routing
+    // before the procedural run kicks off (and before any capture work
+    // hits the canvas). When not uploading or not in object-detection
+    // mode, both streams default to the same destination.
+    let routing: ObjectDetectionRouting = {
+      imageDest: shouldUpload ? 'upload' : 'download',
+      sensorDest: shouldUpload ? 'upload' : 'download',
+      rationale: '',
+    };
+    if (objectDetection && shouldUpload) {
+      setStatus('busy', 'Checking Edge Impulse project data type…');
+      const decided = await decideObjectDetectionRouting({
+        apiKey: runEi.apiKey,
+      });
+      if (!decided) {
+        setStatus('idle', 'Run cancelled');
+        return;
+      }
+      routing = decided;
+      setStatus('busy', routing.rationale);
+    }
     setRobotRunning(true);
     resetRobotCaptures();
     let uploaded = 0;
     let captured = 0;
     let failed = 0;
     let cancelled = false;
+    let imagesUploaded = 0;
+    let imagesDownloaded = 0;
     const zipEntries: ZipEntry[] = [];
     const infoLabelsEntries: EdgeImpulseInfoLabelsEntry[] = [];
+    // Local-only image collection — fed into the zip when imageDest === 'download'.
+    const imageCaptures: {
+      filename: string;
+      blob: Blob;
+      boxes: BoundingBox[];
+      width: number;
+      height: number;
+    }[] = [];
     const finalizeRoverRun = async (headline: string) => {
-      if (shouldUpload) {
-        // ROS export still needs to land somewhere even when EI
-        // uploads succeed — there's no ROS ingestion endpoint, so
-        // we always zip the JSONL files locally if rosExport is on.
-        if (zipEntries.length > 0) {
-          const zipName = buildFileName(
-            `rover_${event}_rosbag`,
-          ).replace(/\.json$/, '.zip');
-          const zip = await buildZipOffThread(zipEntries);
-          await saveBlob(zipName, zip);
-        }
-        setStatus(
-          cancelled || failed > 0 ? 'err' : 'ok',
-          `${headline}: ${uploaded} uploaded${failed ? ` · ${failed} failed` : ''}${
-            zipEntries.length > 0 ? ` · ROS bundle saved` : ''
-          }`,
-        );
-      } else if (zipEntries.length > 0) {
-        const entries =
-          infoLabelsEntries.length > 0
-            ? [
-                ...zipEntries,
-                {
-                  name: 'info.labels',
-                  data: buildInfoLabelsFile(infoLabelsEntries),
-                },
-              ]
-            : zipEntries;
+      // Assemble one zip containing everything that needs to land on
+      // disk: sensor data (when sensorDest === 'download'), info.labels,
+      // ROS JSONL (always, since no upload endpoint), and image PNGs +
+      // their bounding-box sidecar (when imageDest === 'download').
+      const entries: ZipEntry[] = [...zipEntries];
+      if (infoLabelsEntries.length > 0) {
+        entries.push({
+          name: 'info.labels',
+          data: buildInfoLabelsFile(infoLabelsEntries),
+        });
+      }
+      for (const c of imageCaptures) {
+        entries.push({ name: c.filename, data: c.blob });
+      }
+      if (imageCaptures.length > 0) {
+        entries.push({
+          name: 'bounding_boxes.labels',
+          data: buildBoundingBoxLabelsFile(
+            imageCaptures.map((c) => ({
+              id: c.filename,
+              filename: c.filename,
+              blob: c.blob,
+              boxes: c.boxes,
+              label: '',
+              width: c.width,
+              height: c.height,
+              ts: Date.now(),
+            })),
+          ),
+        });
+      }
+      const parts: string[] = [];
+      if (uploaded > 0) parts.push(`${uploaded} sensor uploaded`);
+      if (captured > 0) parts.push(`${captured} sensor zipped`);
+      if (imagesUploaded > 0) parts.push(`${imagesUploaded} images uploaded`);
+      if (imagesDownloaded > 0) parts.push(`${imagesDownloaded} images zipped`);
+      if (failed > 0) parts.push(`${failed} failed`);
+      if (entries.length > 0) {
         setStatus('busy', `Packaging ${entries.length} files…`);
         const zipName = buildFileName(
-          `rover_${event}_${infoLabelsEntries.length || zipEntries.length}`,
+          `rover_${event}_${entries.length}`,
         ).replace(/\.json$/, '.zip');
         const zip = await buildZipOffThread(entries);
         await saveBlob(zipName, zip);
+        parts.push('zip saved');
+      }
+      if (parts.length === 0) {
+        setStatus('err', `${headline}: no samples captured`);
+      } else {
         setStatus(
           cancelled || failed > 0 ? 'err' : 'ok',
-          `${headline}: downloaded ${entries.length} files${failed ? ` · ${failed} failed` : ''}`,
+          `${headline}: ${parts.join(' · ')}`,
         );
+      }
+    };
+
+    /** Capture one frame via the in-canvas POV-camera bridge and route
+     * it according to `routing.imageDest`. Filename suffix differentiates
+     * the at-rest vs in-motion shot. */
+    const captureAndRouteImage = async (
+      iterIdx: number,
+      phase: 'rest' | 'motion',
+    ): Promise<void> => {
+      const cap = await captureRobotFrame();
+      if (!cap) {
+        failed += 1;
+        return;
+      }
+      const filename = imageFileName(
+        `rover_${event}`,
+        iterIdx + 1,
+        phase,
+      );
+      const imageMeta = {
+        mode: 'robot',
+        robot_kind: 'rover',
+        event,
+        event_index: iterIdx + 1,
+        event_total: robot.count,
+        capture_phase: phase,
+        capture_width: cap.width,
+        capture_height: cap.height,
+      };
+      if (routing.imageDest === 'upload') {
+        try {
+          const res = await uploadImage(
+            { ...runEi, label: event },
+            cap.blob,
+            filename,
+            event,
+            cap.boxes,
+            imageMeta,
+          );
+          if (res.ok) {
+            imagesUploaded += 1;
+            bumpRobotCaptures();
+          } else failed += 1;
+        } catch {
+          failed += 1;
+        }
       } else {
-        setStatus('err', `${headline}: no samples captured`);
+        imageCaptures.push({
+          filename,
+          blob: cap.blob,
+          boxes: cap.boxes,
+          width: cap.width,
+          height: cap.height,
+        });
+        imagesDownloaded += 1;
+        bumpRobotCaptures();
       }
     };
 
@@ -251,10 +503,37 @@ export function RobotPanel() {
           'busy',
           `${i + 1}/${robot.count} ${event}: building path…`,
         );
+        // Object-detection capture: at rest the rover is stationary, so
+        // multiple shots would be near-identical — pin to 1. In motion
+        // the rover's pose changes, so we honor `imagesPerIteration`
+        // and space the shots evenly across the recording window.
+        const imagesPerIteration = objectDetection
+          ? captureAtRest
+            ? 1
+            : Math.max(1, robot.objectDetectionImagesPerIteration)
+          : 0;
+        if (objectDetection && captureAtRest) {
+          await captureAndRouteImage(i, 'rest');
+        }
         clearLidarSamples();
         clearRobotImuSamples();
         bumpRoverEpoch();
-        await sleepCancellable(robot.durationMs);
+        if (objectDetection && !captureAtRest) {
+          // Slice the window into `imagesPerIteration + 1` segments
+          // and fire one capture between each segment, so no shot
+          // lands at t=0 or t=duration (both of which look static).
+          const segments = imagesPerIteration + 1;
+          const slice = Math.max(1, Math.floor(robot.durationMs / segments));
+          let consumed = 0;
+          for (let k = 0; k < imagesPerIteration; k++) {
+            await sleepCancellable(slice);
+            consumed += slice;
+            await captureAndRouteImage(i, 'motion');
+          }
+          await sleepCancellable(Math.max(0, robot.durationMs - consumed));
+        } else {
+          await sleepCancellable(robot.durationMs);
+        }
         const lidar: LidarSample[] = useStore
           .getState()
           .lidarSamples.slice();
@@ -297,7 +576,7 @@ export function RobotPanel() {
           lidar_max_range_m: robot.lidarMaxRange,
           duration_ms: robot.durationMs,
         };
-        if (shouldUpload) {
+        if (routing.sensorDest === 'upload') {
           try {
             let res;
             if (modality === 'fused') {
@@ -392,9 +671,16 @@ export function RobotPanel() {
         }
         setStatus(
           'busy',
-          shouldUpload
-            ? `Rover: ${uploaded} uploaded · ${failed} failed (of ${i + 1}/${robot.count})`
-            : `Rover: ${captured} captured · ${failed} failed (of ${i + 1}/${robot.count})`,
+          `Rover ${i + 1}/${robot.count}: ` +
+            [
+              uploaded > 0 && `${uploaded} sensor up`,
+              captured > 0 && `${captured} sensor zip`,
+              imagesUploaded > 0 && `${imagesUploaded} img up`,
+              imagesDownloaded > 0 && `${imagesDownloaded} img zip`,
+              failed > 0 && `${failed} failed`,
+            ]
+              .filter(Boolean)
+              .join(' · '),
         );
       }
       await finalizeRoverRun('Rover run complete');
@@ -423,57 +709,146 @@ export function RobotPanel() {
     const runEi = { ...ei, apiKey: ei.apiKey.trim() };
     const shouldUpload = runEi.apiKey.length > 0;
     const trajectory: ArmTrajectory = robot.armTrajectory;
+    const objectDetection = robot.objectDetection;
+    const captureAtRest = robot.captureAtRest;
     setRobotCancelRequested(false);
+    let routing: ObjectDetectionRouting = {
+      imageDest: shouldUpload ? 'upload' : 'download',
+      sensorDest: shouldUpload ? 'upload' : 'download',
+      rationale: '',
+    };
+    if (objectDetection && shouldUpload) {
+      setStatus('busy', 'Checking Edge Impulse project data type…');
+      const decided = await decideObjectDetectionRouting({
+        apiKey: runEi.apiKey,
+      });
+      if (!decided) {
+        setStatus('idle', 'Run cancelled');
+        return;
+      }
+      routing = decided;
+      setStatus('busy', routing.rationale);
+    }
     setRobotRunning(true);
     resetRobotCaptures();
     let uploaded = 0;
     let captured = 0;
     let failed = 0;
     let cancelled = false;
+    let imagesUploaded = 0;
+    let imagesDownloaded = 0;
     const zipEntries: ZipEntry[] = [];
     const infoLabelsEntries: EdgeImpulseInfoLabelsEntry[] = [];
+    const imageCaptures: {
+      filename: string;
+      blob: Blob;
+      boxes: BoundingBox[];
+      width: number;
+      height: number;
+    }[] = [];
     const finalizeArmRun = async (headline: string) => {
-      if (shouldUpload) {
-        // ROS JSONL has no upload endpoint, so even when EI uploads
-        // succeed we still zip the JSONL files locally if rosExport
-        // is on. Mirrors the rover path's behavior.
-        if (zipEntries.length > 0) {
-          const zipName = buildFileName(`arm_${trajectory}_rosbag`).replace(
-            /\.json$/,
-            '.zip',
-          );
-          const zip = await buildZipOffThread(zipEntries);
-          await saveBlob(zipName, zip);
-        }
-        setStatus(
-          cancelled || failed > 0 ? 'err' : 'ok',
-          `${headline}: ${uploaded} uploaded${failed ? ` · ${failed} failed` : ''}${
-            zipEntries.length > 0 ? ` · ROS bundle saved` : ''
-          }`,
-        );
-      } else if (zipEntries.length > 0) {
-        const entries =
-          infoLabelsEntries.length > 0
-            ? [
-                ...zipEntries,
-                {
-                  name: 'info.labels',
-                  data: buildInfoLabelsFile(infoLabelsEntries),
-                },
-              ]
-            : zipEntries;
+      const entries: ZipEntry[] = [...zipEntries];
+      if (infoLabelsEntries.length > 0) {
+        entries.push({
+          name: 'info.labels',
+          data: buildInfoLabelsFile(infoLabelsEntries),
+        });
+      }
+      for (const c of imageCaptures) {
+        entries.push({ name: c.filename, data: c.blob });
+      }
+      if (imageCaptures.length > 0) {
+        entries.push({
+          name: 'bounding_boxes.labels',
+          data: buildBoundingBoxLabelsFile(
+            imageCaptures.map((c) => ({
+              id: c.filename,
+              filename: c.filename,
+              blob: c.blob,
+              boxes: c.boxes,
+              label: '',
+              width: c.width,
+              height: c.height,
+              ts: Date.now(),
+            })),
+          ),
+        });
+      }
+      const parts: string[] = [];
+      if (uploaded > 0) parts.push(`${uploaded} sensor uploaded`);
+      if (captured > 0) parts.push(`${captured} sensor zipped`);
+      if (imagesUploaded > 0) parts.push(`${imagesUploaded} images uploaded`);
+      if (imagesDownloaded > 0) parts.push(`${imagesDownloaded} images zipped`);
+      if (failed > 0) parts.push(`${failed} failed`);
+      if (entries.length > 0) {
         setStatus('busy', `Packaging ${entries.length} files…`);
         const zipName = buildFileName(
-          `arm_${trajectory}_${infoLabelsEntries.length || zipEntries.length}`,
+          `arm_${trajectory}_${entries.length}`,
         ).replace(/\.json$/, '.zip');
         const zip = await buildZipOffThread(entries);
         await saveBlob(zipName, zip);
+        parts.push('zip saved');
+      }
+      if (parts.length === 0) {
+        setStatus('err', `${headline}: no samples captured`);
+      } else {
         setStatus(
           cancelled || failed > 0 ? 'err' : 'ok',
-          `${headline}: downloaded ${entries.length} files${failed ? ` · ${failed} failed` : ''}`,
+          `${headline}: ${parts.join(' · ')}`,
         );
+      }
+    };
+    const captureAndRouteImage = async (
+      iterIdx: number,
+      phase: 'rest' | 'motion',
+    ): Promise<void> => {
+      const cap = await captureRobotFrame();
+      if (!cap) {
+        failed += 1;
+        return;
+      }
+      const filename = imageFileName(
+        `arm_${trajectory}`,
+        iterIdx + 1,
+        phase,
+      );
+      const imageMeta = {
+        mode: 'robot',
+        robot_kind: 'arm',
+        trajectory,
+        trajectory_index: iterIdx + 1,
+        trajectory_total: robot.count,
+        capture_phase: phase,
+        capture_width: cap.width,
+        capture_height: cap.height,
+      };
+      if (routing.imageDest === 'upload') {
+        try {
+          const res = await uploadImage(
+            { ...runEi, label: trajectory },
+            cap.blob,
+            filename,
+            trajectory,
+            cap.boxes,
+            imageMeta,
+          );
+          if (res.ok) {
+            imagesUploaded += 1;
+            bumpRobotCaptures();
+          } else failed += 1;
+        } catch {
+          failed += 1;
+        }
       } else {
-        setStatus('err', `${headline}: no samples captured`);
+        imageCaptures.push({
+          filename,
+          blob: cap.blob,
+          boxes: cap.boxes,
+          width: cap.width,
+          height: cap.height,
+        });
+        imagesDownloaded += 1;
+        bumpRobotCaptures();
       }
     };
     try {
@@ -508,10 +883,33 @@ export function RobotPanel() {
           'busy',
           `${i + 1}/${robot.count} ${trajectory}: building trajectory…`,
         );
+        // At rest the arm is stationary — pin to one image. In motion
+        // mode we honor the user's count and space shots evenly across
+        // the recording window.
+        const imagesPerIteration = objectDetection
+          ? captureAtRest
+            ? 1
+            : Math.max(1, robot.objectDetectionImagesPerIteration)
+          : 0;
+        if (objectDetection && captureAtRest) {
+          await captureAndRouteImage(i, 'rest');
+        }
         clearRobotImuSamples();
         useStore.getState().clearArmJointSamples();
         bumpArmEpoch();
-        await sleepCancellable(robot.durationMs);
+        if (objectDetection && !captureAtRest) {
+          const segments = imagesPerIteration + 1;
+          const slice = Math.max(1, Math.floor(robot.durationMs / segments));
+          let consumed = 0;
+          for (let k = 0; k < imagesPerIteration; k++) {
+            await sleepCancellable(slice);
+            consumed += slice;
+            await captureAndRouteImage(i, 'motion');
+          }
+          await sleepCancellable(Math.max(0, robot.durationMs - consumed));
+        } else {
+          await sleepCancellable(robot.durationMs);
+        }
         const stateAfterRun = useStore.getState();
         const imu: AccelSample[] = stateAfterRun.robotImuSamples.slice();
         const armJoints = stateAfterRun.armJointSamples.slice();
@@ -538,7 +936,7 @@ export function RobotPanel() {
             pickupObservation,
           ),
         };
-        if (shouldUpload) {
+        if (routing.sensorDest === 'upload') {
           try {
             const res = await uploadSample(
               { ...runEi, label: trajectory },
@@ -582,9 +980,16 @@ export function RobotPanel() {
         }
         setStatus(
           'busy',
-          shouldUpload
-            ? `Arm: ${uploaded} uploaded · ${failed} failed (of ${i + 1}/${robot.count})`
-            : `Arm: ${captured} captured · ${failed} failed (of ${i + 1}/${robot.count})`,
+          `Arm ${i + 1}/${robot.count}: ` +
+            [
+              uploaded > 0 && `${uploaded} sensor up`,
+              captured > 0 && `${captured} sensor zip`,
+              imagesUploaded > 0 && `${imagesUploaded} img up`,
+              imagesDownloaded > 0 && `${imagesDownloaded} img zip`,
+              failed > 0 && `${failed} failed`,
+            ]
+              .filter(Boolean)
+              .join(' · '),
         );
       }
       await finalizeArmRun('Arm run complete');
@@ -961,6 +1366,209 @@ export function RobotPanel() {
       )}
 
       <div className="card">
+        {/* When OFF the card collapses to "Object detection · OFF" +
+            the toggle so the sidebar stays compact for users who only
+            want sensor data. Flipping it on expands the help text +
+            sub-controls (capture phase, count, output size). */}
+        <div className="webcam-control">
+          <div className="webcam-control-copy">
+            <div className="webcam-control-heading">
+              <h3 style={{ margin: 0 }}>Object detection</h3>
+              <span
+                className={`webcam-control-state ${
+                  robot.objectDetection ? 'on' : 'off'
+                }`}
+              >
+                {robot.objectDetection ? 'On' : 'Off'}
+              </span>
+            </div>
+            {robot.objectDetection && (
+              <div className="webcam-control-help">
+                Snap{' '}
+                {robot.captureAtRest
+                  ? 1
+                  : robot.objectDetectionImagesPerIteration}{' '}
+                POV-camera image
+                {(robot.captureAtRest
+                  ? 1
+                  : robot.objectDetectionImagesPerIteration) === 1
+                  ? ''
+                  : 's'}{' '}
+                per iteration with 2D bounding boxes. EI accepts only one
+                data type per project — the runner probes the project
+                and routes the other to a local zip.
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            className={`webcam-switch ${robot.objectDetection ? 'on' : ''}`}
+            role="switch"
+            aria-checked={robot.objectDetection}
+            aria-label={
+              robot.objectDetection
+                ? 'Turn object detection capture off'
+                : 'Turn object detection capture on'
+            }
+            onClick={() =>
+              setRobot({ objectDetection: !robot.objectDetection })
+            }
+            disabled={robotRunning}
+          >
+            <span className="webcam-switch-thumb" />
+          </button>
+        </div>
+        {robot.objectDetection && (
+          <>
+            <div className="webcam-control" style={{ marginTop: 8 }}>
+              <div className="webcam-control-copy">
+                <div className="webcam-control-heading">
+                  <span className="webcam-control-title">
+                    Capture at rest
+                  </span>
+                  <span
+                    className={`webcam-control-state ${
+                      robot.captureAtRest ? 'on' : 'off'
+                    }`}
+                  >
+                    {robot.captureAtRest ? 'On' : 'Off'}
+                  </span>
+                </div>
+                <div className="webcam-control-help">
+                  Snap before motion begins instead of mid-motion. Same
+                  one image per iteration.
+                </div>
+              </div>
+              <button
+                type="button"
+                className={`webcam-switch ${robot.captureAtRest ? 'on' : ''}`}
+                role="switch"
+                aria-checked={robot.captureAtRest}
+                aria-label={
+                  robot.captureAtRest
+                    ? 'Switch to mid-motion capture'
+                    : 'Switch to at-rest capture'
+                }
+                onClick={() =>
+                  setRobot({ captureAtRest: !robot.captureAtRest })
+                }
+                disabled={robotRunning}
+              >
+                <span className="webcam-switch-thumb" />
+              </button>
+            </div>
+            {!robot.captureAtRest && (
+              // At-rest captures fire while nothing's moving, so N back-
+              // to-back shots would produce N near-identical PNGs — wasted
+              // bandwidth. Hide the count and pin to 1 in the runner.
+              <label className="field" style={{ marginTop: 8 }}>
+                Images per iteration
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  step={1}
+                  value={robot.objectDetectionImagesPerIteration}
+                  onChange={(e) =>
+                    setRobot({
+                      objectDetectionImagesPerIteration: Math.max(
+                        1,
+                        Math.min(20, Number(e.target.value) || 1),
+                      ),
+                    })
+                  }
+                  disabled={robotRunning}
+                />
+              </label>
+            )}
+            <div className="row" style={{ marginTop: 8 }}>
+              <label className="field">
+                Image width
+                <input
+                  type="number"
+                  min={128}
+                  max={1920}
+                  step={32}
+                  value={robot.objectDetectionWidth}
+                  onChange={(e) =>
+                    setRobot({
+                      objectDetectionWidth: Math.max(
+                        128,
+                        Math.min(1920, Number(e.target.value) || 640),
+                      ),
+                    })
+                  }
+                  disabled={robotRunning}
+                />
+              </label>
+              <label className="field">
+                Image height
+                <input
+                  type="number"
+                  min={128}
+                  max={1920}
+                  step={32}
+                  value={robot.objectDetectionHeight}
+                  onChange={(e) =>
+                    setRobot({
+                      objectDetectionHeight: Math.max(
+                        128,
+                        Math.min(1920, Number(e.target.value) || 480),
+                      ),
+                    })
+                  }
+                  disabled={robotRunning}
+                />
+              </label>
+            </div>
+          </>
+        )}
+      </div>
+
+      <EiAuthCard showHmac />
+
+      {/* Mount the EI inference card whenever object detection is on
+          so the user can load a model and see live detections drawn
+          over the POV preview as they generate. Hidden otherwise to
+          keep the sensor-only sidebar uncluttered. */}
+      {robot.objectDetection && (
+        <EiInferenceCard previewSource="robot-pov" />
+      )}
+
+      <div className="card">
+        <h3>Generate</h3>
+        <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+          {robot.kind === 'rover' ? (
+            <>
+              Each iteration drives the rover through one{' '}
+              <strong>{robot.roverEvent}</strong> event and records the IMU +
+              lidar window.
+            </>
+          ) : (
+            <>
+              Each iteration runs one <strong>{robot.armTrajectory.replace(/_/g, ' ')}</strong>{' '}
+              motion and records the end-effector IMU.
+            </>
+          )}
+          {robot.objectDetection && (
+            <>
+              {' '}Plus{' '}
+              <strong>
+                {robot.captureAtRest
+                  ? 1
+                  : robot.objectDetectionImagesPerIteration}
+              </strong>{' '}
+              POV image
+              {(robot.captureAtRest
+                ? 1
+                : robot.objectDetectionImagesPerIteration) === 1
+                ? ''
+                : 's'}{' '}
+              per iteration ({robot.captureAtRest ? 'at rest' : 'mid-motion'})
+              with 2D bounding boxes.
+            </>
+          )}
+        </div>
         <div className="webcam-control">
           <div className="webcam-control-copy">
             <div className="webcam-control-heading">
@@ -992,26 +1600,6 @@ export function RobotPanel() {
           >
             <span className="webcam-switch-thumb" />
           </button>
-        </div>
-      </div>
-
-      <EiAuthCard showHmac />
-
-      <div className="card">
-        <h3>Generate</h3>
-        <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-          {robot.kind === 'rover' ? (
-            <>
-              Each iteration drives the rover through one{' '}
-              <strong>{robot.roverEvent}</strong> event and records the IMU +
-              lidar window.
-            </>
-          ) : (
-            <>
-              Each iteration runs one <strong>{robot.armTrajectory.replace(/_/g, ' ')}</strong>{' '}
-              motion and records the end-effector IMU.
-            </>
-          )}
         </div>
         {robotRunning ? (
           <button
