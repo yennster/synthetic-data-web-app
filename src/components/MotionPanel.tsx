@@ -597,6 +597,14 @@ export function MotionPanel() {
       setPinchRotation(null);
       // And release the body if a cancel happened mid-grab.
       releaseBody();
+      // Stop any in-flight IMU recording. Each motion runner calls
+      // `startRecording()` on entry and `stopRecording()` via
+      // `recordSnapshot()` on normal exit — but a Stop press lands
+      // between those two and would otherwise leave the Recording
+      // card sampling forever. Idempotent: stopRecording on an
+      // already-stopped recorder is a no-op.
+      stopRecording();
+      clearSamples();
     }
   };
 
