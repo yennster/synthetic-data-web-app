@@ -126,46 +126,42 @@ export function buildPickPlace(
   };
 }
 
-export function buildSweep(): ArmParametricPath {
-  // Base yaw oscillates across most of its range; shoulder/elbow stay
-  // at a "looking forward" posture.
+export function buildSweep(
+  home: BraccioJointVector = [...BRACCIO_REST_RAD],
+): ArmParametricPath {
+  // Base yaw oscillates across most of its range; every other joint
+  // stays pinned at the user's home pose. Using `home` instead of an
+  // all-π/2 baseline matters because all-π/2 puts shoulder+elbow at
+  // ~180° accumulated pitch, which drives the forearm straight down
+  // through the floor on our floor-mounted base. Home is whatever the
+  // user picked (defaulting to the published Braccio rest pose) and
+  // is guaranteed reachable.
   const [yawLo, yawHi] = BRACCIO_LIMITS_RAD[0];
   const yawCenter = (yawLo + yawHi) / 2;
   const yawAmp = (yawHi - yawLo) * 0.4;
-  const base: BraccioJointVector = [
-    yawCenter,
-    Math.PI / 2, // shoulder upright
-    Math.PI / 2,
-    Math.PI / 2,
-    Math.PI / 2,
-    0.5,
-  ];
   return {
     sample: (t) => {
       const u = Math.max(0, Math.min(1, t));
       const yaw = yawCenter + Math.sin(u * 2 * Math.PI) * yawAmp;
-      return [yaw, base[1], base[2], base[3], base[4], base[5]];
+      return [yaw, home[1], home[2], home[3], home[4], home[5]];
     },
   };
 }
 
-export function buildWave(): ArmParametricPath {
-  const base: BraccioJointVector = [
-    Math.PI / 2,
-    Math.PI / 2,
-    Math.PI / 2,
-    Math.PI / 2,
-    Math.PI / 2,
-    0.5,
-  ];
+export function buildWave(
+  home: BraccioJointVector = [...BRACCIO_REST_RAD],
+): ArmParametricPath {
+  // Wave: wrist pitch oscillates twice across the recording window.
+  // Same home-as-baseline rule as `buildSweep` — fixes the through-
+  // the-floor pose the all-π/2 baseline used to produce.
   const [wpLo, wpHi] = BRACCIO_LIMITS_RAD[3];
   const wpCenter = (wpLo + wpHi) / 2;
   const wpAmp = (wpHi - wpLo) * 0.4;
   return {
     sample: (t) => {
       const u = Math.max(0, Math.min(1, t));
-      const wp = wpCenter + Math.sin(u * 2 * Math.PI * 2) * wpAmp; // 2 cycles
-      return [base[0], base[1], base[2], wp, base[4], base[5]];
+      const wp = wpCenter + Math.sin(u * 2 * Math.PI * 2) * wpAmp;
+      return [home[0], home[1], home[2], wp, home[4], home[5]];
     },
   };
 }
@@ -249,9 +245,9 @@ export function buildArmTrajectory(
       return buildPickPlace(pickup, drop, opts?.home);
     }
     case 'sweep':
-      return buildSweep();
+      return buildSweep(opts?.home);
     case 'wave':
-      return buildWave();
+      return buildWave(opts?.home);
     case 'random_pose':
       return buildRandomPose(opts?.rng);
     case 'draw_circle':
