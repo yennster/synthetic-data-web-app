@@ -6,6 +6,7 @@ import {
   BRACCIO_MJCF,
   BRACCIO_TARGET,
   apertureToFingerSlide,
+  braccioMjcf,
 } from './braccioMjcf';
 import { BRACCIO_LINKS } from '../braccio';
 
@@ -29,6 +30,12 @@ describe('BRACCIO_MJCF', () => {
     expect(BRACCIO_MJCF).toContain(`name="${BRACCIO_TARGET.body}"`);
     expect(BRACCIO_MJCF).toContain(`name="${BRACCIO_TARGET.joint}"`);
     expect(BRACCIO_MJCF).toContain('<freejoint');
+  });
+
+  it('can resize the pickup target box for imported assets', () => {
+    const xml = braccioMjcf({ halfExtents: [0.02, 0.06, 0.015] });
+    expect(xml).toContain('size="0.0200 0.0600 0.0150"');
+    expect(xml).toContain('<body name="target" pos="0.18 0.0600 0.12">');
   });
 
   it('puts the IMU site at the end-effector with all four IMU sensors', () => {

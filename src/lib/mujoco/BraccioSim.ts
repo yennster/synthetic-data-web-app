@@ -30,9 +30,11 @@ import {
   BRACCIO_GRIP_ACTUATOR_NAMES,
   BRACCIO_IMU_SENSOR_NAMES,
   BRACCIO_JOINT_NAMES,
-  BRACCIO_MJCF,
   BRACCIO_TARGET,
+  DEFAULT_BRACCIO_TARGET_BOX,
   apertureToFingerSlide,
+  braccioMjcf,
+  type BraccioTargetBox,
 } from './braccioMjcf';
 import type { MujocoModule } from './runtime';
 
@@ -60,20 +62,32 @@ export type ImuReading = {
 };
 
 export class BraccioSim {
-  private actuatorIds: number[];
-  private gripActuatorIds: number[];
-  private jointQposAdr: number[];
-  private targetJointQposAdr: number;
-  private targetBodyId: number;
-  private sensorAdr: { accel: number; gyro: number; quat: number; pos: number };
-  private model: ReturnType<MujocoModule['MjModel']['from_xml_string']>;
-  private data: InstanceType<MujocoModule['MjData']>;
+  private actuatorIds!: number[];
+  private gripActuatorIds!: number[];
+  private jointQposAdr!: number[];
+  private targetJointQposAdr!: number;
+  private targetBodyId!: number;
+  private sensorAdr!: { accel: number; gyro: number; quat: number; pos: number };
+  private model!: ReturnType<MujocoModule['MjModel']['from_xml_string']>;
+  private data!: InstanceType<MujocoModule['MjData']>;
   private mujoco: MujocoModule;
+  private currentTargetBox: BraccioTargetBox = DEFAULT_BRACCIO_TARGET_BOX;
 
   constructor(mujoco: MujocoModule) {
     this.mujoco = mujoco;
-    this.model = mujoco.MjModel.from_xml_string(BRACCIO_MJCF);
-    this.data = new mujoco.MjData(this.model);
+    this._compileFor(DEFAULT_BRACCIO_TARGET_BOX);
+  }
+
+  private _compileFor(targetBox: BraccioTargetBox): void {
+    if (this.data) this.data.delete();
+    if (this.model) this.model.delete();
+
+    this.model = this.mujoco.MjModel.from_xml_string(braccioMjcf(targetBox));
+    this.data = new this.mujoco.MjData(this.model);
+    const halfExtents = targetBox.halfExtents;
+    this.currentTargetBox = {
+      halfExtents: [halfExtents[0], halfExtents[1], halfExtents[2]],
+    };
 
     // Resolve named handles once. `data.actuator('name').ctrl` writes
     // into the live `data.ctrl` array, but going through the accessor
@@ -106,6 +120,28 @@ export class BraccioSim {
       quat: sensorAdr[this.model.sensor(BRACCIO_IMU_SENSOR_NAMES.quat).id],
       pos: sensorAdr[this.model.sensor(BRACCIO_IMU_SENSOR_NAMES.pos).id],
     };
+  }
+
+  /** Recompile the model when the pickup proxy needs a different collision
+   * box. Imported USDZ targets use this so the visible asset does not pass
+   * through the gripper fingers while MuJoCo is only colliding against a
+   * tiny default cube. Returns true when the underlying model changed. */
+  rebuildTargetBox(targetBox: BraccioTargetBox): boolean {
+    if (this._targetBoxesEqual(targetBox, this.currentTargetBox)) return false;
+    this._compileFor(targetBox);
+    return true;
+  }
+
+  private _targetBoxesEqual(
+    a: BraccioTargetBox,
+    b: BraccioTargetBox,
+  ): boolean {
+    for (let i = 0; i < 3; i++) {
+      if (Math.abs(a.halfExtents[i] - b.halfExtents[i]) > 1e-5) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /** Reset the integrator to qpos0 / qvel0 — same as starting fresh.

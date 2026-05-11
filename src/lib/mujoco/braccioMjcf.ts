@@ -46,7 +46,36 @@ function rng([lo, hi]: readonly [number, number]): string {
 // gripperWidth/2 = fully open. Aperture in [0, 1] maps linearly to this.
 const HALF_GRIP = L.gripperWidth / 2;
 
-export const BRACCIO_MJCF = `
+export type BraccioTargetBox = {
+  halfExtents: readonly [number, number, number];
+};
+
+export const DEFAULT_BRACCIO_TARGET_BOX: BraccioTargetBox = {
+  halfExtents: [0.015, 0.015, 0.015],
+};
+
+function targetHalfExtents(box: BraccioTargetBox): [number, number, number] {
+  const [x, y, z] = box.halfExtents;
+  return [
+    Math.max(0.003, x),
+    Math.max(0.003, y),
+    Math.max(0.003, z),
+  ];
+}
+
+function targetMass([x, y, z]: readonly [number, number, number]): number {
+  const defaultVolume = 0.03 ** 3;
+  const volume = (x * 2) * (y * 2) * (z * 2);
+  const mass = 0.015 * (volume / defaultVolume);
+  return Math.max(0.005, Math.min(0.12, mass));
+}
+
+export function braccioMjcf(
+  targetBox: BraccioTargetBox = DEFAULT_BRACCIO_TARGET_BOX,
+): string {
+  const [targetX, targetY, targetZ] = targetHalfExtents(targetBox);
+  const mass = targetMass([targetX, targetY, targetZ]);
+  return `
 <mujoco model="braccio">
   <compiler angle="radian" autolimits="true"/>
   <option timestep="0.002" gravity="0 -9.81 0" integrator="implicitfast"/>
@@ -67,14 +96,18 @@ export const BRACCIO_MJCF = `
     <geom name="floor" type="plane" size="2 2 0.1" material="grid" pos="0 0 0" zaxis="0 1 0"
           friction="0.8 0.05 0.005"/>
 
-    <!-- Pickup target. A free-joint cube the size of a real Braccio
-         demo block (~3 cm), placed by the arm controller at run start
-         to match the user's selected scene object. Friction tuned so
-         the gripper fingers can hold it under load without slipping.
-         Mass is small (15 g) — matches the EI sticker-block density. -->
-    <body name="target" pos="0.18 0.015 0.12">
+    <!-- Pickup target. A free-joint box placed by the arm controller at
+         run start to match the user's selected scene object. The default
+         is a 3 cm Braccio demo cube; imported USDZ pickups rebuild the
+         model with half-extents approximating the imported asset's scaled
+         bounds so the gripper collides with the visible volume. Friction
+         is tuned so the gripper fingers can hold it under load without
+         slipping. -->
+    <body name="target" pos="0.18 ${targetY.toFixed(4)} 0.12">
       <freejoint name="j_target"/>
-      <geom name="g_target" type="box" size="0.015 0.015 0.015" mass="0.015"
+      <geom name="g_target" type="box"
+            size="${targetX.toFixed(4)} ${targetY.toFixed(4)} ${targetZ.toFixed(4)}"
+            mass="${mass.toFixed(4)}"
             rgba="0.37 0.92 0.83 1" friction="2.0 0.1 0.01"/>
     </body>
 
@@ -175,6 +208,9 @@ export const BRACCIO_MJCF = `
   </sensor>
 </mujoco>
 `.trim();
+}
+
+export const BRACCIO_MJCF = braccioMjcf();
 
 /** Maps a normalized gripper aperture (0 = closed, 1 = open) to the
  * slide-joint distance each finger should travel from center. */
