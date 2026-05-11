@@ -68,7 +68,10 @@ export function applyFilmGrain(
   rng: Rng,
 ): Uint8ClampedArray {
   if (intensity <= 0) return rgba;
-  const sigma = intensity * 30; // tuned: 1.0 → ±30 LSB ≈ moderate ISO grain
+  // 1.0 → σ≈10 LSB. Higher values look like sensor static rather than
+  // grain — at σ=30 the gaussian's 3σ tail clips ~±90 LSB which buries
+  // small features (the cone on the conveyor) under speckle.
+  const sigma = intensity * 10;
   for (let i = 0; i < rgba.length; i += 4) {
     rgba[i] = rgba[i] + gaussian(rng) * sigma;
     rgba[i + 1] = rgba[i + 1] + gaussian(rng) * sigma;
@@ -166,15 +169,18 @@ export function applyColorJitter(
   rng: Rng,
 ): Uint8ClampedArray {
   if (intensity <= 0) return rgba;
+  // Per-channel gain spans 1±i*0.2 (was 1±i*0.5 — at i=1 that pushed
+  // channels to 0.5×/1.5× which clipped highlights and crushed shadows).
+  // Offset spans ±i*12 LSB (was ±i*20) so a dark frame stays dark.
   const gain = [
-    1 + (rng() - 0.5) * intensity,
-    1 + (rng() - 0.5) * intensity,
-    1 + (rng() - 0.5) * intensity,
+    1 + (rng() - 0.5) * intensity * 0.4,
+    1 + (rng() - 0.5) * intensity * 0.4,
+    1 + (rng() - 0.5) * intensity * 0.4,
   ];
   const offset = [
-    (rng() - 0.5) * intensity * 40,
-    (rng() - 0.5) * intensity * 40,
-    (rng() - 0.5) * intensity * 40,
+    (rng() - 0.5) * intensity * 24,
+    (rng() - 0.5) * intensity * 24,
+    (rng() - 0.5) * intensity * 24,
   ];
   for (let i = 0; i < rgba.length; i += 4) {
     rgba[i] = rgba[i] * gain[0] + offset[0];
