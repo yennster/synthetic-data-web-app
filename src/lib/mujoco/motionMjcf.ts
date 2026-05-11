@@ -54,27 +54,27 @@ function shapeGeom(kind: ObjectKind): { geom: string; mass: number } {
         mass: 0.12,
       };
     case 'cone':
-      // MuJoCo has no cone primitive — and a single cylinder collider
-      // gave the cone unphysical resting poses: when the body tipped
-      // on its side, the uniform-radius cylinder held both ends at
-      // the same height while the cone visual's apex dangled in mid-
-      // air. Approximate the cone as two stacked cylinders — a fat
-      // base disc and a narrower upper body — so the wider base side
-      // settles naturally (a real cone is heavier toward the base).
+      // MuJoCo has no cone primitive. Approximate as a single cylinder
+      // sized to the cone's bounding cylinder (radius matches the base,
+      // height matches the full cone). The body spawns identity-quat
+      // at y=2 with no angular velocity, so under pure gravity it falls
+      // straight down and rests upright on the cylinder's flat end —
+      // and the cone visual, centered at body origin, sits with its
+      // base at world y=0.
       //
-      // Mass split (0.08 / 0.04) roughly mirrors the volume ratio of
-      // the bottom vs top halves of a cone (~7:1 inertia at the base),
-      // dialed back so the COM stays close to the body origin where
-      // the IMU site lives.
+      // Composite colliders (multi-geom approximations of the cone's
+      // taper) gave more realistic on-side rolling at the cost of
+      // intermittent compile failures from MuJoCo's auto-inertia
+      // pipeline. The single cylinder loses the on-side tilt physics
+      // but recovers a stable, predictable upright rest — the resting
+      // state users will see 99% of the time in motion mode, since
+      // the recorder spawns / re-spawns the body upright.
       //
-      // Three.js coneGeometry(0.5, 1.0) lives on local-Y with the
-      // base at -Y and apex at +Y, so the cylinders' default Z axis
-      // gets the same 90° X-rotation quat as the other Y-aligned
-      // primitives in this file.
+      // Three.js coneGeometry(0.5, 1.0) lives on local-Y, so the
+      // cylinder's default Z axis gets the same 90° X-rotation quat
+      // as the other Y-aligned primitives in this file.
       return {
-        geom:
-          `<geom name="g_cone_base" type="cylinder" size="0.5 0.2" pos="0 -0.3 0" quat="0.7071 0.7071 0 0" mass="0.08" rgba="0.96 0.62 0.04 1" friction="0.6 0.05 0.005"/>` +
-          `<geom name="g_cone_body" type="cylinder" size="0.2 0.3" pos="0 0.2 0" quat="0.7071 0.7071 0 0" mass="0.04" rgba="0.96 0.62 0.04 1" friction="0.6 0.05 0.005"/>`,
+        geom: `<geom name="g_body" type="cylinder" size="0.5 0.5" quat="0.7071 0.7071 0 0" mass="0.12" rgba="0.96 0.62 0.04 1" friction="0.6 0.05 0.005"/>`,
         mass: 0.12,
       };
     case 'torus':
