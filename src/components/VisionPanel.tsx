@@ -13,7 +13,7 @@ import {
   putCustomTexture,
   type TextureKind,
 } from '../lib/textureStore';
-import { CollapsibleCard } from './CollapsibleCard';
+import { ChevronGlyph, CollapsibleCard } from './CollapsibleCard';
 import { EiAuthCard } from './EiAuthCard';
 import { EiInferenceCard } from './EiInferenceCard';
 import { ImportedAssetsCard } from './ImportedAssetsCard';
@@ -199,7 +199,7 @@ export function VisionPanel() {
             style={{ transform: texturesOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}
             aria-hidden
           >
-            ▸
+            <ChevronGlyph />
           </span>
           {(customFloorTexture || customWallTexture) && !texturesOpen && (
             <span

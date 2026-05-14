@@ -550,19 +550,46 @@ label.field, div.field {
 }
 .section-toggle[aria-expanded="true"] { color: var(--text); }
 .section-toggle-chevron {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   /* Order: park the chevron on the trailing edge of the row. The optional
      summary span uses its own margin-left: auto to sit between the label
      and the chevron rather than fighting it for trailing space. */
   order: 1;
   margin-left: auto;
-  font-size: 11px;
-  color: var(--text-muted);
-  transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1), color 120ms ease;
+  /* Larger box around a heavier glyph so users actually notice it
+     and read it as "I can click this." 22px hits the iOS-HIG hint-
+     target floor; the explicit width/height ensures the rotate
+     pivots around the visual center even when the glyph is asymmetric. */
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  background: var(--surface-sunk);
+  border: 1px solid var(--line);
+  transition:
+    transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    color 120ms ease,
+    background 120ms ease,
+    border-color 120ms ease;
 }
-.section-toggle:hover .section-toggle-chevron { color: var(--text); }
-.section-toggle[aria-expanded="true"] .section-toggle-chevron {
+/* Hover state lives on the parent button so the entire heading row
+   participates — the chevron lifts to the accent fill in sync with
+   the rest of the click target. */
+.section-toggle:hover .section-toggle-chevron,
+.card-heading-toggle:hover .section-toggle-chevron {
+  color: var(--accent-on);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.section-toggle[aria-expanded="true"] .section-toggle-chevron,
+.card-heading-toggle[aria-expanded="true"] .section-toggle-chevron {
   color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
 }
 
 /* ---------------------------------------------------------------------- *

@@ -56,10 +56,41 @@ export function CollapsibleCard({
           }}
           aria-hidden
         >
-          ▸
+          <ChevronGlyph />
         </span>
       </button>
       {open && children}
     </div>
+  );
+}
+
+/**
+ * Centered chevron glyph for collapsible card toggles. SVG (not a font
+ * character) because a filled-triangle glyph like `▸` has its visual
+ * mass offset within the character box — rotating it 90° leaves the
+ * triangle visibly off-center inside the chevron button. The stroke
+ * path here is geometrically symmetric around viewBox center, so the
+ * rotation animation pivots in place. Exported so the other two call
+ * sites (`RobotPanel` arm-home-pose card, `VisionPanel` custom-textures
+ * card) can render the same glyph without duplicating the SVG markup.
+ */
+export function ChevronGlyph() {
+  return (
+    <svg
+      width="10"
+      height="10"
+      viewBox="0 0 10 10"
+      fill="none"
+      aria-hidden
+      focusable="false"
+    >
+      <path
+        d="M3.5 1.5 L7 5 L3.5 8.5"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }

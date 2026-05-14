@@ -44,7 +44,7 @@ import { useNumberInput } from '../lib/useNumberInput';
 import { disposeUsdz } from '../lib/usdz';
 import type { ZipEntry } from '../lib/zip';
 import { buildZipOffThread } from '../lib/zipWorkerClient';
-import { CollapsibleCard } from './CollapsibleCard';
+import { ChevronGlyph, CollapsibleCard } from './CollapsibleCard';
 import { EiAuthCard } from './EiAuthCard';
 import { EiInferenceCard } from './EiInferenceCard';
 import { ImportedAssetsCard } from './ImportedAssetsCard';
@@ -1708,7 +1708,7 @@ function ArmHomePoseCard({ disabled }: { disabled: boolean }) {
           }}
           aria-hidden
         >
-          ▸
+          <ChevronGlyph />
         </span>
       </button>
       {!open ? null : (
