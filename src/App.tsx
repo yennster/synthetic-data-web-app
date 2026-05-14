@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Analytics } from '@vercel/analytics/react';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { Hud } from './components/Hud';
 import { InferenceOverlay } from './components/InferenceOverlay';
 import { Sidebar } from './components/Sidebar';
@@ -198,11 +199,13 @@ export default function App() {
   return (
     <div className={`app${showChrome ? '' : ' app--no-chrome'}`}>
       <div className="scene">
-        <Suspense
-          fallback={<div className="scene-loading">Loading scene...</div>}
-        >
-          <Scene previewCanvas={previewCanvas} />
-        </Suspense>
+        <ErrorBoundary scope="Scene">
+          <Suspense
+            fallback={<div className="scene-loading">Loading scene...</div>}
+          >
+            <Scene previewCanvas={previewCanvas} />
+          </Suspense>
+        </ErrorBoundary>
         <Hud />
         {mode === 'motion' && handTrackingEnabled && (
           <Suspense fallback={null}>
