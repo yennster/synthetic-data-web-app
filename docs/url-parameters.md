@@ -9,16 +9,12 @@ The two most common use cases:
 
 Parameters are parsed once at page load. Sidebar toggles afterward don't push to the URL — these are deep-link presets, not state sync.
 
----
-
 ## Conventions
 
 - **`bool`** — accepts `1` / `true` / `yes` / `on` for true and `0` / `false` / `no` / `off` for false. Anything else is treated as the default.
 - **`int`** / **`float`** — standard decimal numbers. Out-of-range values are rejected silently.
 - **Comma-separated list** — values separated by commas (no spaces needed). Unknown items are dropped; the rest still apply.
 - **`enum`** — one of the values listed in the row (any case).
-
----
 
 ## Scene & framing
 
@@ -133,8 +129,6 @@ These don't appear in the user-facing UI and are subject to change.
 | `studioHost` | host or URL | `?studioHost=staging-studio.example.com` | Override the Edge Impulse Studio API base. Bare host defaults to https://; `http://localhost:4800` is kept as-is for local backends. |
 | `ingestionHost` | host or URL | `?ingestionHost=staging-ingestion.example.com` | Same idea for the ingestion API. |
 
----
-
 ## Recipes
 
 **Documentation hero — a clean outdoor demo with three primitives**
@@ -171,8 +165,6 @@ https://synthetic.jennyspeelman.dev/?onlyMode=objectdetection&env=outdoor&object
 ```
 https://synthetic.jennyspeelman.dev/?mode=arm&armPose=1.57,1.0,0.5,1.57,1.57,0.5
 ```
-
----
 
 ## How parameters compose
 
