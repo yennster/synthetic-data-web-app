@@ -44,7 +44,7 @@ Robotics mode adds two MuJoCo-backed rigs: a differential-drive rover with chass
 
 ### Inference, in the browser
 
-![Inference card](../docs/screenshots/screenshot-inference.png)
+![Inference card](../docs/screenshots/card-detection-inference-edge-impulse-model.png)
 
 Once you've trained a model in Edge Impulse, the Synthetic Data Studio can fetch your project's WebAssembly deployment, unpack the zip in-browser, and run inference on the virtual camera's preview at ~5 Hz. Detection boxes, FOMO centroids, and labels overlay onto the preview live. It's a useful sanity check — you can tell within a few seconds whether your synthetic dataset generalised at all.
 
