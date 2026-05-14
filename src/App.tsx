@@ -7,6 +7,21 @@ import { TouchResizeHandle } from './components/TouchResizeHandle';
 import { useStore, type AppMode } from './store/useStore';
 import { useRehydrateAssets } from './lib/rehydrateAssets';
 import { useTheme } from './lib/useTheme';
+import { setEdgeImpulseHosts } from './lib/edgeImpulse';
+
+// Read host overrides from the URL at module load — must happen before
+// any edgeImpulse call so the very first request goes to the right host.
+if (typeof window !== 'undefined') {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    setEdgeImpulseHosts({
+      studioHost: params.get('studioHost'),
+      ingestionHost: params.get('ingestionHost'),
+    });
+  } catch {
+    // ignore — URL parsing should never throw, but be defensive
+  }
+}
 
 const Scene = lazy(() =>
   import('./components/Scene').then((mod) => ({ default: mod.Scene })),
