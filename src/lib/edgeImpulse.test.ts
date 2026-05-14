@@ -1022,33 +1022,45 @@ describe('getEiProjectDataKinds', () => {
 });
 
 describe('normalizeHost', () => {
-  it('prepends https:// when no scheme is supplied', () => {
-    expect(normalizeHost('studio.example.com')).toBe('https://studio.example.com');
+  it('prepends https:// when no scheme is supplied (edgeimpulse subdomain)', () => {
+    expect(normalizeHost('studio.edgeimpulse.com')).toBe(
+      'https://studio.edgeimpulse.com',
+    );
   });
 
   it('preserves an explicit https:// scheme', () => {
-    expect(normalizeHost('https://studio.example.com')).toBe(
-      'https://studio.example.com',
+    expect(normalizeHost('https://studio.edgeimpulse.com')).toBe(
+      'https://studio.edgeimpulse.com',
     );
   });
 
-  it('preserves an explicit http:// scheme (for local-dev backends)', () => {
+  it('preserves an explicit http:// scheme for loopback dev backends', () => {
     expect(normalizeHost('http://localhost:4800')).toBe('http://localhost:4800');
+    expect(normalizeHost('http://127.0.0.1:4800')).toBe('http://127.0.0.1:4800');
   });
 
   it('strips trailing slashes', () => {
-    expect(normalizeHost('https://studio.example.com/')).toBe(
-      'https://studio.example.com',
+    expect(normalizeHost('https://studio.edgeimpulse.com/')).toBe(
+      'https://studio.edgeimpulse.com',
     );
-    expect(normalizeHost('staging.example.com///')).toBe(
-      'https://staging.example.com',
+    expect(normalizeHost('staging.edgeimpulse.com///')).toBe(
+      'https://staging.edgeimpulse.com',
     );
   });
 
-  it('is case-insensitive about the scheme', () => {
-    expect(normalizeHost('HTTPS://STUDIO.EXAMPLE.COM')).toBe(
-      'HTTPS://STUDIO.EXAMPLE.COM',
+  it('rejects untrusted hostnames (anti-phishing allowlist)', () => {
+    expect(() => normalizeHost('studio.example.com')).toThrow(/untrusted/);
+    expect(() => normalizeHost('https://attacker.example.com')).toThrow(
+      /untrusted/,
     );
-    expect(normalizeHost('HTTP://localhost')).toBe('HTTP://localhost');
+    expect(() => normalizeHost('edgeimpulse.com.evil.example')).toThrow(
+      /untrusted/,
+    );
+  });
+
+  it('rejects http:// for non-loopback hosts (forces https in production)', () => {
+    expect(() => normalizeHost('http://studio.edgeimpulse.com')).toThrow(
+      /untrusted/,
+    );
   });
 });

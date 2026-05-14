@@ -20,9 +20,11 @@
  * impulse and the recorded label.
  */
 
-export type RoverEvent = 'cruise' | 'collision' | 'stuck';
-
-export const ALL_ROVER_EVENTS: RoverEvent[] = ['cruise', 'collision', 'stuck'];
+// Re-exported from the store so urlParams + rover.ts share one source.
+// The store is the canonical home because the persisted RoverEvent
+// state lives there.
+import type { RoverEvent } from '../store/useStore';
+import { clamp01 } from './math';
 
 export type RoverPose = { x: number; z: number; heading: number };
 
@@ -91,7 +93,7 @@ function buildCruisePath(
       const heading = Math.atan2(dx, dz);
       return {
         sample: (t) => {
-          const u = Math.max(0, Math.min(1, t));
+          const u = clamp01(t);
           return {
             x: start.x + dx * u,
             z: start.z + dz * u,
@@ -115,7 +117,7 @@ function buildCruisePath(
   const ccw = rng() > 0.5 ? 1 : -1;
   return {
     sample: (t) => {
-      const u = Math.max(0, Math.min(1, t));
+      const u = clamp01(t);
       const a = startAngle + ccw * sweep * u;
       return {
         x: outerR * Math.cos(a),
@@ -153,7 +155,7 @@ function buildCollisionPath(
   const dz = end.z - start.z;
   return {
     sample: (t) => {
-      const u = Math.max(0, Math.min(1, t));
+      const u = clamp01(t);
       return {
         x: start.x + dx * u,
         z: start.z + dz * u,
@@ -232,7 +234,7 @@ function pointToSegmentDist(
     return Math.sqrt(dx * dx + dz * dz);
   }
   let t = (apx * abx + apz * abz) / ab2;
-  t = Math.max(0, Math.min(1, t));
+  t = clamp01(t);
   const cx = a.x + abx * t;
   const cz = a.z + abz * t;
   const dx = p.x - cx;

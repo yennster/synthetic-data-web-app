@@ -336,6 +336,12 @@ label.field, div.field {
   font-weight: 600;
 }
 
+.ei-auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
 /* Read-only EI project name display. Kept distinct from inputs because it's
    not editable, and slightly heavier so the project the user is wired into
    is unambiguous. */
@@ -404,6 +410,11 @@ label.field, div.field {
   background: var(--bg);
 }
 
+/* `?embed=1` / `?ui=minimal` strip the sidebar entirely — collapse the
+ * 360px column so the scene fills the iframe instead of leaving a blank
+ * gutter where the sidebar used to live. */
+.app.app--no-chrome { grid-template-columns: 1fr; }
+
 .scene { position: relative; overflow: hidden; }
 
 .scene-loading {
@@ -426,18 +437,25 @@ label.field, div.field {
 .sidebar {
   background: var(--surface-1);
   border-left: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+.sidebar-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
   padding: 18px 18px 24px;
   overflow-y: auto;
   overflow-x: hidden;
   display: flex;
   flex-direction: column;
   gap: 22px;
-  min-width: 0;
   scrollbar-width: thin;
   scrollbar-color: var(--line-strong) transparent;
 }
-.sidebar::-webkit-scrollbar { width: 8px; }
-.sidebar::-webkit-scrollbar-thumb {
+.sidebar-scroll::-webkit-scrollbar { width: 8px; }
+.sidebar-scroll::-webkit-scrollbar-thumb {
   background: var(--line-strong);
   border-radius: 999px;
   border: 2px solid var(--surface-1);
@@ -475,10 +493,10 @@ label.field, div.field {
   height: 1px;
   background: var(--line-strong);
 }
-.sidebar > .card:first-of-type {
+.sidebar-scroll > .card:first-of-type {
   padding-top: 4px;
 }
-.sidebar > .card:first-of-type::before {
+.sidebar-scroll > .card:first-of-type::before {
   display: none;
 }
 /* Headings are tracked uppercase at sidebar-label scale so they read as
@@ -1135,11 +1153,17 @@ label.field, div.field {
   gap: 6px;
 }
 .hud .pill.tip .tip-keys {
-  flex: 0 0 auto;
+  /* Fixed column width sized to the widest key label (`Cmd/Ctrl-click`,
+     14 chars in the mono font). Without a fixed width the column
+     widens for that row only and the description column for that row
+     ends up out of alignment with the rest. `ch` units track the
+     monospace font's actual character width, so this stays correct
+     across themes / DPI / user font-size overrides. */
+  flex: 0 0 15ch;
+  width: 15ch;
   font-family: var(--t-mono);
   color: var(--text);
   font-weight: 500;
-  min-width: 84px;
   white-space: nowrap;
 }
 .hud .pill.tip .tip-label {
@@ -1210,16 +1234,68 @@ label.field, div.field {
 }
 
 .status {
-  font-size: var(--t-xs);
-  color: var(--text-muted);
-  font-family: var(--t-mono);
-  white-space: pre-wrap;
-  max-height: 100px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  max-block-size: 88px;
   overflow-y: auto;
+  font-size: var(--t-xs);
+  line-height: 1.4;
+  color: var(--text-muted);
+  font-family: inherit;
+  white-space: normal;
   font-variant-numeric: tabular-nums;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
 }
-.status.ok { color: var(--accent); }
-.status.err { color: var(--danger); }
+.status-kind {
+  align-self: start;
+  padding: 1px 5px 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--text-dim);
+  background: var(--surface-sunk);
+  font-family: var(--t-mono);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.status-msg {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.status.ok .status-kind {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+}
+.status.busy .status-kind {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+.status.err .status-kind {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: var(--danger-line);
+}
+.status.err .status-msg {
+  color: var(--danger);
+}
+
+/* Sidebar-scoped status footer: outside the scrollable controls so status
+ * stays visible without covering the last card. */
+.sidebar > .status {
+  flex: none;
+  padding: 10px 18px 12px;
+  background: var(--surface-1);
+  border-top: 1px solid var(--line);
+  z-index: 1;
+}
 
 /* ---------------------------------------------------------------------- *
  * Drawer toggle (mobile only)                                             *

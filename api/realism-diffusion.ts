@@ -38,6 +38,29 @@ const INSTRUCTION =
   'materials, subtle film grain, soft shadows; keep every object in ' +
   'exactly the same position and shape.';
 
+// Bounds image uploads. The studio captures are typically a few hundred
+// KB; 10 MB is generous headroom while preventing a single caller from
+// pinning Function memory with multi-hundred-MB payloads.
+const MAX_BODY_BYTES = 10 * 1024 * 1024;
+
+// Valid HF model id shape: `owner/name`, both made up of letters,
+// digits, dot, underscore, hyphen. Anything else and we refuse to boot.
+const MODEL_ID_RE = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
+
+// Allowed Origin headers for browser-initiated calls. Falls back to the
+// deployment's own origin when ALLOWED_ORIGINS is unset (single-tenant
+// default — sharing the HF_TOKEN with the rest of the internet is the
+// problem we're solving here). Comma-separated; entries are matched
+// case-insensitively against the request Origin in full.
+function allowedOrigins(): string[] {
+  const raw = process.env.ALLOWED_ORIGINS ?? process.env.VERCEL_URL ?? '';
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => (s.startsWith('http') ? s : `https://${s}`));
+}
+
 export const config = { runtime: 'nodejs' };
 
 export default async function handler(
@@ -47,6 +70,35 @@ export default async function handler(
   if (req.method !== 'POST') {
     return json(res, 405, { error: 'POST only' });
   }
+
+  // Origin gate: refuse browser calls from origins we didn't ship to.
+  // Same-origin fetches in modern browsers always send Origin on POST,
+  // so a missing/mismatched header is the marker for cross-origin
+  // abuse. Server-to-server callers can use a deploy-time env to
+  // allowlist additional origins.
+  const origin = headerOf(req, 'origin');
+  const allowed = allowedOrigins();
+  if (allowed.length > 0) {
+    if (!origin || !allowed.some((a) => sameOrigin(a, origin))) {
+      return json(res, 403, { error: 'origin not allowed' });
+    }
+  }
+
+  // Reject non-image bodies up front. The proxy is built for PNG
+  // captures from the studio — anything else is likely abuse trying
+  // to relay non-image payloads through the HF token.
+  const contentType = headerOf(req, 'content-type') ?? '';
+  if (!/^image\//i.test(contentType)) {
+    return json(res, 415, { error: 'expected image/* body' });
+  }
+
+  // Length-cap before reading the stream. content-length is advisory,
+  // so the read loop also enforces the cap.
+  const declared = Number(headerOf(req, 'content-length'));
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
+    return json(res, 413, { error: 'image too large' });
+  }
+
   const intensityHeader = headerOf(req, 'x-realism-intensity');
   const intensity = clamp(Number(intensityHeader ?? '0.5'), 0.05, 1);
   // pix2pix's `image_guidance_scale` controls how closely the output
@@ -57,15 +109,23 @@ export default async function handler(
 
   let imageBytes: Buffer;
   try {
-    imageBytes = await readBody(req);
+    imageBytes = await readBody(req, MAX_BODY_BYTES);
   } catch (e) {
-    return json(res, 400, { error: `bad image body: ${(e as Error).message}` });
+    const msg = (e as Error).message;
+    const status = msg === 'body too large' ? 413 : 400;
+    return json(res, status, { error: msg });
   }
   if (imageBytes.length === 0) {
     return json(res, 400, { error: 'empty image body' });
   }
 
-  const model = process.env.HF_REALISM_MODEL ?? DEFAULT_MODEL;
+  const modelEnv = process.env.HF_REALISM_MODEL;
+  if (modelEnv && !MODEL_ID_RE.test(modelEnv)) {
+    // Operator-controlled, but easier to debug a misconfig at runtime
+    // than to chase a 404 from HF later.
+    return json(res, 500, { error: 'invalid HF_REALISM_MODEL' });
+  }
+  const model = modelEnv ?? DEFAULT_MODEL;
   const token = process.env.HF_TOKEN;
   const upstreamUrl = `https://api-inference.huggingface.co/models/${model}`;
   // HF accepts a multipart-style payload via JSON: `inputs` is a base64
@@ -99,22 +159,25 @@ export default async function handler(
     return json(res, 502, { error: `hf network: ${(e as Error).message}` });
   }
   if (!upstream.ok) {
-    // Pass the upstream message back so the browser console shows the
-    // actual reason (rate limit, model not found, auth required).
+    // Log the verbose upstream text server-side, but return a fixed
+    // shape to the client so quota / model-id / token chatter doesn't
+    // leak to anyone who can hit this endpoint.
     const text = await upstream.text().catch(() => '');
+    console.warn(
+      `[realism-diffusion] hf ${upstream.status}: ${text.slice(0, 500)}`,
+    );
     return json(res, upstream.status === 503 ? 503 : 502, {
-      error: `hf ${upstream.status}: ${text.slice(0, 200)}`,
+      error: `upstream ${upstream.status}`,
     });
   }
-  const contentType = upstream.headers.get('content-type') ?? '';
-  if (!contentType.startsWith('image/')) {
+  const upstreamContentType = upstream.headers.get('content-type') ?? '';
+  if (!upstreamContentType.startsWith('image/')) {
     // HF sometimes returns JSON for queued / cold-starting models even
     // when wait_for_model: true. Treat as a failure so the client
     // falls back instead of trying to render JSON as a PNG.
     const text = await upstream.text().catch(() => '');
-    return json(res, 502, {
-      error: `hf non-image response: ${text.slice(0, 200)}`,
-    });
+    console.warn(`[realism-diffusion] hf non-image: ${text.slice(0, 500)}`);
+    return json(res, 502, { error: 'upstream non-image response' });
   }
   const out = Buffer.from(await upstream.arrayBuffer());
   res.statusCode = 200;
@@ -123,15 +186,42 @@ export default async function handler(
   res.end(out);
 }
 
-/** Read the whole body into a Buffer. Vercel's Node runtime gives us
- * a regular IncomingMessage stream — collect chunks the standard way. */
-function readBody(req: IncomingMessage): Promise<Buffer> {
+/** Read the body into a Buffer, aborting if it exceeds `maxBytes`.
+ * Vercel's Node runtime gives us a regular IncomingMessage stream;
+ * we destroy() it on overflow so the upload doesn't keep streaming
+ * into our process after we've already decided to reject. */
+function readBody(req: IncomingMessage, maxBytes: number): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on('data', (chunk: Buffer) => chunks.push(chunk));
+    let received = 0;
+    req.on('data', (chunk: Buffer) => {
+      received += chunk.length;
+      if (received > maxBytes) {
+        req.destroy();
+        reject(new Error('body too large'));
+        return;
+      }
+      chunks.push(chunk);
+    });
     req.on('end', () => resolve(Buffer.concat(chunks)));
     req.on('error', reject);
   });
+}
+
+/** Origins match when both parse to the same scheme + host + port,
+ * ignoring trailing slashes and case on host. */
+function sameOrigin(a: string, b: string): boolean {
+  try {
+    const ua = new URL(a);
+    const ub = new URL(b);
+    return (
+      ua.protocol === ub.protocol &&
+      ua.hostname.toLowerCase() === ub.hostname.toLowerCase() &&
+      ua.port === ub.port
+    );
+  } catch {
+    return false;
+  }
 }
 
 /** Pull a header value as a string. Node's IncomingMessage headers

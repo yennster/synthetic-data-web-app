@@ -609,6 +609,7 @@ const GIZMO_LAYER = 1;
  */
 function VirtualCameraHandle() {
   const setCapture = useStore((s) => s.setCapture);
+  const showConveyor = useStore((s) => s.showConveyor);
   const groupRef = useRef<THREE.Group>(null);
   const hitTargetRef = useRef<THREE.Mesh>(null);
 
@@ -669,12 +670,14 @@ function VirtualCameraHandle() {
         <boxGeometry args={[0.1, 0.08, 0.12]} />
         <meshBasicMaterial color="#1f2937" depthTest={false} />
       </mesh>
-      {/* Record dot on the back (-Z side) so the icon is recognisable
-          when viewed from behind. */}
-      <mesh position={[0, 0, -0.1]} renderOrder={1003}>
-        <sphereGeometry args={[0.025, 12, 12]} />
-        <meshBasicMaterial color="#ef4444" depthTest={false} />
-      </mesh>
+      {showConveyor && (
+        /* Record dot on the back (-Z side). Hide it in beltless scenes so
+           the capture-camera guide doesn't read as a floating target dot. */
+        <mesh position={[0, 0, -0.1]} renderOrder={1003}>
+          <sphereGeometry args={[0.025, 12, 12]} />
+          <meshBasicMaterial color="#ef4444" depthTest={false} />
+        </mesh>
+      )}
     </group>
   );
 }

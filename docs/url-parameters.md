@@ -26,8 +26,8 @@ Parameters are parsed once at page load. Sidebar toggles afterward don't push to
 | `conveyor` | bool | `?conveyor=1` | Show the conveyor belt. |
 | `conveyorSpeed` | float -5 to 5 (m/s) | `?conveyorSpeed=0.7` | Belt speed. |
 | `lightIntensity` | float 0 to 10 | `?lightIntensity=1.5` | Key-light brightness. |
-| `camera` | `x,y,z` floats | `?camera=4,3,6` | Orbit camera position. |
-| `target` | `x,y,z` floats | `?target=0,0.5,0` | Orbit camera target. |
+| `camera` | `x,y,z` floats | `?camera=4,3,6` | Virtual capture-camera position. |
+| `target` | `x,y,z` floats | `?target=0,0.5,0` | Virtual capture-camera look-at point; non-random batch trajectories orbit this point. |
 
 ## Mode
 
@@ -112,7 +112,7 @@ The trajectory paths:
 | --- | --- | --- | --- |
 | `embed` | bool | `?embed=1` | Hide the sidebar, HUD pills, and drawer-toggle button. Designed for `<iframe>` embeds. Strictest of the three chrome-hiding flags. |
 | `ui` | `default` · `minimal` | `?ui=minimal` | Hides sidebar + drawer toggle, keeps HUD. |
-| `gizmos` | bool | `?gizmos=0` | Hide the trajectory tube and the capture-camera handle from the live view. Captures already exclude these (separate render layer). |
+| `gizmos` | bool | `?gizmos=0` | Hide the trajectory tube, pink orbit-center marker, and capture-camera handle from the live view. Captures already exclude these (separate render layer). |
 
 ## Internal / debug
 

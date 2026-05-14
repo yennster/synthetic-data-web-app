@@ -20,11 +20,45 @@ let STUDIO_BASE = `https://${DEFAULT_STUDIO_HOST}/v1/api`;
  *   - `http://localhost:4800`      → `http://localhost:4800` (kept as-is
  *                                     so local-dev backends still work)
  * Trailing slashes are stripped.
+ *
+ * Throws on values that fail the allowlist — see `isAllowedEiHost`.
  */
 export function normalizeHost(host: string): string {
   const trimmed = host.trim().replace(/\/+$/, '');
-  if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  return `https://${trimmed}`;
+  const withScheme = /^https?:\/\//i.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`;
+  if (!isAllowedEiHost(withScheme)) {
+    throw new Error(`refusing untrusted Edge Impulse host: ${host}`);
+  }
+  return withScheme;
+}
+
+/**
+ * Allowlist for the EI host override (`?studioHost=`/`?ingestionHost=`).
+ * Without this, a phishing link can repoint the studio at an attacker's
+ * server and exfiltrate the `x-api-key` the user types into the auth
+ * card. Permitted:
+ *   - `*.edgeimpulse.com` over HTTPS
+ *   - `localhost` / `127.0.0.1` (loopback) over HTTP or HTTPS, for
+ *     local dev backends — never reachable across the network anyway.
+ */
+export function isAllowedEiHost(urlOrHost: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(urlOrHost);
+  } catch {
+    return false;
+  }
+  const hostname = u.hostname.toLowerCase();
+  const isLoopback =
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '::1' ||
+    hostname.endsWith('.localhost');
+  if (isLoopback) return u.protocol === 'http:' || u.protocol === 'https:';
+  if (u.protocol !== 'https:') return false;
+  return hostname === 'edgeimpulse.com' || hostname.endsWith('.edgeimpulse.com');
 }
 
 export function setEdgeImpulseHosts(opts: {
@@ -32,10 +66,18 @@ export function setEdgeImpulseHosts(opts: {
   ingestionHost?: string | null;
 }): void {
   if (opts.ingestionHost) {
-    INGESTION_BASE = `${normalizeHost(opts.ingestionHost)}/api`;
+    try {
+      INGESTION_BASE = `${normalizeHost(opts.ingestionHost)}/api`;
+    } catch (e) {
+      console.warn('[edgeImpulse]', (e as Error).message);
+    }
   }
   if (opts.studioHost) {
-    STUDIO_BASE = `${normalizeHost(opts.studioHost)}/v1/api`;
+    try {
+      STUDIO_BASE = `${normalizeHost(opts.studioHost)}/v1/api`;
+    } catch (e) {
+      console.warn('[edgeImpulse]', (e as Error).message);
+    }
   }
 }
 
@@ -586,11 +628,57 @@ export type BatchUploadProgress = {
 export type EiProject = { id: number; name: string; owner?: string };
 
 async function studioGet<T>(path: string, apiKey: string): Promise<T> {
+  return studioJson<T>('GET', path, apiKey);
+}
+
+/** POST to Studio with an optional JSON body. Mirrors `studioGet`'s
+ * error shape so call sites don't reinvent it five times. */
+async function studioPost<T>(
+  path: string,
+  apiKey: string,
+  body?: unknown,
+): Promise<T> {
+  return studioJson<T>('POST', path, apiKey, body);
+}
+
+/** Download a binary Studio asset (deployment zip, raw audio, …). The
+ * caller gets the Blob; the helper still goes through the same auth /
+ * error-handling path as the JSON variants. */
+async function studioBlob(path: string, apiKey: string): Promise<Blob> {
   const res = await fetch(`${STUDIO_BASE}${path}`, {
-    headers: { 'x-api-key': apiKey, accept: 'application/json' },
+    headers: { 'x-api-key': apiKey },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(
+      `${res.status} ${res.statusText}: ${text.slice(0, 200)}`,
+    );
+  }
+  return await res.blob();
+}
+
+async function studioJson<T>(
+  method: 'GET' | 'POST',
+  path: string,
+  apiKey: string,
+  body?: unknown,
+): Promise<T> {
+  const headers: Record<string, string> = {
+    'x-api-key': apiKey,
+    accept: 'application/json',
+  };
+  if (body !== undefined) headers['content-type'] = 'application/json';
+  const res = await fetch(`${STUDIO_BASE}${path}`, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
   const text = await res.text();
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}: ${text.slice(0, 200)}`);
+  if (!res.ok) {
+    throw new Error(
+      `${res.status} ${res.statusText}: ${text.slice(0, 200)}`,
+    );
+  }
   try {
     return JSON.parse(text);
   } catch {
@@ -829,69 +917,10 @@ export async function downloadEiHistoricDeployment(
   projectId: number,
   deploymentVersion: number,
 ): Promise<Blob> {
-  const url = `${STUDIO_BASE}/${projectId}/deployment/history/${deploymentVersion}/download`;
-  const res = await fetch(url, { headers: { 'x-api-key': apiKey } });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(
-      `Download failed: ${res.status} ${res.statusText} — ${text.slice(0, 200)}`,
-    );
-  }
-  return await res.blob();
-}
-
-/**
- * Check whether a project has a built WebAssembly deployment ready for
- * download. EI returns `hasDeployment: false` when the user hasn't built one
- * yet — we surface that as a clear actionable error.
- */
-export async function getEiDeployment(
-  apiKey: string,
-  projectId: number,
-  type = 'wasm',
-): Promise<{
-  hasDeployment: boolean;
-  version?: number;
-  /** The engine + modelType that actually matched a built artefact. Pass
-   * these to `downloadEiDeployment` so the download targets the same
-   * deployment that the check found. */
-  engine?: string;
-  modelType?: string;
-}> {
-  // Studio's deployment endpoint requires engine + modelType query params to
-  // match against a specific built artefact; without them the API returns
-  // hasDeployment=false even when a build exists. We probe the common
-  // (engine, modelType) combos in priority order and surface the first hit.
-  const candidates: { engine: string; modelType: string }[] = [
-    { engine: 'tflite', modelType: 'int8' },
-    { engine: 'tflite', modelType: 'float32' },
-    { engine: 'tflite-eon', modelType: 'int8' },
-    { engine: 'tflite-eon', modelType: 'float32' },
-  ];
-  let lastError: string | undefined;
-  for (const c of candidates) {
-    const qs = new URLSearchParams({ type, ...c }).toString();
-    const r = await studioGet<{
-      success: boolean;
-      error?: string;
-      hasDeployment?: boolean;
-      version?: number;
-    }>(`/${projectId}/deployment?${qs}`, apiKey);
-    if (!r.success) {
-      lastError = r.error || 'Failed to query deployment';
-      continue;
-    }
-    if (r.hasDeployment) {
-      return {
-        hasDeployment: true,
-        version: r.version,
-        engine: c.engine,
-        modelType: c.modelType,
-      };
-    }
-  }
-  if (lastError) throw new Error(lastError);
-  return { hasDeployment: false };
+  return studioBlob(
+    `/${projectId}/deployment/history/${deploymentVersion}/download`,
+    apiKey,
+  );
 }
 
 /**
@@ -909,23 +938,11 @@ export async function buildEiDeployment(
 ): Promise<{ jobId: number }> {
   const engine = opts.engine ?? 'tflite';
   const modelType = opts.modelType ?? 'int8';
-  const url = `${STUDIO_BASE}/${projectId}/jobs/build-ondevice-model?type=wasm`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      'content-type': 'application/json',
-      accept: 'application/json',
-    },
-    body: JSON.stringify({ engine, modelType }),
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error(
-      `Build trigger failed: ${res.status} ${res.statusText} — ${text.slice(0, 200)}`,
-    );
-  }
-  const r = JSON.parse(text) as { success: boolean; id?: number; error?: string };
+  const r = await studioPost<{ success: boolean; id?: number; error?: string }>(
+    `/${projectId}/jobs/build-ondevice-model?type=wasm`,
+    apiKey,
+    { engine, modelType },
+  );
   if (!r.success || typeof r.id !== 'number') {
     throw new Error(r.error || 'Build trigger returned no job id');
   }
@@ -941,21 +958,10 @@ export async function retrainEiModel(
   apiKey: string,
   projectId: number,
 ): Promise<{ jobId: number }> {
-  const url = `${STUDIO_BASE}/${projectId}/jobs/retrain`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      accept: 'application/json',
-    },
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error(
-      `Retrain trigger failed: ${res.status} ${res.statusText} — ${text.slice(0, 200)}`,
-    );
-  }
-  const r = JSON.parse(text) as { success: boolean; id?: number; error?: string };
+  const r = await studioPost<{ success: boolean; id?: number; error?: string }>(
+    `/${projectId}/jobs/retrain`,
+    apiKey,
+  );
   if (!r.success || typeof r.id !== 'number') {
     throw new Error(r.error || 'Retrain trigger returned no job id');
   }
@@ -1016,26 +1022,6 @@ export async function waitForEiJob(
     }
     await new Promise((r) => setTimeout(r, poll));
   }
-}
-
-/** Download the deployment zip from the Studio. */
-export async function downloadEiDeployment(
-  apiKey: string,
-  projectId: number,
-  type = 'wasm',
-  engine = 'tflite',
-  modelType = 'int8',
-): Promise<Blob> {
-  const qs = new URLSearchParams({ type, engine, modelType }).toString();
-  const url = `${STUDIO_BASE}/${projectId}/deployment/download?${qs}`;
-  const res = await fetch(url, { headers: { 'x-api-key': apiKey } });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(
-      `Download failed: ${res.status} ${res.statusText} — ${text.slice(0, 200)}`,
-    );
-  }
-  return await res.blob();
 }
 
 export async function uploadCaptures(

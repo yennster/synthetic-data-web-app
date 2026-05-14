@@ -42,6 +42,8 @@
  * and not worry about the noise math beyond calling `applyImuNoise`.
  */
 
+import { clamp } from './math';
+
 /** 3-vector used for accel / gyro readings. Local to this module so
  * the noise helper doesn't depend on the (now-deleted) kinematic IMU
  * math file. */
@@ -192,8 +194,4 @@ export function applyImuNoise(
   }
 
   return out;
-}
-
-function clamp(v: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, v));
 }

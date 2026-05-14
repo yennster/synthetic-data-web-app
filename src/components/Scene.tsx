@@ -8,7 +8,9 @@ import { Physics } from '@react-three/rapier';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { sampleCameraTrajectory } from '../lib/cameraTrajectory';
+import { useDragMove } from '../lib/dragMove';
 import { cameraRelativeToWorld } from '../lib/handMath';
+import { clamp, degToRad } from '../lib/math';
 import { URL_FLAGS } from '../lib/urlParams';
 import { MotionSim } from '../lib/mujoco/MotionSim';
 import { loadMujocoModule } from '../lib/mujoco/runtime';
@@ -42,7 +44,6 @@ const VirtualCamera = lazy(() =>
 );
 
 const GRAVITY: [number, number, number] = [0, -9.81, 0];
-const FOLLOW_LERP = 0.35;
 
 function backgroundForPreset(preset: string): string {
   switch (preset) {
@@ -575,7 +576,7 @@ function CameraRig() {
     const dy = camera.position.y - HAND_ANCHOR[1];
     const dz = camera.position.z - HAND_ANCHOR[2];
     const distance = Math.hypot(dx, dy, dz);
-    const raw = Math.max(1, Math.min(3, distance / REF_DISTANCE));
+    const raw = clamp(distance / REF_DISTANCE, 1, 3);
     // Only push to the store when it changes meaningfully — saves a
     // zustand notification per frame in the steady state.
     if (Math.abs(raw - lastScale.current) > 0.01) {
@@ -619,6 +620,26 @@ function TrajectoryGizmo() {
   const height = useStore((s) => s.capture.trajectoryHeight);
   const target = useStore((s) => s.capture.camTarget);
   const batchCount = useStore((s) => s.capture.batchCount);
+  const setCapture = useStore((s) => s.setCapture);
+
+  const targetDragHandlers = useDragMove({
+    getPosition: () => useStore.getState().capture.camTarget,
+    setPosition: (p) => {
+      const cs = useStore.getState().capture;
+      const patch: Partial<typeof cs> = { camTarget: p };
+      if (cs.cameraTrajectory !== 'random') {
+        patch.camPos = sampleCameraTrajectory({
+          trajectory: cs.cameraTrajectory,
+          index: 0,
+          total: Math.max(1, cs.batchCount),
+          target: p,
+          radius: cs.trajectoryRadius,
+          height: cs.trajectoryHeight,
+        });
+      }
+      setCapture(patch);
+    },
+  });
 
   // Sample the path at a moderate fixed density (independent of
   // batchCount) so the curve stays smooth even on a tiny batch. The
@@ -663,7 +684,7 @@ function TrajectoryGizmo() {
     const obj = new THREE.Mesh(tubeGeom, mat);
     obj.renderOrder = 998;
     const markers: [number, number, number][] = [];
-    const n = Math.max(1, Math.min(batchCount, 64));
+    const n = clamp(batchCount, 1, 64);
     for (let i = 0; i < n; i++) {
       markers.push(
         sampleCameraTrajectory({
@@ -716,8 +737,18 @@ function TrajectoryGizmo() {
           />
         </mesh>
       ))}
-      {/* Marker on the target itself so the user can see the orbit
-          center even when it sits inside an object. */}
+      {/* Invisible, generous hit area around the orbit center. Shift-drag
+          moves `camTarget`, which re-centers the path and the live camera. */}
+      <mesh
+        position={target as [number, number, number]}
+        visible={false}
+        {...targetDragHandlers}
+      >
+        <sphereGeometry args={[0.35, 12, 12]} />
+        <meshBasicMaterial />
+      </mesh>
+      {/* Marker on the target itself so the user can see and move the
+          point every non-random trajectory orbits around. */}
       <mesh position={target as [number, number, number]} renderOrder={999}>
         <sphereGeometry args={[0.04, 10, 10]} />
         <meshBasicMaterial
@@ -783,7 +814,7 @@ function CameraKeyboardInput() {
       const sph = new THREE.Spherical().setFromVector3(offset);
       sph.theta -= deltaAz;
       sph.phi -= deltaPolar;
-      sph.phi = Math.max(0.05, Math.min(Math.PI - 0.05, sph.phi));
+      sph.phi = clamp(sph.phi, 0.05, Math.PI - 0.05);
       offset.setFromSpherical(sph);
       camera.position.copy(controls.target).add(offset);
       camera.lookAt(controls.target);
@@ -847,8 +878,8 @@ function CameraKeyboardInput() {
       }
       // Step sizes: 5° for camera rotation, 10° for object rotation.
       // Holding Shift doubles the step for fast adjustments.
-      const stepCam = (e.shiftKey ? 10 : 5) * (Math.PI / 180);
-      const stepObj = (e.shiftKey ? 20 : 10) * (Math.PI / 180);
+      const stepCam = degToRad(e.shiftKey ? 10 : 5);
+      const stepObj = degToRad(e.shiftKey ? 20 : 10);
       const panStep = e.shiftKey ? 0.5 : 0.2;
       switch (e.key.toLowerCase()) {
         case 'q':

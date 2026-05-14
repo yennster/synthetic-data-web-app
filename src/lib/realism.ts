@@ -18,26 +18,8 @@
  * level `applyRealismToBlob` glues them together with a real canvas.
  */
 
-/** Branded seedable RNG so tests can pin sequences. Same shape as
- * `Math.random` — returns a uniform [0, 1) — but deterministic when
- * constructed with a seed. */
-export type Rng = () => number;
-
-/**
- * Mulberry32 — a 32-bit non-cryptographic PRNG with a 32-bit period
- * but extremely fast (no `Math` calls in the hot path) and good
- * uniformity for our purposes. The seed is the only state.
- */
-export function mulberry32(seed: number): Rng {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
+import { mulberry32, type Rng } from './rng';
+export { mulberry32, type Rng };
 
 /**
  * Box-Muller transform: convert two uniform [0, 1) samples into a
@@ -268,12 +250,6 @@ let diffusionBudgetRemaining = DIFFUSION_BUDGET;
  * calls starts with the full quota. */
 export function resetDiffusionBudget(): void {
   diffusionBudgetRemaining = DIFFUSION_BUDGET;
-}
-
-/** Visible to the UI / tests — read-only snapshot of how many HF calls
- * are still available in the current batch. */
-export function getDiffusionBudgetRemaining(): number {
-  return diffusionBudgetRemaining;
 }
 
 /** Full per-effect intensity bundle for the blob-level pass. Pixel

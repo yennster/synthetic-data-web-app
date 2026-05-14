@@ -24,6 +24,7 @@ import {
 } from '../lib/armPickupOutcome';
 import { BRACCIO_LIMITS_RAD, BRACCIO_REST_RAD } from '../lib/braccio';
 import { buildBoundingBoxLabelsFile, saveBlob } from '../lib/capture';
+import { degToRad, radToDeg } from '../lib/math';
 import {
   buildDataAcquisitionPayload,
   buildFileName,
@@ -51,6 +52,7 @@ import { EiAuthCard } from './EiAuthCard';
 import { EiInferenceCard } from './EiInferenceCard';
 import { ImportedAssetsCard } from './ImportedAssetsCard';
 import { ImuNoiseToggle } from './ImuNoiseToggle';
+import { ToggleSwitch } from './ToggleSwitch';
 import { RealismCard } from './RealismCard';
 import { SceneObjectsCard } from './SceneObjectsCard';
 
@@ -1200,41 +1202,13 @@ export function RobotPanel() {
               // Lives inside the pickup-objects card so the toggle that
               // *acts on* those objects sits next to the list, not as a
               // floating card below.
-              <div className="webcam-control" style={{ marginTop: 8 }}>
-                <div className="webcam-control-copy">
-                  <div className="webcam-control-heading">
-                    <span className="webcam-control-title">
-                      Randomize pickup position
-                    </span>
-                    <span
-                      className={`webcam-control-state ${
-                        robot.armRandomizeTarget ? 'on' : 'off'
-                      }`}
-                    >
-                      {robot.armRandomizeTarget ? 'On' : 'Off'}
-                    </span>
-                  </div>
-                  <div className="webcam-control-help">
-                    Re-sample each pickup object to a fresh random
-                    position inside the Braccio's reach at the start of
-                    every iteration. Generates varied IMU traces without
-                    dragging the cube around by hand.
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className={`webcam-switch ${
-                    robot.armRandomizeTarget ? 'on' : ''
-                  }`}
-                  role="switch"
-                  aria-checked={robot.armRandomizeTarget}
-                  aria-label={
-                    robot.armRandomizeTarget
-                      ? 'Turn pickup randomization off'
-                      : 'Turn pickup randomization on'
-                  }
-                  onClick={() => {
-                    const next = !robot.armRandomizeTarget;
+              <div style={{ marginTop: 8 }}>
+                <ToggleSwitch
+                  title="Randomize pickup position"
+                  help="Re-sample each pickup object to a fresh random position inside the Braccio's reach at the start of every iteration. Generates varied IMU traces without dragging the cube around by hand."
+                  on={robot.armRandomizeTarget}
+                  disabled={robotRunning}
+                  onChange={(next) => {
                     setRobot({ armRandomizeTarget: next });
                     // Flipping the switch on should give immediate
                     // visual feedback — randomize once now so the user
@@ -1244,10 +1218,7 @@ export function RobotPanel() {
                       useStore.getState().randomizeArmPickupPositions();
                     }
                   }}
-                  disabled={robotRunning}
-                >
-                  <span className="webcam-switch-thumb" />
-                </button>
+                />
               </div>
             ) : undefined
           }
@@ -1410,92 +1381,38 @@ export function RobotPanel() {
             the toggle so the sidebar stays compact for users who only
             want sensor data. Flipping it on expands the help text +
             sub-controls (capture phase, count, output size). */}
-        <div className="webcam-control">
-          <div className="webcam-control-copy">
-            <div className="webcam-control-heading">
-              <h3 style={{ margin: 0 }}>Object detection</h3>
-              <span
-                className={`webcam-control-state ${
-                  robot.objectDetection ? 'on' : 'off'
-                }`}
-              >
-                {robot.objectDetection ? 'On' : 'Off'}
-              </span>
-            </div>
-            {robot.objectDetection && (
-              <div className="webcam-control-help">
-                Snap{' '}
-                {robot.captureAtRest
-                  ? 1
-                  : robot.objectDetectionImagesPerIteration}{' '}
-                POV-camera image
-                {(robot.captureAtRest
-                  ? 1
-                  : robot.objectDetectionImagesPerIteration) === 1
-                  ? ''
-                  : 's'}{' '}
-                per iteration with 2D bounding boxes. EI accepts only one
-                data type per project — the runner probes the project
-                and routes the other to a local zip.
-              </div>
-            )}
-          </div>
-          <button
-            type="button"
-            className={`webcam-switch ${robot.objectDetection ? 'on' : ''}`}
-            role="switch"
-            aria-checked={robot.objectDetection}
-            aria-label={
-              robot.objectDetection
-                ? 'Turn object detection capture off'
-                : 'Turn object detection capture on'
-            }
-            onClick={() =>
-              setRobot({ objectDetection: !robot.objectDetection })
-            }
-            disabled={robotRunning}
-          >
-            <span className="webcam-switch-thumb" />
-          </button>
-        </div>
+        <ToggleSwitch
+          title="Object detection"
+          titleAs="h3"
+          help={
+            robot.objectDetection
+              ? `Snap ${
+                  robot.captureAtRest
+                    ? 1
+                    : robot.objectDetectionImagesPerIteration
+                } POV-camera image${
+                  (robot.captureAtRest
+                    ? 1
+                    : robot.objectDetectionImagesPerIteration) === 1
+                    ? ''
+                    : 's'
+                } per iteration with 2D bounding boxes. EI accepts only one data type per project — the runner probes the project and routes the other to a local zip.`
+              : undefined
+          }
+          on={robot.objectDetection}
+          disabled={robotRunning}
+          onChange={(next) => setRobot({ objectDetection: next })}
+        />
         {robot.objectDetection && (
           <>
-            <div className="webcam-control" style={{ marginTop: 8 }}>
-              <div className="webcam-control-copy">
-                <div className="webcam-control-heading">
-                  <span className="webcam-control-title">
-                    Capture at rest
-                  </span>
-                  <span
-                    className={`webcam-control-state ${
-                      robot.captureAtRest ? 'on' : 'off'
-                    }`}
-                  >
-                    {robot.captureAtRest ? 'On' : 'Off'}
-                  </span>
-                </div>
-                <div className="webcam-control-help">
-                  Snap before motion begins instead of mid-motion. Same
-                  one image per iteration.
-                </div>
-              </div>
-              <button
-                type="button"
-                className={`webcam-switch ${robot.captureAtRest ? 'on' : ''}`}
-                role="switch"
-                aria-checked={robot.captureAtRest}
-                aria-label={
-                  robot.captureAtRest
-                    ? 'Switch to mid-motion capture'
-                    : 'Switch to at-rest capture'
-                }
-                onClick={() =>
-                  setRobot({ captureAtRest: !robot.captureAtRest })
-                }
+            <div style={{ marginTop: 8 }}>
+              <ToggleSwitch
+                title="Capture at rest"
+                help="Snap before motion begins instead of mid-motion. Same one image per iteration."
+                on={robot.captureAtRest}
                 disabled={robotRunning}
-              >
-                <span className="webcam-switch-thumb" />
-              </button>
+                onChange={(next) => setRobot({ captureAtRest: next })}
+              />
             </div>
             {!robot.captureAtRest && (
               // At-rest captures fire while nothing's moving, so N back-
@@ -1613,38 +1530,17 @@ export function RobotPanel() {
             </>
           )}
         </div>
-        <div className="webcam-control">
-          <div className="webcam-control-copy">
-            <div className="webcam-control-heading">
-              <span className="webcam-control-title">ROS 2 export</span>
-              <span
-                className={`webcam-control-state ${
-                  robot.rosExport ? 'on' : 'off'
-                }`}
-              >
-                {robot.rosExport ? 'On' : 'Off'}
-              </span>
-            </div>
-            <div className="webcam-control-help">
-              {robot.kind === 'rover'
-                ? 'Also write each window as ROS 2 sensor-message JSONL (sensor_msgs/Imu + LaserScan). Bundles into the download zip alongside the EI payload.'
-                : 'Also write each window as ROS 2 sensor-message JSONL — end-effector sensor_msgs/Imu + per-tick sensor_msgs/JointState. Bundles into the download zip alongside the EI payload.'}
-            </div>
-          </div>
-          <button
-            type="button"
-            className={`webcam-switch ${robot.rosExport ? 'on' : ''}`}
-            role="switch"
-            aria-checked={robot.rosExport}
-            aria-label={
-              robot.rosExport ? 'Turn ROS export off' : 'Turn ROS export on'
-            }
-            onClick={() => setRobot({ rosExport: !robot.rosExport })}
-            disabled={robotRunning}
-          >
-            <span className="webcam-switch-thumb" />
-          </button>
-        </div>
+        <ToggleSwitch
+          title="ROS 2 export"
+          help={
+            robot.kind === 'rover'
+              ? 'Also write each window as ROS 2 sensor-message JSONL (sensor_msgs/Imu + LaserScan). Bundles into the download zip alongside the EI payload.'
+              : 'Also write each window as ROS 2 sensor-message JSONL — end-effector sensor_msgs/Imu + per-tick sensor_msgs/JointState. Bundles into the download zip alongside the EI payload.'
+          }
+          on={robot.rosExport}
+          disabled={robotRunning}
+          onChange={(next) => setRobot({ rosExport: next })}
+        />
         {robotRunning ? (
           <button
             className="danger"
@@ -1691,8 +1587,6 @@ function ArmHomePoseCard({ disabled }: { disabled: boolean }) {
     setRobot({ armHomePose: next });
   };
 
-  const RAD_TO_DEG = 180 / Math.PI;
-  const DEG_TO_RAD = Math.PI / 180;
   const labels = [
     'M1 base',
     'M2 shoulder',
@@ -1747,22 +1641,20 @@ function ArmHomePoseCard({ disabled }: { disabled: boolean }) {
       </div>
       {labels.map((label, i) => {
         const [loRad, hiRad] = BRACCIO_LIMITS_RAD[i];
-        const valDeg = robot.armHomePose[i] * RAD_TO_DEG;
+        const valDeg = radToDeg(robot.armHomePose[i]);
         return (
           <label key={i} className="field">
             {label} {valDeg.toFixed(0)}°{' '}
             <span style={{ color: 'var(--muted)', fontSize: 10 }}>
-              ({(loRad * RAD_TO_DEG).toFixed(0)}–{(hiRad * RAD_TO_DEG).toFixed(0)}°)
+              ({radToDeg(loRad).toFixed(0)}–{radToDeg(hiRad).toFixed(0)}°)
             </span>
             <input
               type="range"
-              min={loRad * RAD_TO_DEG}
-              max={hiRad * RAD_TO_DEG}
+              min={radToDeg(loRad)}
+              max={radToDeg(hiRad)}
               step={1}
               value={valDeg}
-              onChange={(e) =>
-                setJoint(i, Number(e.target.value) * DEG_TO_RAD)
-              }
+              onChange={(e) => setJoint(i, degToRad(Number(e.target.value)))}
               disabled={disabled}
             />
           </label>

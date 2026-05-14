@@ -70,26 +70,70 @@ export function applyEiCategoryFromUrl(
 
 export type IframeHeightMessage = { type: 'IFRAME_HEIGHT'; height: number };
 
-/** Post the current document height to the parent window with the same
- * shape iframe embedders expect. Hoisted so the iframe loop can call it
+/** Post the current document height to the parent window. Caller is
+ * responsible for supplying a concrete `targetOrigin` — broadcasting to
+ * `'*'` leaks the message (and any future payload extension) to every
+ * cross-origin frame that happens to receive it. We refuse to use `'*'`
+ * unless explicitly asked. Hoisted so the iframe loop can call it
  * directly and tests can assert on the message payload. */
 export function postContentHeight(
   parent: Pick<Window, 'postMessage'>,
   height: number,
+  targetOrigin: string,
 ): void {
   const msg: IframeHeightMessage = { type: 'IFRAME_HEIGHT', height };
-  parent.postMessage(msg, '*');
+  parent.postMessage(msg, targetOrigin);
+}
+
+/** Derive the parent-frame origin the height pings should be addressed
+ * to. Priority:
+ *   1. Explicit `?embedOrigin=` URL param (lets multi-tenant embedders
+ *      lock the channel without modifying the page).
+ *   2. `document.referrer`, parsed for its origin — the standard way
+ *      a top-level frame reveals itself to an iframe.
+ * Falls back to `null` (caller decides whether to skip or use `'*'`). */
+export function resolveEmbedTargetOrigin(win?: Window): string | null {
+  const w = win ?? (typeof window !== 'undefined' ? window : undefined);
+  if (!w) return null;
+  try {
+    const explicit = new URLSearchParams(w.location.search).get('embedOrigin');
+    if (explicit) {
+      const u = new URL(explicit);
+      return `${u.protocol}//${u.host}`;
+    }
+  } catch {
+    // fall through
+  }
+  try {
+    const ref = w.document?.referrer;
+    if (ref) {
+      const u = new URL(ref);
+      return `${u.protocol}//${u.host}`;
+    }
+  } catch {
+    // fall through
+  }
+  return null;
 }
 
 /** Wire up the height-posting loop: post once now, then on `load`,
  * `resize`, and any `document.body` size change. Returns a teardown.
- * Tests can pass spies for `parent`, `win`, and a fake `ResizeObserver`. */
+ * Tests can pass spies for `parent`, `win`, and a fake `ResizeObserver`.
+ *
+ * `targetOrigin` defaults to the resolved parent origin (see
+ * `resolveEmbedTargetOrigin`); pass `'*'` only if you've considered the
+ * cross-origin information disclosure and decided it's fine.
+ *
+ * When the target origin cannot be determined and the caller didn't
+ * pass one, this function becomes a no-op (no posts) so we never
+ * accidentally broadcast. */
 export function initPostContentHeight(opts?: {
   win?: Window;
   parent?: Pick<Window, 'postMessage'>;
   doc?: Document;
   ResizeObserverImpl?: typeof ResizeObserver;
   log?: (height: number) => void;
+  targetOrigin?: string;
 }): () => void {
   const win = opts?.win ?? window;
   const parent = opts?.parent ?? win.parent;
@@ -98,11 +142,13 @@ export function initPostContentHeight(opts?: {
     opts?.ResizeObserverImpl ??
     (typeof ResizeObserver !== 'undefined' ? ResizeObserver : undefined);
   const log = opts?.log;
+  const targetOrigin = opts?.targetOrigin ?? resolveEmbedTargetOrigin(win);
 
   const post = () => {
+    if (!targetOrigin) return;
     const height = doc.body.scrollHeight;
     log?.(height);
-    postContentHeight(parent, height);
+    postContentHeight(parent, height, targetOrigin);
   };
 
   win.addEventListener('load', post);

@@ -2,6 +2,8 @@
 // module is safe to test in a Node environment. The MediaPipe-dependent
 // loader lives in handTracking.ts and re-exports these helpers.
 
+import { clamp01 } from './math';
+
 /** Minimal landmark shape: just what the math needs. MediaPipe's
  * NormalizedLandmark is a superset. */
 export type Landmark = { x: number; y: number; z?: number };
@@ -21,7 +23,7 @@ export function computePinchStrength(lm: readonly Landmark[]): number {
   const ratio = dist / handSize; // ~1.0 = open, ~0.2 = pinched
   // Map: ratio 0.15 -> 1.0 (closed), 0.6 -> 0.0 (open)
   const v = 1 - (ratio - 0.15) / 0.45;
-  return Math.max(0, Math.min(1, v));
+  return clamp01(v);
 }
 
 /** Midpoint of the thumb tip (4) and index tip (8). */

@@ -1,4 +1,6 @@
 import { CollapsibleCard } from './CollapsibleCard';
+import { SliderRow } from './SliderRow';
+import { ToggleSwitch } from './ToggleSwitch';
 import {
   useStore,
   type RealismConfig,
@@ -123,57 +125,26 @@ export function RealismCard() {
       {realism.mode !== 'off' && (
         <>
           {EFFECTS.map((e) => (
-            <label key={e.key} className="field" title={e.hint}>
-              {e.label} {(realism[e.key] * 100).toFixed(0)}%
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.05}
-                value={realism[e.key]}
-                onChange={(ev) =>
-                  setRealism({
-                    [e.key]: Number(ev.target.value),
-                  } as Partial<RealismConfig>)
-                }
-              />
-            </label>
-          ))}
-          <div className="webcam-control">
-            <div className="webcam-control-copy">
-              <div className="webcam-control-heading">
-                <span className="webcam-control-title">
-                  Randomize per capture
-                </span>
-                <span
-                  className={`webcam-control-state ${realism.randomize ? 'on' : 'off'}`}
-                >
-                  {realism.randomize ? 'On' : 'Off'}
-                </span>
-              </div>
-              <div className="webcam-control-help">
-                On: each capture re-samples its effective intensity for
-                every effect in [0, slider value], so a batch sees varied
-                realism instead of identical settings on every PNG. The
-                sliders above become the upper bound. Off: each capture
-                uses the slider values verbatim.
-              </div>
-            </div>
-            <button
-              type="button"
-              className={`webcam-switch ${realism.randomize ? 'on' : ''}`}
-              role="switch"
-              aria-checked={realism.randomize}
-              aria-label={
-                realism.randomize
-                  ? 'Turn random per-capture realism off'
-                  : 'Turn random per-capture realism on'
+            <SliderRow
+              key={e.key}
+              label={e.label}
+              hint={e.hint}
+              value={realism[e.key]}
+              min={0}
+              max={1}
+              step={0.05}
+              formatValue={(v) => `${(v * 100).toFixed(0)}%`}
+              onChange={(next) =>
+                setRealism({ [e.key]: next } as Partial<RealismConfig>)
               }
-              onClick={() => setRealism({ randomize: !realism.randomize })}
-            >
-              <span className="webcam-switch-thumb" />
-            </button>
-          </div>
+            />
+          ))}
+          <ToggleSwitch
+            title="Randomize per capture"
+            help="On: each capture re-samples its effective intensity for every effect in [0, slider value], so a batch sees varied realism instead of identical settings on every PNG. The sliders above become the upper bound. Off: each capture uses the slider values verbatim."
+            on={realism.randomize}
+            onChange={(next) => setRealism({ randomize: next })}
+          />
         </>
       )}
     </CollapsibleCard>

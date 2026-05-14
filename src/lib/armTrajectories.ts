@@ -34,6 +34,7 @@ import {
   solveBraccioIk,
   type BraccioJointVector,
 } from './braccioIk';
+import { clamp01 } from './math';
 
 export type ArmTrajectory =
   | 'pick_place'
@@ -109,7 +110,7 @@ export function buildPickPlace(
 
   return {
     sample: (t) => {
-      const u = Math.max(0, Math.min(1, t));
+      const u = clamp01(t);
       let prevTime = 0;
       let prev = rest;
       for (const seg of segments) {
@@ -141,7 +142,7 @@ export function buildSweep(
   const yawAmp = (yawHi - yawLo) * 0.4;
   return {
     sample: (t) => {
-      const u = Math.max(0, Math.min(1, t));
+      const u = clamp01(t);
       const yaw = yawCenter + Math.sin(u * 2 * Math.PI) * yawAmp;
       return [yaw, home[1], home[2], home[3], home[4], home[5]];
     },
@@ -159,7 +160,7 @@ export function buildWave(
   const wpAmp = (wpHi - wpLo) * 0.4;
   return {
     sample: (t) => {
-      const u = Math.max(0, Math.min(1, t));
+      const u = clamp01(t);
       const wp = wpCenter + Math.sin(u * 2 * Math.PI * 2) * wpAmp;
       return [home[0], home[1], home[2], wp, home[4], home[5]];
     },

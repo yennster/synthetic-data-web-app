@@ -37,6 +37,7 @@ import {
   type BraccioTargetBox,
 } from './braccioMjcf';
 import type { MujocoModule } from './runtime';
+import { clamp01 } from '../math';
 
 export type BraccioJointPose = readonly [
   number,
@@ -234,7 +235,7 @@ export class BraccioSim {
       qpos[this.jointQposAdr[2]],
       qpos[this.jointQposAdr[3]],
       qpos[this.jointQposAdr[4]],
-      Math.max(0, Math.min(1, aperture)),
+      clamp01(aperture),
     ];
   }
 

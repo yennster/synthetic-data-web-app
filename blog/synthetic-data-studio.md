@@ -12,7 +12,7 @@ So I wanted to know: how much of the synthetic-data story can we collapse back i
 
 [**Synthetic Data Studio**](https://synthetic.jennyspeelman.dev/) is a browser-based 3D tool for generating synthetic training data for Edge Impulse projects. No Unity, no Blender, no Python, no Omniverse — just a web app running Three.js, MuJoCo, and Rapier where each fits best. Open it, pick a mode, paste your project API key, and start ingesting samples via the [Edge Impulse Ingestion API](https://docs.edgeimpulse.com/apis/ingestion).
 
-The first version was built with [Claude Code](https://www.anthropic.com/claude-code) over a few days. More on that below.
+The first version was built with [Claude Code](https://claude.com/product/claude-code) over a few days. More on that below.
 
 > **Try it now:** open the [live demo at synthetic.jennyspeelman.dev](https://synthetic.jennyspeelman.dev/), or clone the repo at [github.com/yennster/synthetic-data-studio](https://github.com/yennster/synthetic-data-studio) and run it locally.
 

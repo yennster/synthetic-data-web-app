@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { BoundingBox, Capture } from '../store/useStore';
+import { clamp } from './math';
 
 // Singleton off-screen renderer reused across every captureFrame call. We
 // used to spin up a fresh THREE.WebGLRenderer (and therefore a fresh WebGL
@@ -207,10 +208,10 @@ function computeBoundingBoxes(
     });
 
     if (!anyInFront) continue;
-    minX = Math.max(0, Math.min(width, minX));
-    minY = Math.max(0, Math.min(height, minY));
-    maxX = Math.max(0, Math.min(width, maxX));
-    maxY = Math.max(0, Math.min(height, maxY));
+    minX = clamp(minX, 0, width);
+    minY = clamp(minY, 0, height);
+    maxX = clamp(maxX, 0, width);
+    maxY = clamp(maxY, 0, height);
     const w = Math.round(maxX - minX);
     const h = Math.round(maxY - minY);
     if (w < 4 || h < 4) continue;
@@ -248,7 +249,7 @@ export async function saveBlob(filename: string, blob: Blob): Promise<void> {
 /**
  * Edge Impulse `bounding_boxes.labels` sidecar format. Used by the Studio
  * during data acquisition / upload.
- * https://docs.edgeimpulse.com/docs/edge-impulse-studio/data-acquisition/uploader#bounding-boxes
+ * https://docs.edgeimpulse.com/studio/projects/data-acquisition/uploader#bounding-boxes
  */
 export function buildBoundingBoxLabelsFile(
   captures: Capture[],

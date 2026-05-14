@@ -20,46 +20,55 @@ export function EiAuthCard({ showHmac = false }: { showHmac?: boolean }) {
       heading="Edge Impulse · auth"
       badge={ei.apiKey ? 'set' : undefined}
     >
-      <label className="field">
-        API Key
-        <input
-          type="password"
-          value={ei.apiKey}
-          onChange={(e) => setEi({ apiKey: e.target.value })}
-          placeholder="ei_..."
-          autoComplete="off"
-        />
-      </label>
-      {showHmac && (
+      <form
+        className="ei-auth-form"
+        autoComplete="off"
+        onSubmit={(e) => e.preventDefault()}
+      >
         <label className="field">
-          HMAC Key (optional)
+          API Key
           <input
             type="password"
-            value={ei.hmacKey}
-            onChange={(e) => setEi({ hmacKey: e.target.value })}
-            placeholder="leave blank for unsigned"
+            name="edge-impulse-api-key"
+            value={ei.apiKey}
+            onChange={(e) => setEi({ apiKey: e.target.value })}
+            placeholder="ei_..."
             autoComplete="off"
           />
         </label>
-      )}
-      <label className="field">
-        Category
-        <select
-          value={ei.category}
-          onChange={(e) =>
-            setEi({
-              category: e.target.value as
-                | 'training'
-                | 'testing'
-                | 'split',
-            })
-          }
-        >
-          <option value="training">Training</option>
-          <option value="testing">Testing</option>
-          <option value="split">Split 80:20 (training:testing)</option>
-        </select>
-      </label>
+        {showHmac && (
+          <label className="field">
+            HMAC Key (optional)
+            <input
+              type="password"
+              name="edge-impulse-hmac-key"
+              value={ei.hmacKey}
+              onChange={(e) => setEi({ hmacKey: e.target.value })}
+              placeholder="leave blank for unsigned"
+              autoComplete="off"
+            />
+          </label>
+        )}
+        <label className="field">
+          Category
+          <select
+            name="edge-impulse-category"
+            value={ei.category}
+            onChange={(e) =>
+              setEi({
+                category: e.target.value as
+                  | 'training'
+                  | 'testing'
+                  | 'split',
+              })
+            }
+          >
+            <option value="training">Training</option>
+            <option value="testing">Testing</option>
+            <option value="split">Split 80:20 (training:testing)</option>
+          </select>
+        </label>
+      </form>
     </CollapsibleCard>
   );
 }

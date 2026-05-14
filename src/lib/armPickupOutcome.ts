@@ -1,5 +1,6 @@
 import type { ArmTrajectory } from './armTrajectories';
 import type { IngestionMetadataExtras } from './edgeImpulse';
+import { clamp, radToDeg } from './math';
 
 export const ARM_PICKUP_SUCCESS_LIFT_M = 0.02;
 export const ARM_PICKUP_MAX_TILT_DEG = 40;
@@ -111,9 +112,6 @@ function roundDegrees(v: number): number {
   return Math.round(v * 10) / 10;
 }
 
-function clampUnit(v: number): number {
-  return Math.max(-1, Math.min(1, v));
-}
 
 function normalizedQuat(
   q: readonly [number, number, number, number],
@@ -144,10 +142,12 @@ export function assessArmPickupGrasp(
   startCenter: readonly [number, number, number],
   halfExtents: readonly [number, number, number],
 ): ArmPickupGraspAssessment {
-  const [w, x, y, z] = normalizedQuat(pose.quat);
+  // Only x and z are needed to derive how far the local +Y axis has
+  // tilted off world +Y; w / y are unused.
+  const [, x, , z] = normalizedQuat(pose.quat);
   const localUpDotWorldUp = 1 - 2 * (x * x + z * z);
   const tiltDeg =
-    Math.acos(clampUnit(localUpDotWorldUp)) * (180 / Math.PI);
+    radToDeg(Math.acos(clamp(localUpDotWorldUp, -1, 1)));
   const horizontalDriftM = Math.hypot(
     pose.pos[0] - startCenter[0],
     pose.pos[2] - startCenter[2],

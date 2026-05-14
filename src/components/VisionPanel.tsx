@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
   ALL_CAMERA_TRAJECTORIES,
+  isDefaultCaptureSettings,
   realismAverage,
   useStore,
   type CameraTrajectory,
@@ -27,6 +28,8 @@ import { ImportedAssetsCard } from './ImportedAssetsCard';
 import { ObjectCaptureCard } from './ObjectCaptureCard';
 import { RealismCard } from './RealismCard';
 import { SceneObjectsCard } from './SceneObjectsCard';
+import { SliderRow } from './SliderRow';
+import { ToggleSwitch } from './ToggleSwitch';
 
 function trajectoryLabel(t: CameraTrajectory): string {
   switch (t) {
@@ -67,35 +70,38 @@ function realismMeta(
 }
 
 export function VisionPanel() {
-  const {
-    mode,
-    sceneObjects,
-    removeSceneObject,
-    showConveyor,
-    setShowConveyor,
-    conveyorSpeed,
-    setConveyorSpeed,
-    envPreset,
-    setEnvPreset,
-    customFloorTexture,
-    setCustomFloorTexture,
-    customWallTexture,
-    setCustomWallTexture,
-    assets,
-    removeAsset,
-    setPendingAssets,
-    capture: cs,
-    setCapture,
-    captures,
-    clearCaptures,
-    triggerCapture,
-    triggerBatch,
-    anomalyLabel,
-    setAnomalyLabel,
-    ei,
-    status,
-    setStatus,
-  } = useStore();
+  // Per-key selectors — see MotionPanel for the rationale. This used to
+  // `useStore()` which re-rendered the whole panel on every store push,
+  // including every realism / scene-object / asset / capture mutation
+  // that doesn't otherwise affect what the panel renders.
+  const mode = useStore((s) => s.mode);
+  const sceneObjects = useStore((s) => s.sceneObjects);
+  const removeSceneObject = useStore((s) => s.removeSceneObject);
+  const showConveyor = useStore((s) => s.showConveyor);
+  const setShowConveyor = useStore((s) => s.setShowConveyor);
+  const conveyorSpeed = useStore((s) => s.conveyorSpeed);
+  const setConveyorSpeed = useStore((s) => s.setConveyorSpeed);
+  const envPreset = useStore((s) => s.envPreset);
+  const setEnvPreset = useStore((s) => s.setEnvPreset);
+  const customFloorTexture = useStore((s) => s.customFloorTexture);
+  const setCustomFloorTexture = useStore((s) => s.setCustomFloorTexture);
+  const customWallTexture = useStore((s) => s.customWallTexture);
+  const setCustomWallTexture = useStore((s) => s.setCustomWallTexture);
+  const assets = useStore((s) => s.assets);
+  const removeAsset = useStore((s) => s.removeAsset);
+  const setPendingAssets = useStore((s) => s.setPendingAssets);
+  const cs = useStore((s) => s.capture);
+  const setCapture = useStore((s) => s.setCapture);
+  const resetCapture = useStore((s) => s.resetCapture);
+  const captures = useStore((s) => s.captures);
+  const clearCaptures = useStore((s) => s.clearCaptures);
+  const triggerCapture = useStore((s) => s.triggerCapture);
+  const triggerBatch = useStore((s) => s.triggerBatch);
+  const anomalyLabel = useStore((s) => s.anomalyLabel);
+  const setAnomalyLabel = useStore((s) => s.setAnomalyLabel);
+  const ei = useStore((s) => s.ei);
+  const status = useStore((s) => s.status);
+  const setStatus = useStore((s) => s.setStatus);
 
   // Controlled number inputs that tolerate transient empty / partial
   // entries while the user is typing — see lib/useNumberInput for why.
@@ -212,6 +218,7 @@ export function VisionPanel() {
 
   const visionObjects = sceneObjects.filter((o) => o.owner == null);
   const visionAssets = assets.filter((a) => a.owner == null);
+  const captureIsDefault = isDefaultCaptureSettings(cs);
 
   return (
     <>
@@ -288,64 +295,50 @@ export function VisionPanel() {
             />
           </>
         )}
-        <div className="webcam-control">
-          <div className="webcam-control-copy">
-            <div className="webcam-control-heading">
-              <span className="webcam-control-title">Conveyor belt</span>
-              <span
-                className={`webcam-control-state ${
-                  showConveyor ? 'on' : 'off'
-                }`}
-              >
-                {showConveyor ? 'On' : 'Off'}
-              </span>
-            </div>
-            <div className="webcam-control-help">
-              {showConveyor
-                ? 'Spawned objects ride the belt — adjust speed below.'
-                : 'No belt — objects fall onto the floor at spawn position.'}
-            </div>
-          </div>
-          <button
-            type="button"
-            className={`webcam-switch ${showConveyor ? 'on' : ''}`}
-            role="switch"
-            aria-checked={showConveyor}
-            aria-label={
-              showConveyor ? 'Turn conveyor belt off' : 'Turn conveyor belt on'
-            }
-            onClick={() => setShowConveyor(!showConveyor)}
-          >
-            <span className="webcam-switch-thumb" />
-          </button>
-        </div>
+        <ToggleSwitch
+          title="Conveyor belt"
+          help={
+            showConveyor
+              ? 'Spawned objects ride the belt — adjust speed below.'
+              : 'No belt — objects fall onto the floor at spawn position.'
+          }
+          on={showConveyor}
+          onChange={setShowConveyor}
+        />
         {showConveyor && (
-          <label className="field">
-            Belt speed {conveyorSpeed.toFixed(2)} m/s
-            <input
-              type="range"
-              min={-2}
-              max={2}
-              step={0.05}
-              value={conveyorSpeed}
-              onChange={(e) => setConveyorSpeed(Number(e.target.value))}
-            />
-          </label>
+          <SliderRow
+            label="Belt speed"
+            value={conveyorSpeed}
+            min={-2}
+            max={2}
+            step={0.05}
+            formatValue={(v) => `${v.toFixed(2)} m/s`}
+            onChange={setConveyorSpeed}
+          />
         )}
         <button
           onClick={() => {
             const textureCount =
               (customFloorTexture ? 1 : 0) + (customWallTexture ? 1 : 0);
             const total =
-              visionObjects.length + visionAssets.length + textureCount;
+              visionObjects.length +
+              visionAssets.length +
+              textureCount +
+              (captureIsDefault ? 0 : 1);
             if (total === 0) return;
-            const parts = [
-              `${visionObjects.length} object(s)`,
-              `${visionAssets.length} imported asset(s)`,
-            ];
+            const parts: string[] = [];
+            if (visionObjects.length) {
+              parts.push(`${visionObjects.length} object(s)`);
+            }
+            if (visionAssets.length) {
+              parts.push(`${visionAssets.length} imported asset(s)`);
+            }
             if (textureCount) parts.push(`${textureCount} custom texture(s)`);
+            if (!captureIsDefault) {
+              parts.push('capture camera / trajectory settings');
+            }
             const ok = window.confirm(
-              `Reset scene? This removes ${parts.join(', ')} from this session and from saved storage.`,
+              `Reset scene? This resets ${parts.join(', ')} for this session and saved storage where applicable.`,
             );
             if (!ok) return;
             for (const a of visionAssets) {
@@ -368,13 +361,15 @@ export function VisionPanel() {
             setCustomWallTexture(null);
             void deleteCustomTexture('floor').catch(() => {});
             void deleteCustomTexture('wall').catch(() => {});
+            resetCapture();
             setStatus('ok', 'Scene reset');
           }}
           disabled={
             visionObjects.length === 0 &&
             visionAssets.length === 0 &&
             !customFloorTexture &&
-            !customWallTexture
+            !customWallTexture &&
+            captureIsDefault
           }
           style={{ marginTop: 4 }}
         >
@@ -411,30 +406,23 @@ export function VisionPanel() {
             />
           </label>
         </div>
-        <label className="field">
-          FOV {cs.fov.toFixed(0)}°
-          <input
-            type="range"
-            min={20}
-            max={90}
-            step={1}
-            value={cs.fov}
-            onChange={(e) => setCapture({ fov: Number(e.target.value) })}
-          />
-        </label>
-        <label className="field">
-          Light intensity {cs.lightIntensity.toFixed(2)}
-          <input
-            type="range"
-            min={0.2}
-            max={2.5}
-            step={0.05}
-            value={cs.lightIntensity}
-            onChange={(e) =>
-              setCapture({ lightIntensity: Number(e.target.value) })
-            }
-          />
-        </label>
+        <SliderRow
+          label="FOV"
+          value={cs.fov}
+          min={20}
+          max={90}
+          step={1}
+          formatValue={(v) => `${v.toFixed(0)}°`}
+          onChange={(next) => setCapture({ fov: next })}
+        />
+        <SliderRow
+          label="Light intensity"
+          value={cs.lightIntensity}
+          min={0.2}
+          max={2.5}
+          step={0.05}
+          onChange={(next) => setCapture({ lightIntensity: next })}
+        />
         <label className="field">
           Cam X / Y / Z
           <div className="row">
@@ -567,53 +555,47 @@ export function VisionPanel() {
           </label>
           {cs.cameraTrajectory !== 'random' && (
             <div className="row">
-              <label className="field">
-                Radius {cs.trajectoryRadius.toFixed(1)} m
-                <input
-                  type="range"
-                  min={0.5}
-                  max={15}
-                  step={0.1}
-                  value={cs.trajectoryRadius}
-                  onChange={(e) => {
-                    const r = Number(e.target.value);
-                    // Keep the cam glued to the trajectory's first
-                    // sample so the live preview tracks the radius
-                    // slider as the user drags it.
-                    const pos = sampleCameraTrajectory({
-                      trajectory: cs.cameraTrajectory,
-                      index: 0,
-                      total: Math.max(1, cs.batchCount),
-                      target: cs.camTarget,
-                      radius: r,
-                      height: cs.trajectoryHeight,
-                    });
-                    setCapture({ trajectoryRadius: r, camPos: pos });
-                  }}
-                />
-              </label>
-              <label className="field">
-                Height {cs.trajectoryHeight.toFixed(1)} m
-                <input
-                  type="range"
-                  min={0}
-                  max={10}
-                  step={0.1}
-                  value={cs.trajectoryHeight}
-                  onChange={(e) => {
-                    const h = Number(e.target.value);
-                    const pos = sampleCameraTrajectory({
-                      trajectory: cs.cameraTrajectory,
-                      index: 0,
-                      total: Math.max(1, cs.batchCount),
-                      target: cs.camTarget,
-                      radius: cs.trajectoryRadius,
-                      height: h,
-                    });
-                    setCapture({ trajectoryHeight: h, camPos: pos });
-                  }}
-                />
-              </label>
+              <SliderRow
+                label="Radius"
+                value={cs.trajectoryRadius}
+                min={0.5}
+                max={15}
+                step={0.1}
+                formatValue={(v) => `${v.toFixed(1)} m`}
+                onChange={(r) => {
+                  // Keep the cam glued to the trajectory's first
+                  // sample so the live preview tracks the radius
+                  // slider as the user drags it.
+                  const pos = sampleCameraTrajectory({
+                    trajectory: cs.cameraTrajectory,
+                    index: 0,
+                    total: Math.max(1, cs.batchCount),
+                    target: cs.camTarget,
+                    radius: r,
+                    height: cs.trajectoryHeight,
+                  });
+                  setCapture({ trajectoryRadius: r, camPos: pos });
+                }}
+              />
+              <SliderRow
+                label="Height"
+                value={cs.trajectoryHeight}
+                min={0}
+                max={10}
+                step={0.1}
+                formatValue={(v) => `${v.toFixed(1)} m`}
+                onChange={(h) => {
+                  const pos = sampleCameraTrajectory({
+                    trajectory: cs.cameraTrajectory,
+                    index: 0,
+                    total: Math.max(1, cs.batchCount),
+                    target: cs.camTarget,
+                    radius: cs.trajectoryRadius,
+                    height: h,
+                  });
+                  setCapture({ trajectoryHeight: h, camPos: pos });
+                }}
+              />
             </div>
           )}
         </div>

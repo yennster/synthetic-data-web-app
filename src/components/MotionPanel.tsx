@@ -24,6 +24,8 @@ import { buildZipOffThread } from '../lib/zipWorkerClient';
 import { CollapsibleCard } from './CollapsibleCard';
 import { EiAuthCard } from './EiAuthCard';
 import { ImuNoiseToggle } from './ImuNoiseToggle';
+import { SliderRow } from './SliderRow';
+import { ToggleSwitch } from './ToggleSwitch';
 
 const OBJECTS: { value: ObjectKind; label: string }[] = [
   { value: 'cube', label: 'Cube' },
@@ -34,8 +36,6 @@ const OBJECTS: { value: ObjectKind; label: string }[] = [
   { value: 'phone', label: 'Phone slab' },
   { value: 'soda_can', label: 'Soda can' },
 ];
-
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /** Sentinel thrown by the cancellation-aware `sleepCancellable` when the
  * user clicks Stop. The runner catches it specifically so it can report
@@ -66,31 +66,33 @@ function randomQuaternion(): [number, number, number, number] {
 }
 
 export function MotionPanel() {
-  const {
-    objectKind,
-    setObjectKind,
-    isRecording,
-    startRecording,
-    stopRecording,
-    samples,
-    clearSamples,
-    sampleRateHz,
-    setSampleRateHz,
-    ei,
-    setEi,
-    status,
-    setStatus,
-    handTrackingEnabled,
-    setHandTrackingEnabled,
-    drops,
-    setDrops,
-    dropsRunning,
-    setDropsRunning,
-    setGrabbed,
-    setPinchTarget,
-    setPinchRotation,
-    setDropsCancelRequested,
-  } = useStore();
+  // Per-key selectors so this panel only re-renders when a field it
+  // actually reads changes. Previously this used `useStore()` which
+  // returned the entire store object, causing the panel to re-render
+  // on every IMU sample push (60+ Hz while recording).
+  const objectKind = useStore((s) => s.objectKind);
+  const setObjectKind = useStore((s) => s.setObjectKind);
+  const isRecording = useStore((s) => s.isRecording);
+  const startRecording = useStore((s) => s.startRecording);
+  const stopRecording = useStore((s) => s.stopRecording);
+  const samples = useStore((s) => s.samples);
+  const clearSamples = useStore((s) => s.clearSamples);
+  const sampleRateHz = useStore((s) => s.sampleRateHz);
+  const setSampleRateHz = useStore((s) => s.setSampleRateHz);
+  const ei = useStore((s) => s.ei);
+  const setEi = useStore((s) => s.setEi);
+  const status = useStore((s) => s.status);
+  const setStatus = useStore((s) => s.setStatus);
+  const handTrackingEnabled = useStore((s) => s.handTrackingEnabled);
+  const setHandTrackingEnabled = useStore((s) => s.setHandTrackingEnabled);
+  const drops = useStore((s) => s.drops);
+  const setDrops = useStore((s) => s.setDrops);
+  const dropsRunning = useStore((s) => s.dropsRunning);
+  const setDropsRunning = useStore((s) => s.setDropsRunning);
+  const setGrabbed = useStore((s) => s.setGrabbed);
+  const setPinchTarget = useStore((s) => s.setPinchTarget);
+  const setPinchRotation = useStore((s) => s.setPinchRotation);
+  const setDropsCancelRequested = useStore((s) => s.setDropsCancelRequested);
 
   // Controlled number inputs that tolerate transient empty / partial
   // entries while the user is typing — without this, clearing "10" snaps
@@ -633,40 +635,17 @@ export function MotionPanel() {
             </option>
           ))}
         </select>
-        <div className="webcam-control">
-          <div className="webcam-control-copy">
-            <div className="webcam-control-heading">
-              <span className="webcam-control-title">Webcam control</span>
-              <span
-                className={`webcam-control-state ${
-                  handTrackingEnabled ? 'on' : 'off'
-                }`}
-              >
-                {handTrackingEnabled ? 'On' : 'Off'}
-              </span>
-            </div>
-            <div className="webcam-control-help">
-              {handTrackingEnabled
-                ? 'Use hand tracking to pinch, grab, and throw.'
-                : 'Camera stays off; procedural drops still work.'}
-            </div>
-          </div>
-          <button
-            type="button"
-            className={`webcam-switch ${handTrackingEnabled ? 'on' : ''}`}
-            role="switch"
-            aria-checked={handTrackingEnabled}
-            aria-label={
-              handTrackingEnabled
-                ? 'Turn webcam control off'
-                : 'Turn webcam control on'
-            }
-            onClick={() => setHandTrackingEnabled(!handTrackingEnabled)}
-            disabled={dropsRunning}
-          >
-            <span className="webcam-switch-thumb" />
-          </button>
-        </div>
+        <ToggleSwitch
+          title="Webcam control"
+          help={
+            handTrackingEnabled
+              ? 'Use hand tracking to pinch, grab, and throw.'
+              : 'Camera stays off; procedural drops still work.'
+          }
+          on={handTrackingEnabled}
+          onChange={setHandTrackingEnabled}
+          disabled={dropsRunning}
+        />
         <div style={{ fontSize: 11, color: 'var(--muted)' }}>
           IMU samples are 6-channel: accelerometer (m/s²) + gyroscope (rad/s).
         </div>
@@ -766,110 +745,82 @@ export function MotionPanel() {
           drops.motion === 'throw' ||
           drops.motion === 'shake') && (
           <>
-            <label className="field">
-              {drops.motion === 'shake' ? 'Center height min' : 'Drop height min'}{' '}
-              {drops.heightMin.toFixed(2)} m
-              <input
-                type="range"
-                min={0.3}
-                max={4}
-                step={0.05}
-                value={drops.heightMin}
-                onChange={(e) =>
-                  setDrops({
-                    heightMin: Math.min(
-                      drops.heightMax - 0.05,
-                      Number(e.target.value),
-                    ),
-                  })
-                }
-                disabled={dropsRunning}
-              />
-            </label>
-            <label className="field">
-              {drops.motion === 'shake' ? 'Center height max' : 'Drop height max'}{' '}
-              {drops.heightMax.toFixed(2)} m
-              <input
-                type="range"
-                min={0.3}
-                max={4}
-                step={0.05}
-                value={drops.heightMax}
-                onChange={(e) =>
-                  setDrops({
-                    heightMax: Math.max(
-                      drops.heightMin + 0.05,
-                      Number(e.target.value),
-                    ),
-                  })
-                }
-                disabled={dropsRunning}
-              />
-            </label>
+            <SliderRow
+              label={
+                drops.motion === 'shake' ? 'Center height min' : 'Drop height min'
+              }
+              value={drops.heightMin}
+              min={0.3}
+              max={4}
+              step={0.05}
+              formatValue={(v) => `${v.toFixed(2)} m`}
+              disabled={dropsRunning}
+              onChange={(next) =>
+                setDrops({ heightMin: Math.min(drops.heightMax - 0.05, next) })
+              }
+            />
+            <SliderRow
+              label={
+                drops.motion === 'shake' ? 'Center height max' : 'Drop height max'
+              }
+              value={drops.heightMax}
+              min={0.3}
+              max={4}
+              step={0.05}
+              formatValue={(v) => `${v.toFixed(2)} m`}
+              disabled={dropsRunning}
+              onChange={(next) =>
+                setDrops({ heightMax: Math.max(drops.heightMin + 0.05, next) })
+              }
+            />
           </>
         )}
         {drops.motion === 'throw' && (
-          <label className="field">
-            Throw speed {drops.throwSpeed.toFixed(1)} m/s
-            <input
-              type="range"
-              min={1}
-              max={10}
-              step={0.1}
-              value={drops.throwSpeed}
-              onChange={(e) =>
-                setDrops({ throwSpeed: Number(e.target.value) })
-              }
-              disabled={dropsRunning}
-            />
-          </label>
+          <SliderRow
+            label="Throw speed"
+            value={drops.throwSpeed}
+            min={1}
+            max={10}
+            step={0.1}
+            formatValue={(v) => `${v.toFixed(1)} m/s`}
+            disabled={dropsRunning}
+            onChange={(next) => setDrops({ throwSpeed: next })}
+          />
         )}
         {drops.motion === 'push' && (
-          <label className="field">
-            Push speed {drops.pushSpeed.toFixed(1)} m/s
-            <input
-              type="range"
-              min={0.5}
-              max={8}
-              step={0.1}
-              value={drops.pushSpeed}
-              onChange={(e) =>
-                setDrops({ pushSpeed: Number(e.target.value) })
-              }
-              disabled={dropsRunning}
-            />
-          </label>
+          <SliderRow
+            label="Push speed"
+            value={drops.pushSpeed}
+            min={0.5}
+            max={8}
+            step={0.1}
+            formatValue={(v) => `${v.toFixed(1)} m/s`}
+            disabled={dropsRunning}
+            onChange={(next) => setDrops({ pushSpeed: next })}
+          />
         )}
         {drops.motion === 'shake' && (
           <>
-            <label className="field">
-              Shake frequency {drops.shakeFreq.toFixed(1)} Hz
-              <input
-                type="range"
-                min={1}
-                max={10}
-                step={0.1}
-                value={drops.shakeFreq}
-                onChange={(e) =>
-                  setDrops({ shakeFreq: Number(e.target.value) })
-                }
-                disabled={dropsRunning}
-              />
-            </label>
-            <label className="field">
-              Shake amplitude {(drops.shakeAmp * 100).toFixed(0)} cm
-              <input
-                type="range"
-                min={0.02}
-                max={0.5}
-                step={0.01}
-                value={drops.shakeAmp}
-                onChange={(e) =>
-                  setDrops({ shakeAmp: Number(e.target.value) })
-                }
-                disabled={dropsRunning}
-              />
-            </label>
+            <SliderRow
+              label="Shake frequency"
+              value={drops.shakeFreq}
+              min={1}
+              max={10}
+              step={0.1}
+              formatValue={(v) => `${v.toFixed(1)} Hz`}
+              disabled={dropsRunning}
+              onChange={(next) => setDrops({ shakeFreq: next })}
+            />
+            <SliderRow
+              label="Shake amplitude"
+              value={drops.shakeAmp}
+              min={0.02}
+              max={0.5}
+              step={0.01}
+              formatValue={(v) => `${(v * 100).toFixed(0)} cm`}
+              disabled={dropsRunning}
+              onChange={(next) => setDrops({ shakeAmp: next })}
+            />
           </>
         )}
         {dropsRunning ? (
