@@ -249,9 +249,8 @@ export function VisionPanel() {
                 color: 'var(--muted)',
               }}
             >
-              Drop in a tileable image (PNG, JPG, WebP, AVIF, or GIF). For
-              best results use a seamless 512×512 to 2048×2048 texture —
-              the floor tiles 4× and walls tile 2× across the scene.
+              Floor: tileable image (4× tile). Skybox: 2:1 equirectangular
+              panorama (e.g. 2048×1024) that wraps around the scene.
             </p>
             <CustomTextureField
               kind="floor"
@@ -262,7 +261,7 @@ export function VisionPanel() {
             />
             <CustomTextureField
               kind="wall"
-              label="Wall texture"
+              label="Skybox panorama"
               meta={customWallTexture}
               setMeta={setCustomWallTexture}
               setStatus={setStatus}

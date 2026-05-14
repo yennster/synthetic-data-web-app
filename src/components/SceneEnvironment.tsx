@@ -6,15 +6,15 @@ import { useStore, type EnvPreset } from '../store/useStore';
 import { useCustomTexture } from '../lib/useCustomTexture';
 
 /**
- * Renders the floor + optional back walls for the scene based on the
- * selected environment preset. Replaces the old fixed-color Ground so the
- * user can pick a backdrop that suits their training data without needing
- * to import any external textures — every preset's surface is generated
- * procedurally on a `<canvas>` and uploaded as a `THREE.CanvasTexture`.
+ * Renders the floor and physics collider for the chosen environment
+ * preset. The "walls" are no longer four tiled quads — they're a
+ * panoramic skybox texture installed on `scene.background` (using
+ * equirectangular mapping). The colliders that used to live on the
+ * wall meshes are kept so fast-thrown objects can't escape the scene.
  *
- * The floor collider is identical across presets — only visuals change —
- * so physics behavior stays consistent regardless of which backdrop the
- * user picks.
+ * A user-uploaded wall texture is interpreted as the skybox panorama
+ * (still seamless across the horizon if the source is tileable on its
+ * horizontal axis).
  */
 export function SceneEnvironment({ preset }: { preset: EnvPreset }) {
   const customFloorMeta = useStore((s) => s.customFloorTexture);
@@ -22,34 +22,41 @@ export function SceneEnvironment({ preset }: { preset: EnvPreset }) {
   const customFloorTex = useCustomTexture('floor', customFloorMeta?.name ?? null, {
     repeat: 4,
   });
-  const customWallTex = useCustomTexture('wall', customWallMeta?.name ?? null, {
-    repeat: 2,
+  // Skybox panorama: don't repeat-tile the user's upload — it wraps once
+  // around the horizon as a 360° backdrop.
+  const customSkyboxTex = useCustomTexture('wall', customWallMeta?.name ?? null, {
+    repeat: 1,
   });
   const floorTex = useMemo(
     () => customFloorTex ?? makeFloorTexture(preset),
     [customFloorTex, preset],
   );
-  const wallTex = useMemo(
-    () => customWallTex ?? makeWallTexture(preset),
-    [customWallTex, preset],
-  );
-  // Set scene.background so the virtual capture camera (which renders to its
-  // own offscreen target through the same THREE.Scene) actually picks up the
-  // sky/cyclorama backdrop. The CSS gradient on the <Canvas> only affects the
-  // main viewport — captures rendered via captureFrame() get whatever the
-  // scene's background is set to.
   const { scene } = useThree();
   useEffect(() => {
-    const bg = makeSceneBackground(preset);
+    let bg: THREE.Texture | THREE.Color;
+    if (customSkyboxTex) {
+      customSkyboxTex.mapping = THREE.EquirectangularReflectionMapping;
+      customSkyboxTex.colorSpace = THREE.SRGBColorSpace;
+      bg = customSkyboxTex;
+    } else {
+      bg = makeSceneBackground(preset);
+    }
     const prev = scene.background;
     scene.background = bg;
     return () => {
       scene.background = prev;
-      if (bg && 'dispose' in bg && typeof (bg as THREE.Texture).dispose === 'function') {
+      // Only dispose textures we created here; the custom skybox is
+      // owned by useCustomTexture and disposed on slot turnover.
+      if (
+        bg !== customSkyboxTex &&
+        bg &&
+        'dispose' in bg &&
+        typeof (bg as THREE.Texture).dispose === 'function'
+      ) {
         (bg as THREE.Texture).dispose();
       }
     };
-  }, [preset, scene]);
+  }, [preset, scene, customSkyboxTex]);
   const floorMaterial = useMemo(() => {
     if (!floorTex) {
       // whitebox uses a flat material (the cyclorama vibe), no procedural texture
@@ -66,6 +73,10 @@ export function SceneEnvironment({ preset }: { preset: EnvPreset }) {
     });
   }, [floorTex, preset]);
 
+  // Wall colliders so a fast-thrown object can't escape the scene — these
+  // are invisible now that the visible walls are a skybox panorama.
+  const showColliders = hasWalls(preset) || !!customWallMeta;
+
   return (
     <>
       <RigidBody type="fixed" colliders={false} friction={0.8} restitution={0.3}>
@@ -78,65 +89,15 @@ export function SceneEnvironment({ preset }: { preset: EnvPreset }) {
           <boxGeometry args={[40, 0.1, 40]} />
         </mesh>
       </RigidBody>
-      {/* Back walls at the far edges. Provide both visual and a thin
-          collider so a fast-thrown object can't escape the scene. Walls
-          render when the preset asks for them OR when the user has
-          uploaded a custom wall texture — otherwise their upload would
-          be invisible on `studio` / `outdoor`. */}
-      {(hasWalls(preset) || customWallMeta) && (
+      {showColliders && (
         <RigidBody type="fixed" colliders={false} friction={0.5}>
-          {/* North wall */}
           <CuboidCollider args={[20, 5, 0.1]} position={[0, 5, -20]} />
-          <mesh position={[0, 5, -20]} receiveShadow castShadow>
-            <boxGeometry args={[40, 10, 0.2]} />
-            <WallMaterial preset={preset} tex={wallTex} />
-          </mesh>
-          {/* South wall */}
           <CuboidCollider args={[20, 5, 0.1]} position={[0, 5, 20]} />
-          <mesh position={[0, 5, 20]} receiveShadow castShadow>
-            <boxGeometry args={[40, 10, 0.2]} />
-            <WallMaterial preset={preset} tex={wallTex} />
-          </mesh>
-          {/* East wall */}
           <CuboidCollider args={[0.1, 5, 20]} position={[20, 5, 0]} />
-          <mesh position={[20, 5, 0]} receiveShadow castShadow>
-            <boxGeometry args={[0.2, 10, 40]} />
-            <WallMaterial preset={preset} tex={wallTex} />
-          </mesh>
-          {/* West wall */}
           <CuboidCollider args={[0.1, 5, 20]} position={[-20, 5, 0]} />
-          <mesh position={[-20, 5, 0]} receiveShadow castShadow>
-            <boxGeometry args={[0.2, 10, 40]} />
-            <WallMaterial preset={preset} tex={wallTex} />
-          </mesh>
         </RigidBody>
       )}
     </>
-  );
-}
-
-function WallMaterial({
-  preset,
-  tex,
-}: {
-  preset: EnvPreset;
-  tex: THREE.Texture | null;
-}) {
-  if (tex) {
-    return (
-      <meshStandardMaterial
-        map={tex}
-        roughness={0.9}
-        metalness={0.05}
-      />
-    );
-  }
-  return (
-    <meshStandardMaterial
-      color={presetFlatWallColor(preset)}
-      roughness={0.9}
-      metalness={0.05}
-    />
   );
 }
 
@@ -159,47 +120,200 @@ function presetFlatFloorRoughness(preset: EnvPreset): number {
   return preset === 'whitebox' ? 0.6 : 0.95;
 }
 
-function presetFlatWallColor(preset: EnvPreset): string {
-  return preset === 'whitebox' ? '#f1f1ee' : '#3d4651';
-}
-
 /**
- * Background that's actually visible to the WebGL renderer (and therefore
- * to virtual-camera captures). For outdoor we render a vertical sky
- * gradient texture; for the others we use a flat color matching the CSS
- * canvas backdrop so captures look consistent with what the user sees.
+ * Build a procedural equirectangular skybox texture for the chosen
+ * preset. Returned with `EquirectangularReflectionMapping` so three.js
+ * samples it correctly when assigned to `scene.background`.
+ *
+ * Studio/whitebox use vertical gradients (cyclorama feel), warehouse
+ * draws a banded wall + roof panorama, outdoor draws a sky with a
+ * horizon and a faint cloud bank.
  */
 function makeSceneBackground(preset: EnvPreset): THREE.Texture | THREE.Color {
+  const tex = makeSkyboxTexture(preset);
+  tex.mapping = THREE.EquirectangularReflectionMapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function makeSkyboxTexture(preset: EnvPreset): THREE.Texture {
+  // 2:1 equirect canvas. 2048 wide is plenty for a backdrop sampled at
+  // far distances and keeps texture memory modest (~16 MB).
+  const W = 2048;
+  const H = 1024;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const ctx = c.getContext('2d')!;
   switch (preset) {
     case 'outdoor':
-      return makeSkyGradient();
-    case 'whitebox':
-      return new THREE.Color('#f1f1ee');
+      drawOutdoorSky(ctx, W, H);
+      break;
     case 'warehouse':
-      return new THREE.Color('#1f1c18');
+      drawWarehousePanorama(ctx, W, H);
+      break;
+    case 'whitebox':
+      drawWhiteboxCyclorama(ctx, W, H);
+      break;
     case 'studio':
     default:
-      return new THREE.Color('#0e1115');
+      drawStudioCyclorama(ctx, W, H);
+      break;
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.anisotropy = 4;
+  return tex;
+}
+
+function drawOutdoorSky(ctx: CanvasRenderingContext2D, W: number, H: number) {
+  // Vertical sky gradient — top of canvas is zenith, bottom is below
+  // horizon (ground band).
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, '#3d7fb8');
+  grad.addColorStop(0.45, '#7fb1d4');
+  grad.addColorStop(0.55, '#bcd6e6');
+  grad.addColorStop(0.6, '#c8d8df');
+  grad.addColorStop(0.62, '#7a8a72');
+  grad.addColorStop(1, '#3a5e2a');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+  // Soft drifting clouds in the upper half. Wrap across the seam so the
+  // panorama tiles cleanly at the back of the camera.
+  ctx.globalCompositeOperation = 'source-over';
+  for (let i = 0; i < 24; i++) {
+    const cx = Math.random() * W;
+    const cy = Math.random() * H * 0.45;
+    const r = 40 + Math.random() * 140;
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    g.addColorStop(0, 'rgba(255,255,255,0.55)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    // Mirror-wrap near the seams so clouds don't get cut off
+    if (cx < 200) {
+      const g2 = ctx.createRadialGradient(cx + W, cy, 0, cx + W, cy, r);
+      g2.addColorStop(0, 'rgba(255,255,255,0.55)');
+      g2.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g2;
+      ctx.beginPath();
+      ctx.arc(cx + W, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  // Horizon haze
+  const haze = ctx.createLinearGradient(0, H * 0.52, 0, H * 0.62);
+  haze.addColorStop(0, 'rgba(220, 220, 210, 0)');
+  haze.addColorStop(0.5, 'rgba(220, 220, 210, 0.45)');
+  haze.addColorStop(1, 'rgba(220, 220, 210, 0)');
+  ctx.fillStyle = haze;
+  ctx.fillRect(0, H * 0.52, W, H * 0.1);
+}
+
+function drawWarehousePanorama(
+  ctx: CanvasRenderingContext2D,
+  W: number,
+  H: number,
+) {
+  // Top half: dark ceiling, with a row of overhead lights.
+  ctx.fillStyle = '#1f1c18';
+  ctx.fillRect(0, 0, W, H * 0.4);
+  for (let i = 0; i < 8; i++) {
+    const x = ((i + 0.5) / 8) * W;
+    const y = H * 0.22;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, 90);
+    g.addColorStop(0, 'rgba(255, 235, 180, 0.85)');
+    g.addColorStop(1, 'rgba(255, 235, 180, 0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, 90, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Wall band (the bulk of what we see at eye level).
+  ctx.fillStyle = '#cdc4b4';
+  ctx.fillRect(0, H * 0.4, W, H * 0.45);
+  // Soft tonal blobs + vertical streaks for paint-weathering vibe.
+  for (let i = 0; i < 60; i++) {
+    const x = Math.random() * W;
+    const y = H * 0.4 + Math.random() * H * 0.45;
+    const r = 50 + Math.random() * 160;
+    const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
+    const dark = Math.random() < 0.5;
+    grad.addColorStop(
+      0,
+      `rgba(${dark ? 50 : 230}, ${dark ? 45 : 220}, ${dark ? 40 : 200}, 0.10)`,
+    );
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  for (let i = 0; i < 30; i++) {
+    const x = Math.random() * W;
+    const y0 = H * 0.4 + Math.random() * H * 0.1;
+    const len = 80 + Math.random() * 250;
+    const g = ctx.createLinearGradient(x, y0, x, y0 + len);
+    g.addColorStop(0, 'rgba(60, 55, 45, 0)');
+    g.addColorStop(0.5, 'rgba(60, 55, 45, 0.18)');
+    g.addColorStop(1, 'rgba(60, 55, 45, 0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x, y0, 1 + Math.random() * 2, len);
+  }
+  // Floor band along the bottom so the skybox blends down to the actual
+  // floor color without a hard edge.
+  ctx.fillStyle = '#1f1c18';
+  ctx.fillRect(0, H * 0.85, W, H * 0.15);
+  const fadeUp = ctx.createLinearGradient(0, H * 0.82, 0, H * 0.9);
+  fadeUp.addColorStop(0, 'rgba(31, 28, 24, 0)');
+  fadeUp.addColorStop(1, 'rgba(31, 28, 24, 1)');
+  ctx.fillStyle = fadeUp;
+  ctx.fillRect(0, H * 0.82, W, H * 0.08);
+}
+
+function drawStudioCyclorama(
+  ctx: CanvasRenderingContext2D,
+  W: number,
+  H: number,
+) {
+  // Dark gradient cyclorama. Top slightly lighter than bottom so motion
+  // capture against this backdrop reads three-dimensional rather than
+  // perfectly flat.
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#181c22');
+  g.addColorStop(1, '#0a0c10');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+  // Faint vignetting blobs across the equator.
+  for (let i = 0; i < 10; i++) {
+    const x = Math.random() * W;
+    const y = H / 2 + (Math.random() - 0.5) * H * 0.3;
+    const r = 200 + Math.random() * 300;
+    const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
+    grad.addColorStop(0, 'rgba(255,255,255,0.04)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
   }
 }
 
-function makeSkyGradient(): THREE.Texture {
-  // Vertical gradient: brighter near the horizon, deeper blue overhead.
-  const c = document.createElement('canvas');
-  c.width = 2;
-  c.height = 512;
-  const ctx = c.getContext('2d')!;
-  const grad = ctx.createLinearGradient(0, 0, 0, 512);
-  grad.addColorStop(0, '#5fa3d6');
-  grad.addColorStop(0.55, '#9bc1dd');
-  grad.addColorStop(1, '#dfe7ec');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, 2, 512);
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.minFilter = THREE.LinearFilter;
-  tex.magFilter = THREE.LinearFilter;
-  return tex;
+function drawWhiteboxCyclorama(
+  ctx: CanvasRenderingContext2D,
+  W: number,
+  H: number,
+) {
+  // Bright off-white seamless backdrop.
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#f5f5f2');
+  g.addColorStop(0.6, '#eeeeea');
+  g.addColorStop(1, '#dcdcd6');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
 }
 
 // ---------- Procedural textures ----------
@@ -218,25 +332,6 @@ function makeFloorTexture(preset: EnvPreset): THREE.Texture | null {
       return grassTexture();
     case 'studio':
     case 'whitebox':
-      return null;
-  }
-}
-
-function makeWallTexture(preset: EnvPreset): THREE.Texture | null {
-  switch (preset) {
-    case 'warehouse':
-      // Painted-concrete wall: lighter base, fewer/lighter stains, vertical streaks.
-      return concreteTexture({
-        base: '#cdc4b4',
-        stainAlpha: 0.06,
-        crackCount: 6,
-        speckles: 1500,
-        repeat: 6,
-        verticalStreaks: true,
-      });
-    case 'whitebox':
-    case 'studio':
-    case 'outdoor':
       return null;
   }
 }

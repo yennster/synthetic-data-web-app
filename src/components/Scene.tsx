@@ -55,24 +55,6 @@ function backgroundForPreset(preset: string): string {
   }
 }
 
-/** Solid color used as `scene.background` so it shows up in both the
- * live render AND captured frames. The CSS gradient on the canvas div
- * still drives the visible look in the main view, but for offscreen
- * captures the GL renderer needs an explicit clear color. */
-function sceneBackgroundColor(preset: string): string {
-  switch (preset) {
-    case 'whitebox':
-      return '#eeeeea';
-    case 'outdoor':
-      return '#a3cae1';
-    case 'warehouse':
-      return '#1f1c18';
-    case 'studio':
-    default:
-      return '#0e1115';
-  }
-}
-
 // Anchor at the world origin so the legacy hand-Y → world-Y mapping
 // (hand low in frame ⇒ cube at ground) still holds.
 const HAND_ANCHOR: [number, number, number] = [0, 0, 0];
@@ -396,14 +378,6 @@ function ManipulatedMesh({
   }
 }
 
-function SceneBackground({ color }: { color: string }) {
-  const { scene } = useThree();
-  useEffect(() => {
-    scene.background = new THREE.Color(color);
-  }, [scene, color]);
-  return null;
-}
-
 function PinchMarker() {
   const target = useStore((s) => s.pinchTarget);
   const grabbed = useStore((s) => s.isGrabbed);
@@ -616,13 +590,9 @@ export function Scene({
       style={{ background: backgroundForPreset(envPreset) }}
     >
       <SoftShadows size={20} samples={12} />
-      {/* Solid scene background so the off-screen capture renderer sees the
-          same backdrop as the on-canvas preview (CSS body backgrounds don't
-          carry into a fresh WebGLRenderer). Outdoor gets a sky-blue, the
-          rest match their gradient's middle tone. Set imperatively via
-          useThree because the `<color attach="background">` JSX form
-          doesn't reconcile reliably across preset changes. */}
-      <SceneBackground color={sceneBackgroundColor(envPreset)} />
+      {/* `scene.background` is installed by SceneEnvironment as an
+          equirectangular skybox texture so the same backdrop shows up
+          on the live canvas and in capture-renderer output. */}
       <SceneLighting />
 
       <Grid
