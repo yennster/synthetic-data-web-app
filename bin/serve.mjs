@@ -86,10 +86,10 @@ const SECURITY_HEADERS = {
     //
     // All three are tradeoffs against the original strict CSP but are
     // necessary for the features this app actually ships.
-    "script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval' 'unsafe-inline' blob: https://cdn.jsdelivr.net",
+    "script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval' 'unsafe-inline' blob: https://va.vercel-scripts.com https://cdn.jsdelivr.net",
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self' data:",
-    "connect-src 'self' https://*.edgeimpulse.com https://api-inference.huggingface.co https://cdn.jsdelivr.net https://storage.googleapis.com",
+    "connect-src 'self' https://*.edgeimpulse.com https://api-inference.huggingface.co https://va.vercel-scripts.com https://*.vercel-insights.com https://cdn.jsdelivr.net https://storage.googleapis.com",
     "worker-src 'self' blob:",
     "object-src 'none'",
     "base-uri 'self'",
@@ -106,9 +106,17 @@ const HEADERS = COEP
   ? {
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'credentialless',
+      // Lets a cross-origin parent with `Cross-Origin-Embedder-Policy:
+      // require-corp` embed this app in an iframe. Without it, strict-
+      // COEP parents would block the iframe entirely. Paired with the
+      // `frame-ancestors *` CSP for the documented `?embed=1` mode.
+      'Cross-Origin-Resource-Policy': 'cross-origin',
       ...SECURITY_HEADERS,
     }
-  : { ...SECURITY_HEADERS };
+  : {
+      'Cross-Origin-Resource-Policy': 'cross-origin',
+      ...SECURITY_HEADERS,
+    };
 
 try {
   // realpath() throws when missing — same effect as the old stat() probe,
