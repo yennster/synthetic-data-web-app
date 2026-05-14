@@ -24,7 +24,7 @@ src/
 │   ├── ImportedAssetsCard.tsx    // USDZ import rows and transform controls
 │   ├── ObjectCaptureCard.tsx     // Real-world USDZ capture guidance
 │   ├── CollapsibleCard.tsx       // Shared collapsible-card chrome (chevron + badge)
-│   ├── RealismCard.tsx           // Off / Random realism picker + per-effect sliders
+│   ├── RealismCard.tsx           // Off / Photo FX realism picker, per-effect sliders, randomize toggle
 │   ├── ImuNoiseToggle.tsx        // Shared IMU noise enable / disable control
 │   ├── Conveyor.tsx              // Animated conveyor belt prop (incl. wall colliders)
 │   ├── SpawnedObjects.tsx        // Multi-object spawn renderer (physics on/off)
