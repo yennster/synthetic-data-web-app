@@ -16,6 +16,13 @@ export type ReadEntry = {
   method: 'store' | 'deflate' | 'unknown';
 };
 
+/** Hard cap on cumulative decompressed bytes across all entries — guards
+ * against zip-bomb payloads (small file, gigabyte-sized inflated output)
+ * served by a hostile EI host override or imported by the user. EI
+ * deployment zips are normally <50 MB, so 256 MB is generous headroom. */
+const MAX_TOTAL_DECOMPRESSED = 256 * 1024 * 1024;
+const MAX_ENTRY_DECOMPRESSED = 128 * 1024 * 1024;
+
 export async function readZip(blob: Blob): Promise<ReadEntry[]> {
   const buf = new Uint8Array(await blob.arrayBuffer());
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
@@ -38,13 +45,13 @@ export async function readZip(blob: Blob): Promise<ReadEntry[]> {
   if (eocdAt < 0) throw new Error('Not a zip: EOCD not found');
 
   const totalEntries = dv.getUint16(eocdAt + 10, true);
-  const cdSize = dv.getUint32(eocdAt + 12, true);
   const cdOffset = dv.getUint32(eocdAt + 16, true);
 
   const decoder = new TextDecoder();
   const entries: ReadEntry[] = [];
 
   let p = cdOffset;
+  let totalDecompressed = 0;
   for (let i = 0; i < totalEntries; i++) {
     if (dv.getUint32(p, true) !== 0x02014b50) {
       throw new Error('Bad central directory signature');
@@ -62,6 +69,19 @@ export async function readZip(blob: Blob): Promise<ReadEntry[]> {
     // Skip directories (entries ending in '/' with no data).
     if (name.endsWith('/') || uncompSize === 0) continue;
 
+    // Zip-slip: refuse absolute paths and any traversal segment so a
+    // malicious zip can't downstream-pollute a filesystem mirror.
+    if (
+      name.startsWith('/') ||
+      name.includes('..') ||
+      /^[a-zA-Z]:[\\/]/.test(name)
+    ) {
+      throw new Error(`zip entry escapes root: ${name}`);
+    }
+    if (uncompSize > MAX_ENTRY_DECOMPRESSED) {
+      throw new Error(`zip entry too large: ${name} (${uncompSize} bytes)`);
+    }
+
     // Local file header at localOffset; data starts after the variable-
     // length name + extra fields recorded there.
     const lhNameLen = dv.getUint16(localOffset + 26, true);
@@ -75,7 +95,7 @@ export async function readZip(blob: Blob): Promise<ReadEntry[]> {
       data = new Uint8Array(compressed); // copy out
       methodName = 'store';
     } else if (method === 8) {
-      data = await inflate(compressed);
+      data = await inflate(compressed, MAX_ENTRY_DECOMPRESSED);
       methodName = 'deflate';
       if (data.length !== uncompSize) {
         // Some zips lie about uncompSize; trust what inflate returned.
@@ -83,13 +103,22 @@ export async function readZip(blob: Blob): Promise<ReadEntry[]> {
     } else {
       throw new Error(`Unsupported compression method ${method} for ${name}`);
     }
+    totalDecompressed += data.length;
+    if (totalDecompressed > MAX_TOTAL_DECOMPRESSED) {
+      throw new Error(
+        `zip exceeds total decompressed limit (${MAX_TOTAL_DECOMPRESSED} bytes)`,
+      );
+    }
     entries.push({ name, data, method: methodName });
   }
 
   return entries;
 }
 
-async function inflate(compressed: Uint8Array): Promise<Uint8Array> {
+async function inflate(
+  compressed: Uint8Array,
+  maxBytes: number,
+): Promise<Uint8Array> {
   // DecompressionStream is on all modern browsers (Chrome 80+, Safari 16.4+,
   // Firefox 113+). EI WebAssembly users are on a current browser anyway.
   if (typeof DecompressionStream === 'undefined') {
@@ -114,6 +143,12 @@ async function inflate(compressed: Uint8Array): Promise<Uint8Array> {
     if (done) break;
     out.push(value);
     total += value.length;
+    // Abort streaming inflate early if the entry blows past the cap.
+    // Prevents a 1 KB compressed payload from inflating to gigabytes.
+    if (total > maxBytes) {
+      reader.cancel().catch(() => undefined);
+      throw new Error(`zip entry inflated beyond ${maxBytes} bytes`);
+    }
   }
   const result = new Uint8Array(total);
   let off = 0;

@@ -63,9 +63,3 @@ export async function clearAssetBlobs(): Promise<void> {
   const db = await openDb();
   await wrap(tx(db, 'readwrite').clear());
 }
-
-export async function listAssetBlobIds(): Promise<string[]> {
-  const db = await openDb();
-  const keys = await wrap(tx(db, 'readonly').getAllKeys());
-  return (keys as IDBValidKey[]).map((k) => String(k));
-}

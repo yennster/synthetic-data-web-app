@@ -137,12 +137,12 @@ describe('applyEiCategoryFromUrl', () => {
 });
 
 describe('postContentHeight', () => {
-  it('posts an IFRAME_HEIGHT message to the parent', () => {
+  it('posts an IFRAME_HEIGHT message to the parent with the given target origin', () => {
     const parent = { postMessage: vi.fn() };
-    postContentHeight(parent, 812);
+    postContentHeight(parent, 812, 'https://embed.example.com');
     expect(parent.postMessage).toHaveBeenCalledExactlyOnceWith(
       { type: 'IFRAME_HEIGHT', height: 812 },
-      '*',
+      'https://embed.example.com',
     );
   });
 });
@@ -205,17 +205,18 @@ describe('initPostContentHeight', () => {
     };
   }
 
-  it('posts the initial height immediately', () => {
+  it('posts the initial height immediately to the supplied target origin', () => {
     const h = makeHarness(500);
     initPostContentHeight({
       win: h.win,
       parent: h.parent,
       doc: h.doc,
       ResizeObserverImpl: h.ResizeObserverImpl,
+      targetOrigin: 'https://embed.example.com',
     });
     expect(h.parent.postMessage).toHaveBeenCalledExactlyOnceWith(
       { type: 'IFRAME_HEIGHT', height: 500 },
-      '*',
+      'https://embed.example.com',
     );
   });
 
@@ -226,6 +227,7 @@ describe('initPostContentHeight', () => {
       parent: h.parent,
       doc: h.doc,
       ResizeObserverImpl: h.ResizeObserverImpl,
+      targetOrigin: 'https://embed.example.com',
     });
     expect(h.observe).toHaveBeenCalledExactlyOnceWith(h.doc.body);
   });
@@ -237,6 +239,7 @@ describe('initPostContentHeight', () => {
       parent: h.parent,
       doc: h.doc,
       ResizeObserverImpl: h.ResizeObserverImpl,
+      targetOrigin: 'https://embed.example.com',
     });
     h.parent.postMessage.mockClear();
 
@@ -261,6 +264,7 @@ describe('initPostContentHeight', () => {
       parent: h.parent,
       doc: h.doc,
       ResizeObserverImpl: h.ResizeObserverImpl,
+      targetOrigin: 'https://embed.example.com',
     });
     h.parent.postMessage.mockClear();
 
@@ -281,9 +285,23 @@ describe('initPostContentHeight', () => {
       parent: h.parent,
       doc: h.doc,
       ResizeObserverImpl: h.ResizeObserverImpl,
+      targetOrigin: 'https://embed.example.com',
       log,
     });
     expect(log).toHaveBeenCalledExactlyOnceWith(123);
+  });
+
+  it('is a no-op when no target origin can be resolved', () => {
+    const h = makeHarness(500);
+    // No targetOrigin, no referrer-bearing win — should refuse to post
+    // rather than fall back to '*'.
+    initPostContentHeight({
+      win: h.win,
+      parent: h.parent,
+      doc: h.doc,
+      ResizeObserverImpl: h.ResizeObserverImpl,
+    });
+    expect(h.parent.postMessage).not.toHaveBeenCalled();
   });
 });
 
@@ -301,12 +319,16 @@ describe('embed integration in happy-dom', () => {
     teardown = null;
   });
 
-  it('posts to window.parent on init', () => {
+  it('posts to window.parent on init when given an explicit target origin', () => {
     const post = vi.spyOn(window.parent, 'postMessage');
-    teardown = initPostContentHeight();
+    // happy-dom enforces real postMessage targetOrigin matching, so we
+    // address the parent's actual origin here (a hostile cross-origin
+    // target would be rejected — which is exactly the property we want).
+    const target = window.location.origin;
+    teardown = initPostContentHeight({ targetOrigin: target });
     expect(post).toHaveBeenCalled();
     const [msg, origin] = post.mock.calls[0];
     expect(msg).toMatchObject({ type: 'IFRAME_HEIGHT' });
-    expect(origin).toBe('*');
+    expect(origin).toBe(target);
   });
 });

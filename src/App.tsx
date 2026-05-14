@@ -8,6 +8,7 @@ import { useStore, type AppMode } from './store/useStore';
 import { useRehydrateAssets } from './lib/rehydrateAssets';
 import { useTheme } from './lib/useTheme';
 import { setEdgeImpulseHosts } from './lib/edgeImpulse';
+import { clamp } from './lib/math';
 import { URL_FLAGS } from './lib/urlParams';
 
 // Read host overrides from the URL at module load — must happen before
@@ -99,7 +100,7 @@ const MAX_PREVIEW_DPR = 2;
 function getPreviewPixelRatio(): number {
   if (typeof window === 'undefined') return 1;
   const ratio = window.devicePixelRatio || 1;
-  return Math.max(1, Math.min(MAX_PREVIEW_DPR, ratio));
+  return clamp(ratio, 1, MAX_PREVIEW_DPR);
 }
 
 export default function App() {
@@ -195,7 +196,7 @@ export default function App() {
   const showChrome = !URL_FLAGS.embed && URL_FLAGS.ui !== 'minimal';
 
   return (
-    <div className="app">
+    <div className={`app${showChrome ? '' : ' app--no-chrome'}`}>
       <div className="scene">
         <Suspense
           fallback={<div className="scene-loading">Loading scene...</div>}

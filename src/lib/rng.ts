@@ -14,8 +14,28 @@
  * and the realism post-process are seeded; motion-mode drops are not.
  */
 
-import { mulberry32, type Rng } from './realism';
 import { URL_PRESETS } from './urlParams';
+
+/** Branded seedable RNG so tests can pin sequences. Same shape as
+ * `Math.random` — returns a uniform [0, 1) — but deterministic when
+ * constructed with a seed. */
+export type Rng = () => number;
+
+/**
+ * Mulberry32 — a 32-bit non-cryptographic PRNG with a 32-bit period
+ * but extremely fast (no `Math` calls in the hot path) and good
+ * uniformity for our purposes. The seed is the only state.
+ */
+export function mulberry32(seed: number): Rng {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
 let _rng: Rng | null = null;
 

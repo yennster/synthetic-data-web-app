@@ -9,6 +9,7 @@ import {
 } from '../lib/rover';
 import { RoverSim } from '../lib/mujoco/RoverSim';
 import { ROVER_DIMS } from '../lib/mujoco/roverDims';
+import { clamp01 } from '../lib/math';
 import { sampleImu, type NoiseStateRef } from '../lib/mujoco/imuSensor';
 import type { RoverObstacle } from '../lib/mujoco/roverMjcf';
 import { loadMujocoModule } from '../lib/mujoco/runtime';
@@ -400,7 +401,7 @@ function RoverController({ sim }: { sim: RoverSim | null }) {
     const path = pathRef.current;
     if (!path || !robotRunning || !sim) return;
     const elapsed = performance.now() - startMs.current;
-    const t = Math.max(0, Math.min(1, elapsed / Math.max(1, durationMs)));
+    const t = clamp01(elapsed / Math.max(1, durationMs));
     sim.setTargets(path.sample(t));
   });
 

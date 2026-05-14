@@ -75,23 +75,6 @@ export type EiModelInfo = {
   labels: string[];
 };
 
-// --- Embind helpers -------------------------------------------------------
-
-function readVector<T>(v: unknown): T[] {
-  if (!v) return [];
-  if (Array.isArray(v)) return v as T[];
-  // Embind vector: has .size() and .get(i)
-  // (some flag combos auto-convert to array; some don't)
-  const obj = v as { size?: () => number; get?: (i: number) => T };
-  if (typeof obj.size === 'function' && typeof obj.get === 'function') {
-    const n = obj.size();
-    const out = new Array<T>(n);
-    for (let i = 0; i < n; i++) out[i] = obj.get(i);
-    return out;
-  }
-  return [];
-}
-
 function num(v: unknown, fallback = 0): number {
   if (typeof v === 'number' && Number.isFinite(v)) return v;
   if (typeof v === 'string') {

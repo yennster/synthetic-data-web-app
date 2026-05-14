@@ -32,6 +32,7 @@
  */
 
 import { BRACCIO_LIMITS_RAD, BRACCIO_LINKS } from '../braccio';
+import { clamp, clamp01 } from '../math';
 
 const L = BRACCIO_LINKS;
 
@@ -67,7 +68,7 @@ function targetMass([x, y, z]: readonly [number, number, number]): number {
   const defaultVolume = 0.03 ** 3;
   const volume = (x * 2) * (y * 2) * (z * 2);
   const mass = 0.015 * (volume / defaultVolume);
-  return Math.max(0.005, Math.min(0.12, mass));
+  return clamp(mass, 0.005, 0.12);
 }
 
 export function braccioMjcf(
@@ -215,7 +216,7 @@ export const BRACCIO_MJCF = braccioMjcf();
 /** Maps a normalized gripper aperture (0 = closed, 1 = open) to the
  * slide-joint distance each finger should travel from center. */
 export function apertureToFingerSlide(aperture: number): number {
-  const a = Math.max(0, Math.min(1, aperture));
+  const a = clamp01(aperture);
   return a * HALF_GRIP;
 }
 

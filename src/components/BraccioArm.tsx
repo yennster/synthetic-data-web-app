@@ -1,13 +1,14 @@
 import { useFrame } from '@react-three/fiber';
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { BRACCIO_LINKS, BRACCIO_REST_RAD } from '../lib/braccio';
+import { BRACCIO_LINKS } from '../lib/braccio';
 import {
   buildArmTrajectory,
   type ArmParametricPath,
 } from '../lib/armTrajectories';
 import { floorSafePickupTipY } from '../lib/armPickupGeometry';
 import { assessArmPickupGrasp } from '../lib/armPickupOutcome';
+import { clamp01 } from '../lib/math';
 import { BraccioSim } from '../lib/mujoco/BraccioSim';
 import { sampleImu, type NoiseStateRef } from '../lib/mujoco/imuSensor';
 import { loadMujocoModule } from '../lib/mujoco/runtime';
@@ -561,7 +562,7 @@ function ArmController({ sim }: { sim: BraccioSim | null }) {
     const path = pathRef.current;
     if (!path || !robotRunning || !sim) return;
     const elapsed = performance.now() - startMs.current;
-    const t = Math.max(0, Math.min(1, elapsed / Math.max(1, durationMs)));
+    const t = clamp01(elapsed / Math.max(1, durationMs));
     const guard = pickupGuardRef.current;
     if (
       guard &&

@@ -27,6 +27,7 @@
  */
 
 import { BRACCIO_LIMITS_RAD, BRACCIO_LINKS } from './braccio';
+import { clamp, clamp01 } from './math';
 
 /** Solver output: six joint values in the same order the rig expects.
  * Joints 0..4 are servo radians (clamped to spec limits); joint 5 is
@@ -83,10 +84,10 @@ export function solveBraccioIk(
   // Clamp to the reachable annulus.
   const rMin = Math.abs(a - b) + 1e-3;
   const rMax = a + b - 1e-3;
-  r = Math.max(rMin, Math.min(rMax, r));
+  r = clamp(r, rMin, rMax);
   const cosElbow = (a * a + b * b - r * r) / (2 * a * b);
   // Elbow angle in the chain (180° = straight).
-  const elbowFlex = Math.acos(Math.max(-1, Math.min(1, cosElbow)));
+  const elbowFlex = Math.acos(clamp(cosElbow, -1, 1));
   // We want the elbow to bend "up" (the typical Braccio pose) — pick
   // the negative flex so accumulated pitch raises the forearm.
   // Joint 2 (elbow) in our rig adds to joint 1 (shoulder); the angle
@@ -96,9 +97,7 @@ export function solveBraccioIk(
   // upper arm.
   const phi = Math.atan2(wristR, wristH);
   const cosShoulderOffset = (a * a + r * r - b * b) / (2 * a * r);
-  const shoulderOffset = Math.acos(
-    Math.max(-1, Math.min(1, cosShoulderOffset)),
-  );
+  const shoulderOffset = Math.acos(clamp(cosShoulderOffset, -1, 1));
   const shoulderJoint = phi - shoulderOffset;
 
   // 4) Wrist pitch: keep the gripper tip pointing toward the floor.
@@ -122,9 +121,9 @@ export function solveBraccioIk(
   ];
   for (let i = 0; i < 5; i++) {
     const [lo, hi] = BRACCIO_LIMITS_RAD[i];
-    out[i] = Math.max(lo, Math.min(hi, out[i]));
+    out[i] = clamp(out[i], lo, hi);
   }
-  out[5] = Math.max(0, Math.min(1, out[5]));
+  out[5] = clamp01(out[5]);
   return out;
 }
 
@@ -140,7 +139,7 @@ export function lerpJoints(
   b: BraccioJointVector,
   t: number,
 ): BraccioJointVector {
-  const u = Math.max(0, Math.min(1, t));
+  const u = clamp01(t);
   // Cosine ease so each waypoint blends smoothly into the next without
   // needing a higher-order spline.
   const e = (1 - Math.cos(u * Math.PI)) * 0.5;

@@ -51,8 +51,3 @@ export async function deleteCustomTexture(kind: TextureKind): Promise<void> {
   const db = await openDb();
   await wrap(db.transaction(STORE, 'readwrite').objectStore(STORE).delete(kind));
 }
-
-export async function clearCustomTextures(): Promise<void> {
-  const db = await openDb();
-  await wrap(db.transaction(STORE, 'readwrite').objectStore(STORE).clear());
-}

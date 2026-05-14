@@ -25,6 +25,11 @@
  * sub-millimeter accuracy.
  */
 
+import { clamp, clamp01 } from './math';
+
+// Compact alias for the literal degree-to-radian conversions in the
+// BRACCIO_LIMITS_RAD table below. Kept local because the table reads
+// more naturally as `15 * DEG` than `degToRad(15)`.
 const DEG = Math.PI / 180;
 
 /** Servo angle limits in radians, indexed [min, max] per joint. The
@@ -80,7 +85,7 @@ export function gripperApertureFromServoRad(servoRad: number): number {
   const [lo, hi] = BRACCIO_LIMITS_RAD[5];
   if (hi === lo) return 0;
   const t = (servoRad - lo) / (hi - lo);
-  return Math.max(0, Math.min(1, t));
+  return clamp01(t);
 }
 
 /** Inverse of `gripperApertureFromServoRad` — for joint trajectories that
@@ -88,7 +93,7 @@ export function gripperApertureFromServoRad(servoRad: number): number {
  * angle. */
 export function gripperServoRadFromAperture(aperture: number): number {
   const [lo, hi] = BRACCIO_LIMITS_RAD[5];
-  return lo + Math.max(0, Math.min(1, aperture)) * (hi - lo);
+  return lo + clamp01(aperture) * (hi - lo);
 }
 
 /**
@@ -104,8 +109,8 @@ export function clampBraccio(
   ];
   for (let i = 0; i < 5; i++) {
     const [lo, hi] = BRACCIO_LIMITS_RAD[i];
-    out[i] = Math.max(lo, Math.min(hi, joints[i]));
+    out[i] = clamp(joints[i], lo, hi);
   }
-  out[5] = Math.max(0, Math.min(1, joints[5]));
+  out[5] = clamp01(joints[5]);
   return out;
 }

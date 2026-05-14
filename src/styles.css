@@ -404,6 +404,11 @@ label.field, div.field {
   background: var(--bg);
 }
 
+/* `?embed=1` / `?ui=minimal` strip the sidebar entirely — collapse the
+ * 360px column so the scene fills the iframe instead of leaving a blank
+ * gutter where the sidebar used to live. */
+.app.app--no-chrome { grid-template-columns: 1fr; }
+
 .scene { position: relative; overflow: hidden; }
 
 .scene-loading {
@@ -1135,11 +1140,17 @@ label.field, div.field {
   gap: 6px;
 }
 .hud .pill.tip .tip-keys {
-  flex: 0 0 auto;
+  /* Fixed column width sized to the widest key label (`Cmd/Ctrl-click`,
+     14 chars in the mono font). Without a fixed width the column
+     widens for that row only and the description column for that row
+     ends up out of alignment with the rest. `ch` units track the
+     monospace font's actual character width, so this stays correct
+     across themes / DPI / user font-size overrides. */
+  flex: 0 0 15ch;
+  width: 15ch;
   font-family: var(--t-mono);
   color: var(--text);
   font-weight: 500;
-  min-width: 84px;
   white-space: nowrap;
 }
 .hud .pill.tip .tip-label {

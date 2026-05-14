@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { clamp } from '../lib/math';
 import { useStore } from '../store/useStore';
 
 /**
@@ -81,7 +82,7 @@ export function InferenceOverlay({
       const pillPadX = 6;
       const pillH = 18;
       const pillW = tw + pillPadX * 2;
-      const labelX = Math.max(0, Math.min(x, width - pillW));
+      const labelX = clamp(x, 0, width - pillW);
       const labelAbove = y - pillH >= 0;
       const labelY = labelAbove ? y - pillH : Math.min(y, height - pillH);
       ctx.fillStyle = color;

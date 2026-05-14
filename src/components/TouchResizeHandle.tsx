@@ -15,6 +15,8 @@
  *  - Drag right ⇒ grow, drag left ⇒ shrink. Same delta-x semantics
  *    work whether the handle is bottom-right or top-right.
  */
+import { clamp } from '../lib/math';
+
 const MIN_W = 120;
 const MAX_VW_RATIO = 0.9;
 
@@ -30,7 +32,7 @@ export function TouchResizeHandle() {
     const onMove = (ev: PointerEvent) => {
       const dx = ev.clientX - startX;
       const maxW = window.innerWidth * MAX_VW_RATIO;
-      const newW = Math.max(MIN_W, Math.min(maxW, startW + dx));
+      const newW = clamp(startW + dx, MIN_W, maxW);
       parent.style.width = `${newW}px`;
     };
     const onUp = () => {

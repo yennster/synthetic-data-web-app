@@ -44,21 +44,37 @@
       // and rehydrates. Useful for support links and dev resets.
       // Runs synchronously here so zustand's persist middleware never
       // sees the old state on this load. See docs/url-parameters.md.
+      //
+      // Two guardrails:
+      //  - A confirm() dialog stops a one-click phishing link from
+      //    silently destroying the user's imported assets / textures.
+      //  - We only delete this app's IndexedDB databases by name
+      //    instead of iterating indexedDB.databases() (which would
+      //    nuke unrelated DBs the browser created on the same origin
+      //    if anything else ever shares it).
       (function () {
         try {
           var p = new URLSearchParams(window.location.search);
           var c = p.get('clearStore');
           if (c === '1' || c === 'true' || c === 'yes') {
-            try { localStorage.clear(); } catch (e) {}
+            var ok = false;
             try {
-              if (indexedDB && indexedDB.databases) {
-                indexedDB.databases().then(function (dbs) {
-                  dbs.forEach(function (db) {
-                    if (db && db.name) indexedDB.deleteDatabase(db.name);
-                  });
-                }).catch(function () {});
+              ok = window.confirm(
+                'Reset Synthetic Data Studio?\n\n' +
+                  'This will erase saved settings, imported assets, and custom textures from this browser. ' +
+                  'Continue?'
+              );
+            } catch (e) {
+              ok = false;
+            }
+            if (ok) {
+              try { localStorage.removeItem('sds-store'); } catch (e) {}
+              try { localStorage.removeItem('sds-theme'); } catch (e) {}
+              var DB_NAMES = ['sds-assets', 'sds-textures'];
+              for (var i = 0; i < DB_NAMES.length; i++) {
+                try { indexedDB.deleteDatabase(DB_NAMES[i]); } catch (e) {}
               }
-            } catch (e) {}
+            }
           }
         } catch (e) {}
       })();
