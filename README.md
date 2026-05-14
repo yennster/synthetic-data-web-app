@@ -171,10 +171,10 @@ A few common ones:
 Examples:
 
 ```
-https://your-host/?env=outdoor&objects=cube,sphere&batchCount=20&trajectory=circle&seed=42
-https://your-host/?onlyMode=detection&embed=1
-https://your-host/?mode=arm&armPose=1.57,1.0,0.5,1.57,1.57,0.5
-https://your-host/?apiKey=ei_abc123&eiCategory=split&autoUpload=1
+https://synthetic.jennyspeelman.dev/?env=outdoor&objects=cube,sphere&batchCount=20&trajectory=circle&seed=42
+https://synthetic.jennyspeelman.dev/?onlyMode=detection&embed=1
+https://synthetic.jennyspeelman.dev/?mode=arm&armPose=1.57,1.0,0.5,1.57,1.57,0.5
+https://synthetic.jennyspeelman.dev/?apiKey=ei_abc123&eiCategory=split&autoUpload=1
 ```
 
 Unknown values are dropped silently — the app falls back to whatever was stored or the built-in default. Values are case-insensitive.

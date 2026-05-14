@@ -1094,10 +1094,20 @@ label.field, div.field {
 }
 /* Tip pill: smaller type and an extra-subtle background so the long help
    string doesn't compete with the live readouts above it. Theme-aware
-   via the same overlay tokens as the other HUD pills. */
+   via the same overlay tokens as the other HUD pills.
+   Wraps onto multiple lines when the viewport is narrow so the pill
+   doesn't stretch across the entire scene viewport — the parent .hud
+   stack has `align-items: flex-start` so a wrapped pill still anchors
+   to the left edge. */
 .hud .pill.tip {
   font-size: 10px;
   color: var(--text-dim);
+  display: inline-block;
+  max-width: min(640px, calc(100vw - 32px));
+  white-space: normal;
+  line-height: 1.45;
+  padding-top: 5px;
+  padding-bottom: 5px;
 }
 .hud .pill.rec {
   color: var(--record-on);
