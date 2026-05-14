@@ -685,6 +685,15 @@ type State = {
   status: { kind: 'idle' | 'ok' | 'err' | 'busy'; msg: string };
   setStatus: (kind: State['status']['kind'], msg: string) => void;
 
+  /** Persisted open/closed state for every CollapsibleCard. Keyed by a
+   * stable string (each card's `storageKey` prop, falling back to the
+   * heading text for cards with stable headings). Undefined entries
+   * fall back to the card's `defaultOpen` prop on first render, then
+   * track the user's toggling thereafter — so re-opening a card you
+   * collapsed survives a reload. */
+  cardOpen: Record<string, boolean>;
+  setCardOpen: (key: string, open: boolean) => void;
+
   // ---------- Inference (Edge Impulse local model) ----------
   /** Loaded EI model, if any. Hidden from devtools to avoid serializing the
    * Emscripten module. */
@@ -1120,6 +1129,10 @@ export const useStore = create<State>()(
   status: { kind: 'idle', msg: '' },
   setStatus: (kind, msg) => set({ status: { kind, msg } }),
 
+  cardOpen: {},
+  setCardOpen: (key, open) =>
+    set((s) => ({ cardOpen: { ...s.cardOpen, [key]: open } })),
+
   // inference
   eiModel: null,
   eiModelInfo: null,
@@ -1142,7 +1155,7 @@ export const useStore = create<State>()(
     }),
     {
       name: 'sds-store',
-      version: 8,
+      version: 9,
       storage: createJSONStorage(() => localStorage),
       migrate: (persistedState, version) => {
         if (
@@ -1218,6 +1231,17 @@ export const useStore = create<State>()(
             realism: state.realism ?? { mode: 'off', intensity: 0.5 },
           };
         }
+        // v8 → v9: hide the Diffusion radio while server-side img2img
+        // is still being figured out. Coerce any persisted 'diffusion'
+        // mode to 'random' so the picker doesn't end up with an
+        // invisible-selected state (the radio is gone but the
+        // intensity slider would still be visible).
+        if (version < 9 && state.realism?.mode === 'diffusion') {
+          state = {
+            ...state,
+            realism: { ...state.realism, mode: 'random' },
+          };
+        }
         return state;
       },
       // Persist only the bits worth restoring: scene primitives, scene
@@ -1242,6 +1266,7 @@ export const useStore = create<State>()(
         imuNoise: s.imuNoise,
         realism: s.realism,
         eiThreshold: s.eiThreshold,
+        cardOpen: s.cardOpen,
         pendingAssets: s.assets.map<PersistedAsset>((a) => ({
           id: a.id,
           name: a.name,

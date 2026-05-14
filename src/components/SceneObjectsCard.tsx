@@ -109,6 +109,10 @@ export function SceneObjectsCard({
     <CollapsibleCard
       heading={`${title} (${filtered.length})`}
       badge={filtered.length > 0 ? String(filtered.length) : undefined}
+      // Heading includes a live count, so derive a stable storage key
+      // from the title + owner — otherwise persisted open-state would
+      // be lost every time an object is added/removed.
+      storageKey={`scene-objects:${ownerFilter ?? 'vision'}:${title}`}
     >
       {helpText && (
         <div style={{ fontSize: 11, color: 'var(--muted)' }}>{helpText}</div>

@@ -1,16 +1,20 @@
 import { CollapsibleCard } from './CollapsibleCard';
-import { DIFFUSION_BUDGET } from '../lib/realism';
 import { useStore, type RealismMode } from '../store/useStore';
 
 /**
  * Realism post-process picker — shared by detection / anomaly / robot
- * panels. Off (raw render), Random (CPU pixel transforms), Diffusion
- * (reserved for the future server endpoint, currently falls back to
- * random with a "coming soon" hint).
+ * panels. Currently surfaces two modes:
+ *   - Off (raw render)
+ *   - Random (CPU pixel transforms: grain, radial CA, vignette,
+ *     color jitter, JPEG round-trip)
  *
- * Collapsible to keep the sidebar compact. Defaults to expanded when
- * realism is on so the intensity slider is one click away, collapsed
- * otherwise.
+ * Diffusion (`'diffusion'`) is intentionally hidden from the picker
+ * until the server-side img2img endpoint is wired up properly. The
+ * supporting code in `lib/realism.ts` + `api/realism-diffusion.ts` is
+ * left intact so re-enabling is just a matter of adding the entry
+ * back to MODES below. Users whose persisted state still has
+ * `mode: 'diffusion'` keep getting the Random-pass output the
+ * applyRealismToBlob fallback already produces — no migration needed.
  */
 const MODES: { value: RealismMode; label: string; hint: string }[] = [
   { value: 'off', label: 'Off', hint: 'Raw synthetic render.' },
@@ -18,17 +22,7 @@ const MODES: { value: RealismMode; label: string; hint: string }[] = [
     value: 'random',
     label: 'Random',
     hint:
-      'Apply film grain, chromatic aberration, vignette, and color jitter to narrow the sim-to-real gap. Bounding boxes are preserved.',
-  },
-  {
-    value: 'diffusion',
-    label: 'Diffusion',
-    hint:
-      `Server-side img2img via the Hugging Face free tier. The first ${DIFFUSION_BUDGET} ` +
-      `images of each capture / batch run through the diffusion model; ` +
-      `the rest fall back to the Random pass so a 50-frame batch doesn't ` +
-      `stall on rate limits. Bounding boxes may shift slightly — only use ` +
-      `for visual prototyping, not as detection ground truth.`,
+      'Apply film grain, radial chromatic aberration, vignette, color jitter, and a JPEG round-trip to narrow the sim-to-real gap. Bounding boxes are preserved.',
   },
 ];
 
