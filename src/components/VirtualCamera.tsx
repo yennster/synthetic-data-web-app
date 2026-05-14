@@ -564,6 +564,7 @@ const GIZMO_LAYER = 1;
 function VirtualCameraHandle() {
   const setCapture = useStore((s) => s.setCapture);
   const groupRef = useRef<THREE.Group>(null);
+  const hitTargetRef = useRef<THREE.Mesh>(null);
 
   const dragHandlers = useDragMove({
     getPosition: () => useStore.getState().capture.camPos,
@@ -571,8 +572,9 @@ function VirtualCameraHandle() {
   });
 
   // Pin the whole handle subtree to the gizmo layer so capture cameras
-  // skip it. Traverse so every mesh (body, lens, viewfinder) lands on
-  // the right layer.
+  // skip it visually. The hit-target mesh additionally stays on the
+  // gizmo layer so r3f's raycaster (which we've enabled for layer 1)
+  // can pick it.
   useEffect(() => {
     if (groupRef.current) {
       groupRef.current.traverse((o) => o.layers.set(GIZMO_LAYER));
@@ -592,15 +594,16 @@ function VirtualCameraHandle() {
   });
 
   return (
-    <group ref={groupRef} {...dragHandlers}>
-      {/* Invisible hit-target — a 0.7 m sphere so the icon is easy to
-          grab at typical orbit distances (the body itself is only 28 cm
-          wide and was hard to pick up). Fully transparent (opacity 0)
-          rather than `visible={false}` because invisible objects can
-          be skipped by r3f's event raycaster on some configurations. */}
-      <mesh>
-        <sphereGeometry args={[0.35, 12, 12]} />
-        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+    <group ref={groupRef}>
+      {/* Hit-target — primary pointer surface. `visible={false}` skips
+          the draw call entirely (so no white sphere artefact) but
+          three.js's Raycaster intersects regardless of visibility, and
+          r3f's events module doesn't filter on `visible` either, so
+          Shift+drag still picks it. 0.5 m radius gives a generous
+          ~50 px target at the default orbit distance. */}
+      <mesh ref={hitTargetRef} visible={false} {...dragHandlers}>
+        <sphereGeometry args={[0.5, 12, 12]} />
+        <meshBasicMaterial />
       </mesh>
       {/* Body */}
       <mesh renderOrder={1001}>
