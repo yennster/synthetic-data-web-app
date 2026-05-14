@@ -66,7 +66,17 @@ const SECURITY_HEADERS = {
     // is fetched as code, so it needs script-src too — not just
     // connect-src. storage.googleapis.com hosts the hand-landmarker
     // model file (fetched as bytes only).
-    "script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net",
+    //
+    // 'unsafe-eval' is required by the @mujoco/mujoco Emscripten
+    // runtime, which uses `new Function(...)` for dynamic dispatch
+    // during init. 'wasm-unsafe-eval' alone covers WebAssembly
+    // compilation but not JS eval, so without 'unsafe-eval' MuJoCo
+    // refuses to load and Motion mode's cube physics is silently
+    // broken (the cube sits where the mesh defaults to, and hand
+    // tracking never drives anything). Tradeoff: 'unsafe-eval'
+    // broadens the script-src surface; in this app it's unavoidable
+    // until @mujoco/mujoco ships an `-sDYNAMIC_EXECUTION=0` build.
+    "script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval' https://cdn.jsdelivr.net",
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self' data:",
     "connect-src 'self' https://*.edgeimpulse.com https://api-inference.huggingface.co https://cdn.jsdelivr.net https://storage.googleapis.com",
