@@ -27,6 +27,16 @@ export function applyUrlPresets(): void {
   if (p.robotKind) {
     state.setRobot({ kind: p.robotKind });
   }
+  // `?onlyMode=` filters the Mode card; if the currently-active mode
+  // isn't in the allowed set (e.g. persisted-from-last-session), snap
+  // to the first allowed mode so the user isn't stranded with no
+  // visible mode button highlighted.
+  if (p.onlyMode && p.onlyMode.length > 0) {
+    const current = useStore.getState().mode;
+    if (!p.onlyMode.includes(current)) {
+      state.setMode(p.onlyMode[0]);
+    }
+  }
 
   // ---------- Scene ----------
   if (p.env) state.setEnvPreset(p.env);

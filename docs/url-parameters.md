@@ -31,6 +31,7 @@ Parameters are parsed once at page load. Toggling things in the sidebar afterwar
 | `mode` | enum | `?mode=detection` | Land in a specific mode. Accepts `motion` (alias `imu`, `accel`), `detection` (alias `object`, `objects`, `object-detection`), `anomaly` (alias `visual-anomaly`), `robot` (alias `robotics`), `arm`, `rover`. |
 | `robot` | enum | `?robot=arm` | Robot sub-mode independent of `mode`: `arm` or `rover`. |
 | `theme` | enum | `?theme=dark` | Force `dark` / `light`. Overrides the persisted preference. Applied pre-paint via the bootstrap script so there's no flash. |
+| `onlyMode` | csv | `?onlyMode=detection` | Hide all Mode-picker buttons except the listed mode(s). Single-purpose deep links and iframe embeds. Accepts the same aliases as `?mode=` (e.g. `objects`, `arm`). Multiple allowed (`?onlyMode=motion,detection`). If the user's persisted mode isn't in the allowed set, it snaps to the first listed mode automatically — so `?onlyMode=detection` on its own is enough to land in Object-detection. |
 
 ## Batch capture & virtual camera
 
@@ -128,6 +129,11 @@ A few useful URL combinations:
 **Iframe-friendly embed showing the live scene only**
 ```
 ?embed=1&gizmos=0&env=studio
+```
+
+**Single-purpose demo locked to one mode**
+```
+?onlyMode=detection&env=outdoor&objects=cube,sphere&objectCount=10
 ```
 
 **Robotics deep link straight to the Braccio with a custom home pose**

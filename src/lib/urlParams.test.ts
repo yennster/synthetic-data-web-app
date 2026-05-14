@@ -195,6 +195,40 @@ describe('parseUrlParams — mode aliases', () => {
   });
 });
 
+describe('parseUrlParams — onlyMode', () => {
+  it('parses a single mode', () => {
+    expect(parse('onlyMode=detection').presets.onlyMode).toEqual([
+      'detection',
+    ]);
+  });
+
+  it('parses a comma-separated list', () => {
+    expect(parse('onlyMode=motion,detection').presets.onlyMode).toEqual([
+      'motion',
+      'detection',
+    ]);
+  });
+
+  it('accepts mode aliases (objects → detection, arm → robot, …)', () => {
+    expect(parse('onlyMode=objects').presets.onlyMode).toEqual(['detection']);
+    expect(parse('onlyMode=arm,rover').presets.onlyMode).toEqual(['robot']);
+    expect(parse('onlyMode=imu').presets.onlyMode).toEqual(['motion']);
+  });
+
+  it('drops unknown modes and de-dupes', () => {
+    const { presets } = parse('onlyMode=detection,banana,detection,motion');
+    expect(presets.onlyMode).toEqual(['detection', 'motion']);
+  });
+
+  it('returns undefined when every token is invalid', () => {
+    expect(parse('onlyMode=banana').presets.onlyMode).toBeUndefined();
+  });
+
+  it('is undefined by default', () => {
+    expect(parse('').presets.onlyMode).toBeUndefined();
+  });
+});
+
 describe('parseUrlParams — composition', () => {
   it('combines a deep-link demo URL into one preset object', () => {
     const { presets, flags } = parse(

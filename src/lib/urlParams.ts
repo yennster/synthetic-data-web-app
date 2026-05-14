@@ -181,6 +181,13 @@ export type UrlPresets = {
   /** Robot sub-mode (`rover` / `arm`). Independent of `mode` so users can
    * deep-link to e.g. arm mode directly. */
   robotKind?: 'rover' | 'arm';
+  /** Hide the Mode-picker buttons for any mode NOT in this list. The
+   * user can still switch programmatically via `setMode`, but the
+   * sidebar UI is locked down to the listed modes. Useful for
+   * single-purpose deep links / iframe embeds (`?onlyMode=detection`
+   * shows only Object-detection; `?onlyMode=motion,robot` shows two).
+   * Empty / undefined keeps all modes visible (the default). */
+  onlyMode?: AppMode[];
 };
 
 /** Flags that persist for the page lifetime — read by components. */
@@ -395,6 +402,44 @@ export function parseUrlParams(params: URLSearchParams): {
   }
   const robotRaw = params.get('robot')?.trim().toLowerCase();
   if (robotRaw === 'arm' || robotRaw === 'rover') presets.robotKind = robotRaw;
+
+  // ?onlyMode= — comma-separated list of modes that should remain
+  // visible in the Mode card. Aliases ("objects", "robotics", "arm",
+  // "rover") collapse to the underlying canonical mode, so deep links
+  // read naturally regardless of which spelling the user picks.
+  const onlyModeRaw = params.get('onlyMode');
+  if (onlyModeRaw) {
+    const allowed: AppMode[] = [];
+    for (const raw of onlyModeRaw.split(',')) {
+      const tok = raw.trim().toLowerCase();
+      switch (tok) {
+        case 'motion':
+        case 'imu':
+        case 'accel':
+          allowed.push('motion');
+          break;
+        case 'detection':
+        case 'object':
+        case 'objects':
+        case 'object-detection':
+          allowed.push('detection');
+          break;
+        case 'anomaly':
+        case 'visual-anomaly':
+          allowed.push('anomaly');
+          break;
+        case 'robot':
+        case 'robotics':
+        case 'arm':
+        case 'rover':
+          allowed.push('robot');
+          break;
+      }
+    }
+    // Dedupe while preserving first-seen order so e.g. `?onlyMode=detection,detection` is harmless.
+    const uniq = Array.from(new Set(allowed));
+    if (uniq.length > 0) presets.onlyMode = uniq;
+  }
 
   return { presets, flags };
 }

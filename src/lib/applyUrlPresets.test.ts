@@ -150,4 +150,20 @@ describe('applyUrlPresets', () => {
     expect(useStore.getState().mode).toBe('robot');
     expect(useStore.getState().robot.kind).toBe('arm');
   });
+
+  it('?onlyMode= snaps the active mode into the allowed set', () => {
+    useStore.setState({ mode: 'motion' });
+    setSearch('onlyMode=detection');
+    applyUrlPresets();
+    // Active mode was `motion` — not in the allowed list — so we snap
+    // to the first allowed mode.
+    expect(useStore.getState().mode).toBe('detection');
+  });
+
+  it('?onlyMode= leaves the active mode alone when it is already allowed', () => {
+    useStore.setState({ mode: 'anomaly' });
+    setSearch('onlyMode=anomaly,detection');
+    applyUrlPresets();
+    expect(useStore.getState().mode).toBe('anomaly');
+  });
 });
