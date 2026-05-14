@@ -619,8 +619,10 @@ label.field, div.field {
      entire strip above the heading text is part of the click target
      — otherwise the button is only 13px tall and you had to land
      directly on the text. The `:has()` rule below zeroes out the
-     card's own padding-top so the visual layout is unchanged. */
-  padding: 24px 0 6px 14px;
+     card's own padding-top so the visual layout is unchanged. The
+     14px of accent-bar gutter lives on the inner heading span (see
+     `.card-heading-toggle > span:first-child` below). */
+  padding: 24px 0 6px 0;
   margin: 0;
   line-height: 1;
 }
@@ -632,14 +634,22 @@ label.field, div.field {
      gap-to-body the same amount. */
   gap: 8px;
 }
-.card-heading-toggle::before {
+/* Accent bar lives on the heading SPAN, not the button, so it always
+   tracks the text vertical center even when the chevron (22px tall)
+   stretches the flex row past the text's 13px line-height. Matches the
+   `.card h3::before` rule above so collapsible cards and the few
+   remaining static-heading cards (Sidebar Mode picker, robot Object-
+   detection card) line up to the same baseline. */
+.card-heading-toggle > span:first-child {
+  position: relative;
+  padding-left: 14px;
+}
+.card-heading-toggle > span:first-child::before {
   content: "";
   position: absolute;
   left: 0;
-  /* Anchor the accent bar to the text baseline (button bottom),
-     not the button center, so the 24px of click padding above
-     doesn't drag the bar away from the text. */
-  bottom: 6px;
+  top: 50%;
+  transform: translateY(-50%);
   width: 3px;
   height: 13px;
   background: var(--accent);

@@ -37,7 +37,7 @@ export function RealismCard() {
       badge={active ? `${realism.mode} · ${(realism.intensity * 100).toFixed(0)}%` : undefined}
     >
       <div
-        className="motion-pills trajectory-pills"
+        className="motion-pills"
         role="radiogroup"
         aria-label="Realism mode"
       >
