@@ -8,6 +8,7 @@ import { Physics } from '@react-three/rapier';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { sampleCameraTrajectory } from '../lib/cameraTrajectory';
+import { useDragMove } from '../lib/dragMove';
 import { cameraRelativeToWorld } from '../lib/handMath';
 import { clamp, degToRad } from '../lib/math';
 import { URL_FLAGS } from '../lib/urlParams';
@@ -619,6 +620,26 @@ function TrajectoryGizmo() {
   const height = useStore((s) => s.capture.trajectoryHeight);
   const target = useStore((s) => s.capture.camTarget);
   const batchCount = useStore((s) => s.capture.batchCount);
+  const setCapture = useStore((s) => s.setCapture);
+
+  const targetDragHandlers = useDragMove({
+    getPosition: () => useStore.getState().capture.camTarget,
+    setPosition: (p) => {
+      const cs = useStore.getState().capture;
+      const patch: Partial<typeof cs> = { camTarget: p };
+      if (cs.cameraTrajectory !== 'random') {
+        patch.camPos = sampleCameraTrajectory({
+          trajectory: cs.cameraTrajectory,
+          index: 0,
+          total: Math.max(1, cs.batchCount),
+          target: p,
+          radius: cs.trajectoryRadius,
+          height: cs.trajectoryHeight,
+        });
+      }
+      setCapture(patch);
+    },
+  });
 
   // Sample the path at a moderate fixed density (independent of
   // batchCount) so the curve stays smooth even on a tiny batch. The
@@ -716,8 +737,18 @@ function TrajectoryGizmo() {
           />
         </mesh>
       ))}
-      {/* Marker on the target itself so the user can see the orbit
-          center even when it sits inside an object. */}
+      {/* Invisible, generous hit area around the orbit center. Shift-drag
+          moves `camTarget`, which re-centers the path and the live camera. */}
+      <mesh
+        position={target as [number, number, number]}
+        visible={false}
+        {...targetDragHandlers}
+      >
+        <sphereGeometry args={[0.35, 12, 12]} />
+        <meshBasicMaterial />
+      </mesh>
+      {/* Marker on the target itself so the user can see and move the
+          point every non-random trajectory orbits around. */}
       <mesh position={target as [number, number, number]} renderOrder={999}>
         <sphereGeometry args={[0.04, 10, 10]} />
         <meshBasicMaterial

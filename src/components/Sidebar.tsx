@@ -41,6 +41,13 @@ const MODES = (() => {
   return ALL_MODES.filter((m) => keep.has(m.value));
 })();
 
+const STATUS_LABELS = {
+  idle: 'Status',
+  busy: 'Working',
+  ok: 'Done',
+  err: 'Issue',
+} as const;
+
 /* Right-edge drawer dismiss thresholds. The drawer slides in from the
  * right, so dragging *right* (positive dx) moves it back off-screen.
  * Either crossing 30% of width, or a fast flick (>0.5 px/ms), commits
@@ -149,56 +156,69 @@ export function Sidebar({
       onTouchEnd={onTouchEnd}
       onTouchCancel={onTouchEnd}
     >
-      <div className="card">
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 8,
-          }}
+      <div className="sidebar-scroll">
+        <div className="card">
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 8,
+            }}
+          >
+            <h3>Mode</h3>
+            <ThemeToggle />
+          </div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: 4,
+            }}
+          >
+            {MODES.map((m) => (
+              <button
+                key={m.value}
+                className={mode === m.value ? 'primary' : ''}
+                onClick={() => setMode(m.value)}
+                title={m.hint}
+                style={{ padding: '8px 4px', fontSize: 11 }}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+            {MODES.find((m) => m.value === mode)?.hint}
+          </div>
+        </div>
+
+        <Suspense
+          fallback={
+            <div className="card panel-loading">Loading controls...</div>
+          }
         >
-          <h3>Mode</h3>
-          <ThemeToggle />
-        </div>
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
-            gap: 4,
-          }}
-        >
-          {MODES.map((m) => (
-            <button
-              key={m.value}
-              className={mode === m.value ? 'primary' : ''}
-              onClick={() => setMode(m.value)}
-              title={m.hint}
-              style={{ padding: '8px 4px', fontSize: 11 }}
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
-        <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-          {MODES.find((m) => m.value === mode)?.hint}
-        </div>
+          {mode === 'motion' ? (
+            <MotionPanel />
+          ) : mode === 'robot' ? (
+            <RobotPanel />
+          ) : (
+            <VisionPanel />
+          )}
+        </Suspense>
       </div>
 
-      <Suspense
-        fallback={<div className="card panel-loading">Loading controls...</div>}
-      >
-        {mode === 'motion' ? (
-          <MotionPanel />
-        ) : mode === 'robot' ? (
-          <RobotPanel />
-        ) : (
-          <VisionPanel />
-        )}
-      </Suspense>
-
       {status.msg && (
-        <div className={`status ${status.kind}`}>{status.msg}</div>
+        <div
+          className={`status ${status.kind}`}
+          role="status"
+          aria-live={status.kind === 'err' ? 'assertive' : 'polite'}
+        >
+          <span className="status-kind">{STATUS_LABELS[status.kind]}</span>
+          <span className="status-msg" title={status.msg}>
+            {status.msg}
+          </span>
+        </div>
       )}
     </aside>
   );
