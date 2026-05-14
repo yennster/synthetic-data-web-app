@@ -216,6 +216,29 @@ export type EdgeImpulseConfig = {
   device: string;
 };
 
+/** Per-iteration camera path used by batch capture. `random` is the
+ * legacy jitter-around-the-base-pose pass. The named trajectories sweep
+ * the camera along a deterministic path orbiting the current
+ * `camTarget`, sampled at the iteration count — useful for generating
+ * datasets that systematically vary the viewpoint rather than scatter
+ * it. */
+export type CameraTrajectory =
+  | 'random'
+  | 'circle'
+  | 'figure8'
+  | 'arc'
+  | 'spiral'
+  | 'orbit_dome';
+
+export const ALL_CAMERA_TRAJECTORIES: CameraTrajectory[] = [
+  'random',
+  'circle',
+  'figure8',
+  'arc',
+  'spiral',
+  'orbit_dome',
+];
+
 export type CaptureSettings = {
   width: number;
   height: number;
@@ -232,6 +255,17 @@ export type CaptureSettings = {
   // Lighting amplitude
   lightIntensity: number;
   envRotation: number;
+  /** Path the camera traces during batch capture. See `CameraTrajectory`.
+   * When set to anything other than `random`, the per-iteration camera
+   * position is computed by `sampleCameraTrajectory` and the
+   * `randomizeCamera` jitter is skipped (the path itself provides the
+   * variation). */
+  cameraTrajectory: CameraTrajectory;
+  /** Horizontal radius of the trajectory around `camTarget`, in meters. */
+  trajectoryRadius: number;
+  /** Vertical amplitude / height the trajectory uses (semantics vary by
+   * path — see `sampleCameraTrajectory`). */
+  trajectoryHeight: number;
 };
 
 export type BoundingBox = {
@@ -1120,6 +1154,9 @@ export const useStore = create<State>()(
     batchCount: 10,
     lightIntensity: 1.1,
     envRotation: 0,
+    cameraTrajectory: 'random',
+    trajectoryRadius: 4,
+    trajectoryHeight: 2,
   },
   setCapture: (patch) => set((s) => ({ capture: { ...s.capture, ...patch } })),
   captures: [],
@@ -1185,7 +1222,7 @@ export const useStore = create<State>()(
     }),
     {
       name: 'sds-store',
-      version: 11,
+      version: 12,
       storage: createJSONStorage(() => localStorage),
       migrate: (persistedState, version) => {
         if (
@@ -1313,6 +1350,21 @@ export const useStore = create<State>()(
             realism: {
               ...state.realism,
               randomize: state.realism.randomize ?? false,
+            },
+          };
+        }
+        // v11 → v12: backfill the new camera-trajectory fields so the
+        // batch UI doesn't read `undefined` for users with persisted
+        // capture settings.
+        if (version < 12 && state.capture) {
+          state = {
+            ...state,
+            capture: {
+              ...state.capture,
+              cameraTrajectory:
+                state.capture.cameraTrajectory ?? 'random',
+              trajectoryRadius: state.capture.trajectoryRadius ?? 4,
+              trajectoryHeight: state.capture.trajectoryHeight ?? 2,
             },
           };
         }

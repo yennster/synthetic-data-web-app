@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import {
+  ALL_CAMERA_TRAJECTORIES,
   realismAverage,
   useStore,
+  type CameraTrajectory,
   type RealismConfig,
 } from '../store/useStore';
 import {
@@ -24,6 +26,23 @@ import { ImportedAssetsCard } from './ImportedAssetsCard';
 import { ObjectCaptureCard } from './ObjectCaptureCard';
 import { RealismCard } from './RealismCard';
 import { SceneObjectsCard } from './SceneObjectsCard';
+
+function trajectoryLabel(t: CameraTrajectory): string {
+  switch (t) {
+    case 'random':
+      return 'Random (jitter base pose)';
+    case 'circle':
+      return 'Circular fly-around';
+    case 'figure8':
+      return 'Figure-eight';
+    case 'arc':
+      return 'Front arc (180°)';
+    case 'spiral':
+      return 'Ascending spiral';
+    case 'orbit_dome':
+      return 'Orbit dome (hemisphere)';
+  }
+}
 
 /** Flatten realism config into EI image-metadata fields — same shape
  * as RobotPanel's `realismMeta` so a downstream consumer can mix
@@ -485,6 +504,7 @@ export function VisionPanel() {
                   onChange={(e) =>
                     setCapture({ randomizeCamera: e.target.checked })
                   }
+                  disabled={cs.cameraTrajectory !== 'random'}
                 />
                 <span>Camera</span>
               </label>
@@ -510,6 +530,54 @@ export function VisionPanel() {
               </label>
             </div>
           </fieldset>
+
+          <label className="field">
+            Camera trajectory
+            <select
+              value={cs.cameraTrajectory}
+              onChange={(e) =>
+                setCapture({
+                  cameraTrajectory: e.target.value as CameraTrajectory,
+                })
+              }
+            >
+              {ALL_CAMERA_TRAJECTORIES.map((t) => (
+                <option key={t} value={t}>
+                  {trajectoryLabel(t)}
+                </option>
+              ))}
+            </select>
+          </label>
+          {cs.cameraTrajectory !== 'random' && (
+            <div className="row">
+              <label className="field">
+                Radius {cs.trajectoryRadius.toFixed(1)} m
+                <input
+                  type="range"
+                  min={0.5}
+                  max={15}
+                  step={0.1}
+                  value={cs.trajectoryRadius}
+                  onChange={(e) =>
+                    setCapture({ trajectoryRadius: Number(e.target.value) })
+                  }
+                />
+              </label>
+              <label className="field">
+                Height {cs.trajectoryHeight.toFixed(1)} m
+                <input
+                  type="range"
+                  min={0}
+                  max={10}
+                  step={0.1}
+                  value={cs.trajectoryHeight}
+                  onChange={(e) =>
+                    setCapture({ trajectoryHeight: Number(e.target.value) })
+                  }
+                />
+              </label>
+            </div>
+          )}
         </div>
 
         <div className="capture-footer">

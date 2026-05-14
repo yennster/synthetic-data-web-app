@@ -7,6 +7,7 @@ import { SoftShadows } from '@react-three/drei/core/softShadows.js';
 import { Physics } from '@react-three/rapier';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { sampleCameraTrajectory } from '../lib/cameraTrajectory';
 import { cameraRelativeToWorld } from '../lib/handMath';
 import { MotionSim } from '../lib/mujoco/MotionSim';
 import { loadMujocoModule } from '../lib/mujoco/runtime';
@@ -527,6 +528,14 @@ function CameraRig() {
   const mode = useStore((s) => s.mode);
   const robotKind = useStore((s) => s.robot.kind);
 
+  // Enable the gizmo layer on the orbit camera so the trajectory
+  // gizmo (and any future editor-only helpers) shows up in the live
+  // view. Capture cameras don't enable this layer, so PNG captures
+  // stay clean.
+  useEffect(() => {
+    camera.layers.enable(GIZMO_LAYER);
+  }, [camera]);
+
   useEffect(() => {
     if (!controls) return;
     if (mode === 'robot' && robotKind === 'arm') {
@@ -566,6 +575,148 @@ function CameraRig() {
   });
 
   return null;
+}
+
+/**
+ * Visualizes the configured batch-capture camera trajectory as a line
+ * loop with sample-point markers, sitting in the live scene. Only
+ * renders in detection / anomaly modes and only when the user has
+ * selected a non-random trajectory — otherwise it stays out of frame so
+ * captures themselves aren't polluted.
+ *
+ * Both the line and the markers carry `depthTest: false` + a high
+ * `renderOrder` so the gizmo is visible even when it passes behind the
+ * floor or imported geometry.
+ */
+/** Layer used by editor gizmos that should be visible in the main
+ * orbit view but never end up in captured frames. The capture cameras
+ * (VirtualCamera, RobotPovCamera) stay on the default layer 0 so they
+ * skip these objects without any explicit hide/show toggling. */
+const GIZMO_LAYER = 1;
+
+/** Recursively set every object in a tree to render *only* on the
+ * gizmo layer. Three.js' `Object3D.layers.set` replaces the mask, so
+ * the object stops rendering on layer 0 too — exactly what we want
+ * for the capture camera to skip it. */
+function setLayerRecursive(root: THREE.Object3D, layer: number): void {
+  root.traverse((o) => o.layers.set(layer));
+}
+
+function TrajectoryGizmo() {
+  const mode = useStore((s) => s.mode);
+  const trajectory = useStore((s) => s.capture.cameraTrajectory);
+  const radius = useStore((s) => s.capture.trajectoryRadius);
+  const height = useStore((s) => s.capture.trajectoryHeight);
+  const target = useStore((s) => s.capture.camTarget);
+  const batchCount = useStore((s) => s.capture.batchCount);
+
+  // Sample the path at a moderate fixed density (independent of
+  // batchCount) so the curve stays smooth even on a tiny batch. The
+  // sample markers themselves use batchCount so the user can see the
+  // discrete capture poses they'll actually visit.
+  //
+  // We render the curve as a TubeGeometry rather than a Line: WebGL
+  // line widths are clamped to 1 px on most drivers, which makes a
+  // flat line invisible against the skybox at meter scales.
+  const { tubeObject, markerPositions } = useMemo(() => {
+    const LINE_SAMPLES = 256;
+    const points: THREE.Vector3[] = [];
+    for (let i = 0; i < LINE_SAMPLES; i++) {
+      const p = sampleCameraTrajectory({
+        trajectory,
+        index: i,
+        total: LINE_SAMPLES,
+        target: [target[0], target[1], target[2]],
+        radius,
+        height,
+      });
+      points.push(new THREE.Vector3(p[0], p[1], p[2]));
+    }
+    // Closed loop for cyclical paths (circle / figure8 / orbit_dome),
+    // open for `arc` and `spiral`.
+    const isClosed = trajectory === 'circle' || trajectory === 'figure8';
+    const curve = new THREE.CatmullRomCurve3(points, isClosed);
+    const tubeGeom = new THREE.TubeGeometry(
+      curve,
+      LINE_SAMPLES,
+      0.03,
+      6,
+      isClosed,
+    );
+    const mat = new THREE.MeshBasicMaterial({
+      color: '#5eead4',
+      transparent: true,
+      opacity: 0.9,
+      depthTest: false,
+      depthWrite: false,
+    });
+    const obj = new THREE.Mesh(tubeGeom, mat);
+    obj.renderOrder = 998;
+    const markers: [number, number, number][] = [];
+    const n = Math.max(1, Math.min(batchCount, 64));
+    for (let i = 0; i < n; i++) {
+      markers.push(
+        sampleCameraTrajectory({
+          trajectory,
+          index: i,
+          total: n,
+          target: [target[0], target[1], target[2]],
+          radius,
+          height,
+        }),
+      );
+    }
+    return { tubeObject: obj, markerPositions: markers };
+  }, [trajectory, radius, height, target, batchCount]);
+
+  useEffect(() => {
+    return () => {
+      tubeObject.geometry.dispose();
+      (tubeObject.material as THREE.Material).dispose();
+    };
+  }, [tubeObject]);
+
+  const visible =
+    (mode === 'detection' || mode === 'anomaly') && trajectory !== 'random';
+
+  // Pin the entire subtree to the gizmo layer once it's mounted so the
+  // capture cameras (which stay on layer 0) ignore it. Re-runs whenever
+  // the tube object changes — that's also when fresh marker meshes are
+  // re-created.
+  const groupRef = useRef<THREE.Group>(null);
+  useEffect(() => {
+    if (groupRef.current) setLayerRecursive(groupRef.current, GIZMO_LAYER);
+  }, [tubeObject, markerPositions, visible]);
+
+  if (!visible) return null;
+
+  return (
+    <group ref={groupRef} renderOrder={998}>
+      <primitive object={tubeObject} />
+      {markerPositions.map((p, i) => (
+        <mesh key={i} position={p} renderOrder={999}>
+          <sphereGeometry args={[0.06, 12, 12]} />
+          <meshBasicMaterial
+            color={i === 0 ? '#fbbf24' : '#38bdf8'}
+            transparent
+            opacity={0.95}
+            depthTest={false}
+          />
+        </mesh>
+      ))}
+      {/* Marker on the target itself so the user can see the orbit
+          center even when it sits inside an object. */}
+      <mesh position={target as [number, number, number]} renderOrder={999}>
+        <sphereGeometry args={[0.04, 10, 10]} />
+        <meshBasicMaterial
+          color="#f472b6"
+          transparent
+          opacity={0.9}
+          depthTest={false}
+        />
+      </mesh>
+    </group>
+  );
 }
 
 export function Scene({
@@ -652,6 +803,7 @@ export function Scene({
           <VirtualCamera previewCanvas={previewCanvas} />
         </Suspense>
       )}
+      <TrajectoryGizmo />
       {mode === 'robot' && (
         <Suspense fallback={null}>
           <RobotPovCamera previewCanvas={previewCanvas} />
@@ -664,6 +816,8 @@ export function Scene({
         dampingFactor={0.1}
         minDistance={0.3}
         maxDistance={20}
+        enablePan
+        screenSpacePanning
         target={[0, 0.7, 0]}
       />
       <CameraRig />

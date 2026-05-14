@@ -9,6 +9,7 @@ import {
   saveBlob,
 } from '../lib/capture';
 import { BELT_TRANSPORTABLES, isOnBelt } from '../lib/beltDynamics';
+import { sampleCameraTrajectory } from '../lib/cameraTrajectory';
 import { applyRealismToBlob, resetDiffusionBudget } from '../lib/realism';
 import {
   createReadbackBlitState,
@@ -343,7 +344,21 @@ export function VirtualCamera({
       for (let i = 0; i < total; i++) {
         // Randomize per the toggles
         const setCapture = useStore.getState().setCapture;
-        if (cs.randomizeCamera) {
+        if (cs.cameraTrajectory !== 'random') {
+          // Trajectory mode: deterministic camera path around the
+          // base target. The named trajectories provide their own
+          // variation, so we skip the random-jitter pass even when
+          // `randomizeCamera` is on.
+          const pos = sampleCameraTrajectory({
+            trajectory: cs.cameraTrajectory,
+            index: i,
+            total,
+            target: baseTarget,
+            radius: cs.trajectoryRadius,
+            height: cs.trajectoryHeight,
+          });
+          setCapture({ camPos: pos, camTarget: baseTarget, fov: baseFov });
+        } else if (cs.randomizeCamera) {
           const r = 0.6;
           setCapture({
             camPos: [
