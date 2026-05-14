@@ -6,6 +6,7 @@ import {
   type CameraTrajectory,
   type RealismConfig,
 } from '../store/useStore';
+import { sampleCameraTrajectory } from '../lib/cameraTrajectory';
 import {
   listEiProjects,
   retrainEiModel,
@@ -535,11 +536,27 @@ export function VisionPanel() {
             Camera trajectory
             <select
               value={cs.cameraTrajectory}
-              onChange={(e) =>
-                setCapture({
-                  cameraTrajectory: e.target.value as CameraTrajectory,
-                })
-              }
+              onChange={(e) => {
+                const next = e.target.value as CameraTrajectory;
+                // Snap camPos onto the first sample of the new track so
+                // the live preview + camera handle immediately frame
+                // what the first batch image will look like. Skip when
+                // selecting `random` — that mode jitters around the
+                // user's chosen base pose, so we shouldn't overwrite it.
+                if (next === 'random') {
+                  setCapture({ cameraTrajectory: next });
+                  return;
+                }
+                const pos = sampleCameraTrajectory({
+                  trajectory: next,
+                  index: 0,
+                  total: Math.max(1, cs.batchCount),
+                  target: cs.camTarget,
+                  radius: cs.trajectoryRadius,
+                  height: cs.trajectoryHeight,
+                });
+                setCapture({ cameraTrajectory: next, camPos: pos });
+              }}
             >
               {ALL_CAMERA_TRAJECTORIES.map((t) => (
                 <option key={t} value={t}>
@@ -558,9 +575,21 @@ export function VisionPanel() {
                   max={15}
                   step={0.1}
                   value={cs.trajectoryRadius}
-                  onChange={(e) =>
-                    setCapture({ trajectoryRadius: Number(e.target.value) })
-                  }
+                  onChange={(e) => {
+                    const r = Number(e.target.value);
+                    // Keep the cam glued to the trajectory's first
+                    // sample so the live preview tracks the radius
+                    // slider as the user drags it.
+                    const pos = sampleCameraTrajectory({
+                      trajectory: cs.cameraTrajectory,
+                      index: 0,
+                      total: Math.max(1, cs.batchCount),
+                      target: cs.camTarget,
+                      radius: r,
+                      height: cs.trajectoryHeight,
+                    });
+                    setCapture({ trajectoryRadius: r, camPos: pos });
+                  }}
                 />
               </label>
               <label className="field">
@@ -571,9 +600,18 @@ export function VisionPanel() {
                   max={10}
                   step={0.1}
                   value={cs.trajectoryHeight}
-                  onChange={(e) =>
-                    setCapture({ trajectoryHeight: Number(e.target.value) })
-                  }
+                  onChange={(e) => {
+                    const h = Number(e.target.value);
+                    const pos = sampleCameraTrajectory({
+                      trajectory: cs.cameraTrajectory,
+                      index: 0,
+                      total: Math.max(1, cs.batchCount),
+                      target: cs.camTarget,
+                      radius: cs.trajectoryRadius,
+                      height: h,
+                    });
+                    setCapture({ trajectoryHeight: h, camPos: pos });
+                  }}
                 />
               </label>
             </div>

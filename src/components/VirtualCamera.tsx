@@ -1,5 +1,5 @@
-import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useFrame, useThree } from '@react-three/fiber';
+import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { useStore, type Capture } from '../store/useStore';
 import {
@@ -10,6 +10,7 @@ import {
 } from '../lib/capture';
 import { BELT_TRANSPORTABLES, isOnBelt } from '../lib/beltDynamics';
 import { sampleCameraTrajectory } from '../lib/cameraTrajectory';
+import { useDragMove } from '../lib/dragMove';
 import { applyRealismToBlob, resetDiffusionBudget } from '../lib/realism';
 import {
   createReadbackBlitState,
@@ -547,28 +548,27 @@ export function VirtualCamera({
 const GIZMO_LAYER = 1;
 
 /**
- * A clickable sphere drawn at the virtual capture camera's position.
- * Drag it to translate the capture camera — the orbit camera and
- * OrbitControls are temporarily disabled during the drag so the
- * pointer movement maps cleanly to a world-space translation.
+ * A camera-shaped gizmo drawn at the virtual capture camera's position.
+ * Shift+drag it to translate the capture camera — uses the same
+ * `useDragMove` hook every other scene object uses, so the gesture
+ * (Shift+drag = camera-aligned plane, Alt/Cmd = depth, wheel = push)
+ * is consistent across the editor.
  *
- * Drag plane: camera-facing plane through the handle's current
- * position. That gives smooth XYZ motion (like screen-space pan) and
- * keeps the handle visually under the cursor.
- *
- * The handle and the existing CameraHelper frustum both live on the
+ * The icon and the existing CameraHelper frustum both live on the
  * gizmo render layer so they don't appear in captures.
+ *
+ * Lens orientation: the group is `lookAt`'d at `camTarget`. Object3D's
+ * `lookAt` orients local +Z toward the target, so the lens lives on
+ * the +Z side of the body (record dot lives on -Z).
  */
 function VirtualCameraHandle() {
-  const capture = useStore((s) => s.capture);
   const setCapture = useStore((s) => s.setCapture);
-  const { camera, controls } = useThree();
   const groupRef = useRef<THREE.Group>(null);
-  const dragging = useRef(false);
-  const planeNormal = useRef(new THREE.Vector3());
-  const planePoint = useRef(new THREE.Vector3());
-  const offset = useRef(new THREE.Vector3());
-  const captureTarget = useRef<HTMLElement | null>(null);
+
+  const dragHandlers = useDragMove({
+    getPosition: () => useStore.getState().capture.camPos,
+    setPosition: (p) => setCapture({ camPos: p }),
+  });
 
   // Pin the whole handle subtree to the gizmo layer so capture cameras
   // skip it. Traverse so every mesh (body, lens, viewfinder) lands on
@@ -579,117 +579,33 @@ function VirtualCameraHandle() {
     }
   }, []);
 
-  // Aim the camera icon's lens at `camTarget` every frame so the gizmo
-  // visibly reflects where the capture will look.
+  // Per-frame: keep the icon glued to the live `camPos` and aim its lens
+  // at `camTarget` so the gizmo visibly reflects where the capture
+  // points. We pull from store directly (not a hook subscription) so
+  // active drag motion shows immediately.
   useFrame(() => {
     const g = groupRef.current;
     if (!g) return;
-    const target = useStore.getState().capture.camTarget;
-    g.lookAt(target[0], target[1], target[2]);
+    const { camPos, camTarget } = useStore.getState().capture;
+    g.position.set(camPos[0], camPos[1], camPos[2]);
+    g.lookAt(camTarget[0], camTarget[1], camTarget[2]);
   });
 
-  const intersect = useCallback(
-    (ray: THREE.Ray): THREE.Vector3 | null => {
-      const denom = planeNormal.current.dot(ray.direction);
-      if (Math.abs(denom) < 1e-6) return null;
-      const diff = planePoint.current.clone().sub(ray.origin);
-      const t = planeNormal.current.dot(diff) / denom;
-      if (t < 0) return null;
-      return ray.origin.clone().addScaledVector(ray.direction, t);
-    },
-    [],
-  );
-
-  const endDrag = useCallback(
-    (pointerId?: number) => {
-      dragging.current = false;
-      if (controls)
-        (controls as unknown as { enabled: boolean }).enabled = true;
-      const tgt = captureTarget.current;
-      if (
-        pointerId != null &&
-        tgt &&
-        typeof tgt.releasePointerCapture === 'function'
-      ) {
-        try {
-          tgt.releasePointerCapture(pointerId);
-        } catch {
-          // ignore
-        }
-      }
-      captureTarget.current = null;
-    },
-    [controls],
-  );
-
-  const onPointerDown = (e: ThreeEvent<PointerEvent>) => {
-    e.stopPropagation();
-    const cur = useStore.getState().capture.camPos;
-    const camDir = new THREE.Vector3();
-    camera.getWorldDirection(camDir);
-    if (camDir.lengthSq() < 1e-6) return;
-    planeNormal.current.copy(camDir);
-    planePoint.current.set(cur[0], cur[1], cur[2]);
-    const hit = intersect(e.ray);
-    if (!hit) return;
-    offset.current.set(cur[0] - hit.x, cur[1] - hit.y, cur[2] - hit.z);
-    dragging.current = true;
-    if (controls) (controls as unknown as { enabled: boolean }).enabled = false;
-    const tgt = e.target as HTMLElement | null;
-    if (tgt && typeof tgt.setPointerCapture === 'function') {
-      try {
-        tgt.setPointerCapture(e.pointerId);
-        captureTarget.current = tgt;
-      } catch {
-        // ignore
-      }
-    }
-  };
-
-  const onPointerMove = (e: ThreeEvent<PointerEvent>) => {
-    if (!dragging.current) return;
-    e.stopPropagation();
-    const hit = intersect(e.ray);
-    if (!hit) return;
-    const next: [number, number, number] = [
-      hit.x + offset.current.x,
-      hit.y + offset.current.y,
-      hit.z + offset.current.z,
-    ];
-    setCapture({ camPos: next });
-  };
-
-  const onPointerUp = (e: ThreeEvent<PointerEvent>) => {
-    if (!dragging.current) return;
-    e.stopPropagation();
-    endDrag(e.pointerId);
-  };
-
-  // Camera icon: small body box, a lens cylinder along -Z (which the
-  // useFrame lookAt() aligns toward `camTarget`), and a viewfinder
-  // hump on top. All children are interactive so a click anywhere on
-  // the icon starts the drag.
   return (
-    <group
-      ref={groupRef}
-      position={capture.camPos}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
-    >
+    <group ref={groupRef} {...dragHandlers}>
       {/* Body */}
       <mesh renderOrder={1001}>
         <boxGeometry args={[0.28, 0.2, 0.18]} />
         <meshBasicMaterial color="#1f2937" depthTest={false} />
       </mesh>
-      {/* Lens */}
-      <mesh position={[0, 0, -0.18]} rotation={[Math.PI / 2, 0, 0]} renderOrder={1002}>
+      {/* Lens barrel — sits in front of the body on +Z, the direction
+          Object3D.lookAt orients toward `camTarget`. */}
+      <mesh position={[0, 0, 0.18]} rotation={[Math.PI / 2, 0, 0]} renderOrder={1002}>
         <cylinderGeometry args={[0.07, 0.09, 0.18, 20]} />
         <meshBasicMaterial color="#0f172a" depthTest={false} />
       </mesh>
       {/* Lens glass — bright accent so the icon reads at a glance */}
-      <mesh position={[0, 0, -0.28]} rotation={[Math.PI / 2, 0, 0]} renderOrder={1003}>
+      <mesh position={[0, 0, 0.28]} rotation={[Math.PI / 2, 0, 0]} renderOrder={1003}>
         <cylinderGeometry args={[0.055, 0.055, 0.005, 20]} />
         <meshBasicMaterial color="#fbbf24" depthTest={false} />
       </mesh>
@@ -698,8 +614,9 @@ function VirtualCameraHandle() {
         <boxGeometry args={[0.1, 0.08, 0.12]} />
         <meshBasicMaterial color="#1f2937" depthTest={false} />
       </mesh>
-      {/* Record dot on the back so the icon is visible from any angle */}
-      <mesh position={[0, 0, 0.1]} renderOrder={1003}>
+      {/* Record dot on the back (-Z side) so the icon is recognisable
+          when viewed from behind. */}
+      <mesh position={[0, 0, -0.1]} renderOrder={1003}>
         <sphereGeometry args={[0.025, 12, 12]} />
         <meshBasicMaterial color="#ef4444" depthTest={false} />
       </mesh>
