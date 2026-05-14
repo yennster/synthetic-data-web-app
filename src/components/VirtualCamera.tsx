@@ -593,19 +593,25 @@ function VirtualCameraHandle() {
 
   return (
     <group ref={groupRef} {...dragHandlers}>
+      {/* Invisible hit-target — a 0.7 m sphere so the icon is easy to
+          grab at typical orbit distances (the body itself is only 28 cm
+          wide and was hard to pick up). Fully transparent (opacity 0)
+          rather than `visible={false}` because invisible objects can
+          be skipped by r3f's event raycaster on some configurations. */}
+      <mesh>
+        <sphereGeometry args={[0.35, 12, 12]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+      </mesh>
       {/* Body */}
       <mesh renderOrder={1001}>
         <boxGeometry args={[0.28, 0.2, 0.18]} />
         <meshBasicMaterial color="#1f2937" depthTest={false} />
       </mesh>
-      {/* Lens barrel — sits in front of the body on +Z, the direction
-          Object3D.lookAt orients toward `camTarget`. */}
-      <mesh position={[0, 0, 0.18]} rotation={[Math.PI / 2, 0, 0]} renderOrder={1002}>
-        <cylinderGeometry args={[0.07, 0.09, 0.18, 20]} />
-        <meshBasicMaterial color="#0f172a" depthTest={false} />
-      </mesh>
-      {/* Lens glass — bright accent so the icon reads at a glance */}
-      <mesh position={[0, 0, 0.28]} rotation={[Math.PI / 2, 0, 0]} renderOrder={1003}>
+      {/* Lens glass — a flat disk flush with the front of the body
+          (+Z is the direction Object3D.lookAt orients toward
+          `camTarget`). No long protruding lens barrel; the disk is
+          enough to signal "this end forward". */}
+      <mesh position={[0, 0, 0.091]} rotation={[Math.PI / 2, 0, 0]} renderOrder={1003}>
         <cylinderGeometry args={[0.055, 0.055, 0.005, 20]} />
         <meshBasicMaterial color="#fbbf24" depthTest={false} />
       </mesh>

@@ -519,6 +519,7 @@ function ArmScene() {
  */
 function CameraRig() {
   const camera = useThree((s) => s.camera);
+  const raycaster = useThree((s) => s.raycaster);
   const controls = useThree(
     (s) => s.controls as unknown as {
       target: THREE.Vector3;
@@ -532,9 +533,16 @@ function CameraRig() {
   // gizmo (and any future editor-only helpers) shows up in the live
   // view. Capture cameras don't enable this layer, so PNG captures
   // stay clean.
+  //
+  // We also enable the gizmo layer on r3f's pointer-event raycaster,
+  // otherwise the virtual-camera handle's hit-target mesh (which lives
+  // on layer 1) can be seen but never picked — pointer events
+  // silently fall through to OrbitControls, and the user can't drag
+  // the camera handle no matter how hard they try.
   useEffect(() => {
     camera.layers.enable(GIZMO_LAYER);
-  }, [camera]);
+    raycaster.layers.enable(GIZMO_LAYER);
+  }, [camera, raycaster]);
 
   useEffect(() => {
     if (!controls) return;
