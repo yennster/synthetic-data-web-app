@@ -1,9 +1,12 @@
 import { useState } from 'react';
 import {
+  ALL_CAMERA_TRAJECTORIES,
   realismAverage,
   useStore,
+  type CameraTrajectory,
   type RealismConfig,
 } from '../store/useStore';
+import { sampleCameraTrajectory } from '../lib/cameraTrajectory';
 import {
   listEiProjects,
   retrainEiModel,
@@ -24,6 +27,23 @@ import { ImportedAssetsCard } from './ImportedAssetsCard';
 import { ObjectCaptureCard } from './ObjectCaptureCard';
 import { RealismCard } from './RealismCard';
 import { SceneObjectsCard } from './SceneObjectsCard';
+
+function trajectoryLabel(t: CameraTrajectory): string {
+  switch (t) {
+    case 'random':
+      return 'Random (jitter base pose)';
+    case 'circle':
+      return 'Circular fly-around';
+    case 'figure8':
+      return 'Figure-eight';
+    case 'arc':
+      return 'Front arc (180°)';
+    case 'spiral':
+      return 'Ascending spiral';
+    case 'orbit_dome':
+      return 'Orbit dome (hemisphere)';
+  }
+}
 
 /** Flatten realism config into EI image-metadata fields — same shape
  * as RobotPanel's `realismMeta` so a downstream consumer can mix
@@ -249,9 +269,8 @@ export function VisionPanel() {
                 color: 'var(--muted)',
               }}
             >
-              Drop in a tileable image (PNG, JPG, WebP, AVIF, or GIF). For
-              best results use a seamless 512×512 to 2048×2048 texture —
-              the floor tiles 4× and walls tile 2× across the scene.
+              Floor: tileable image (4× tile). Skybox: 2:1 equirectangular
+              panorama (e.g. 2048×1024) that wraps around the scene.
             </p>
             <CustomTextureField
               kind="floor"
@@ -262,7 +281,7 @@ export function VisionPanel() {
             />
             <CustomTextureField
               kind="wall"
-              label="Wall texture"
+              label="Skybox panorama"
               meta={customWallTexture}
               setMeta={setCustomWallTexture}
               setStatus={setStatus}
@@ -486,6 +505,7 @@ export function VisionPanel() {
                   onChange={(e) =>
                     setCapture({ randomizeCamera: e.target.checked })
                   }
+                  disabled={cs.cameraTrajectory !== 'random'}
                 />
                 <span>Camera</span>
               </label>
@@ -511,6 +531,91 @@ export function VisionPanel() {
               </label>
             </div>
           </fieldset>
+
+          <label className="field">
+            Camera trajectory
+            <select
+              value={cs.cameraTrajectory}
+              onChange={(e) => {
+                const next = e.target.value as CameraTrajectory;
+                // Snap camPos onto the first sample of the new track so
+                // the live preview + camera handle immediately frame
+                // what the first batch image will look like. Skip when
+                // selecting `random` — that mode jitters around the
+                // user's chosen base pose, so we shouldn't overwrite it.
+                if (next === 'random') {
+                  setCapture({ cameraTrajectory: next });
+                  return;
+                }
+                const pos = sampleCameraTrajectory({
+                  trajectory: next,
+                  index: 0,
+                  total: Math.max(1, cs.batchCount),
+                  target: cs.camTarget,
+                  radius: cs.trajectoryRadius,
+                  height: cs.trajectoryHeight,
+                });
+                setCapture({ cameraTrajectory: next, camPos: pos });
+              }}
+            >
+              {ALL_CAMERA_TRAJECTORIES.map((t) => (
+                <option key={t} value={t}>
+                  {trajectoryLabel(t)}
+                </option>
+              ))}
+            </select>
+          </label>
+          {cs.cameraTrajectory !== 'random' && (
+            <div className="row">
+              <label className="field">
+                Radius {cs.trajectoryRadius.toFixed(1)} m
+                <input
+                  type="range"
+                  min={0.5}
+                  max={15}
+                  step={0.1}
+                  value={cs.trajectoryRadius}
+                  onChange={(e) => {
+                    const r = Number(e.target.value);
+                    // Keep the cam glued to the trajectory's first
+                    // sample so the live preview tracks the radius
+                    // slider as the user drags it.
+                    const pos = sampleCameraTrajectory({
+                      trajectory: cs.cameraTrajectory,
+                      index: 0,
+                      total: Math.max(1, cs.batchCount),
+                      target: cs.camTarget,
+                      radius: r,
+                      height: cs.trajectoryHeight,
+                    });
+                    setCapture({ trajectoryRadius: r, camPos: pos });
+                  }}
+                />
+              </label>
+              <label className="field">
+                Height {cs.trajectoryHeight.toFixed(1)} m
+                <input
+                  type="range"
+                  min={0}
+                  max={10}
+                  step={0.1}
+                  value={cs.trajectoryHeight}
+                  onChange={(e) => {
+                    const h = Number(e.target.value);
+                    const pos = sampleCameraTrajectory({
+                      trajectory: cs.cameraTrajectory,
+                      index: 0,
+                      total: Math.max(1, cs.batchCount),
+                      target: cs.camTarget,
+                      radius: cs.trajectoryRadius,
+                      height: h,
+                    });
+                    setCapture({ trajectoryHeight: h, camPos: pos });
+                  }}
+                />
+              </label>
+            </div>
+          )}
         </div>
 
         <div className="capture-footer">

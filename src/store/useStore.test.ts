@@ -30,6 +30,7 @@ beforeEach(() => {
     robotRunning: false,
     armPickupObservation: null,
     armTargetId: null,
+    selectedIds: [],
   });
 });
 
@@ -431,3 +432,70 @@ describe('Edge Impulse config', () => {
     expect(useStore.getState().ei.category).toBe('training');
   });
 });
+
+describe('camera trajectory capture settings', () => {
+  it('defaults to random with a usable radius and height', () => {
+    const cap = useStore.getState().capture;
+    expect(cap.cameraTrajectory).toBe('random');
+    expect(cap.trajectoryRadius).toBeGreaterThan(0);
+    expect(cap.trajectoryHeight).toBeGreaterThanOrEqual(0);
+  });
+
+  it('setCapture merges trajectory fields without clobbering others', () => {
+    const { setCapture } = useStore.getState();
+    const beforeFov = useStore.getState().capture.fov;
+    setCapture({ cameraTrajectory: 'figure8', trajectoryRadius: 7 });
+    const cap = useStore.getState().capture;
+    expect(cap.cameraTrajectory).toBe('figure8');
+    expect(cap.trajectoryRadius).toBe(7);
+    expect(cap.fov).toBe(beforeFov);
+  });
+});
+
+describe('scene-object selection', () => {
+  it('starts empty', () => {
+    expect(useStore.getState().selectedIds).toEqual([]);
+  });
+
+  it('setSelectedIds replaces the selection', () => {
+    useStore.getState().setSelectedIds(['a', 'b']);
+    expect(useStore.getState().selectedIds).toEqual(['a', 'b']);
+    useStore.getState().setSelectedIds(['c']);
+    expect(useStore.getState().selectedIds).toEqual(['c']);
+  });
+
+  it('toggleSelectedId adds an id when absent and removes it when present', () => {
+    useStore.getState().toggleSelectedId('x');
+    expect(useStore.getState().selectedIds).toEqual(['x']);
+    useStore.getState().toggleSelectedId('y');
+    expect(useStore.getState().selectedIds).toEqual(['x', 'y']);
+    useStore.getState().toggleSelectedId('x');
+    expect(useStore.getState().selectedIds).toEqual(['y']);
+  });
+
+  it('clearSelection empties the list', () => {
+    useStore.getState().setSelectedIds(['a', 'b']);
+    useStore.getState().clearSelection();
+    expect(useStore.getState().selectedIds).toEqual([]);
+  });
+
+  it('removeSceneObject prunes stale ids out of the selection', () => {
+    const { addSceneObject } = useStore.getState();
+    addSceneObject('cube');
+    addSceneObject('sphere');
+    const ids = useStore.getState().sceneObjects.map((o) => o.id);
+    useStore.getState().setSelectedIds(ids);
+    useStore.getState().removeSceneObject(ids[0]);
+    expect(useStore.getState().selectedIds).toEqual([ids[1]]);
+  });
+
+  it('clearSceneObjects also clears the selection', () => {
+    const { addSceneObject } = useStore.getState();
+    addSceneObject('cube');
+    const id = useStore.getState().sceneObjects[0].id;
+    useStore.getState().setSelectedIds([id]);
+    useStore.getState().clearSceneObjects();
+    expect(useStore.getState().selectedIds).toEqual([]);
+  });
+});
+

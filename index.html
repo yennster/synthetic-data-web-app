@@ -40,12 +40,39 @@
   <body>
     <div id="root"></div>
     <script>
-      // Apply the persisted theme before the first paint to avoid a
-      // dark→light flash on light-mode reloads. Defaults to dark when no
-      // preference is stored.
+      // ?clearStore=1 wipes persisted state before any module loads
+      // and rehydrates. Useful for support links and dev resets.
+      // Runs synchronously here so zustand's persist middleware never
+      // sees the old state on this load. See docs/url-parameters.md.
       (function () {
         try {
-          var t = localStorage.getItem('sds-theme');
+          var p = new URLSearchParams(window.location.search);
+          var c = p.get('clearStore');
+          if (c === '1' || c === 'true' || c === 'yes') {
+            try { localStorage.clear(); } catch (e) {}
+            try {
+              if (indexedDB && indexedDB.databases) {
+                indexedDB.databases().then(function (dbs) {
+                  dbs.forEach(function (db) {
+                    if (db && db.name) indexedDB.deleteDatabase(db.name);
+                  });
+                }).catch(function () {});
+              }
+            } catch (e) {}
+          }
+        } catch (e) {}
+      })();
+      // Apply the persisted theme before the first paint to avoid a
+      // dark→light flash on light-mode reloads. `?theme=` overrides
+      // both the persisted value and the default.
+      (function () {
+        try {
+          var params = new URLSearchParams(window.location.search);
+          var override = (params.get('theme') || '').toLowerCase();
+          var t =
+            override === 'dark' || override === 'light'
+              ? override
+              : localStorage.getItem('sds-theme');
           document.documentElement.dataset.theme =
             t === 'light' ? 'light' : 'dark';
         } catch (e) {

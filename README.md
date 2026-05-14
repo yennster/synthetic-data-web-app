@@ -151,23 +151,33 @@ For the exact JSON / multipart payloads sent to the ingestion API, see [docs/int
 
 ## URL parameters
 
-The app reads a few query parameters at load so you can deep-link a configured studio (especially handy when embedding in an iframe):
+The app reads ~30 query parameters at load so you can deep-link a configured studio, share-this-batch URLs, set up iframe embeds, lock down a single-mode demo, and reproduce datasets seed-for-seed. Full reference (every key, every allowed value, recipes): **[docs/url-parameters.md](docs/url-parameters.md)**.
 
-| Param      | Values                                                  | Effect                                                                 |
-| ---------- | ------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `apiKey`   | An `ei_…` key                                           | Pre-fills the Edge Impulse API key.                                    |
-| `category` | `training`, `testing`, `split` (also `train`, `test`)   | Pre-selects the upload bucket dropdown. `split` routes 80/20 per sample. |
-| `theme`    | `dark`, `light`                                         | Forces the chrome theme on this load. Overrides the persisted choice for the session, then is itself persisted, so a later toggle still works. |
+A few common ones:
+
+| Param        | Example                                                | Effect                                                                                  |
+| ------------ | ------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| `env`        | `?env=outdoor`                                         | Switch backdrop (`studio` · `warehouse` · `whitebox` · `outdoor`).                       |
+| `mode`       | `?mode=detection`                                      | Land in a specific mode. Aliases: `objects`, `objectdetection`, `arm`, `rover`, `imu`, … |
+| `onlyMode`   | `?onlyMode=detection`                                  | Hide every other mode button so the user can't switch away.                              |
+| `objects`    | `?objects=cube,sphere,phone`                           | Pre-spawn these object kinds.                                                            |
+| `trajectory` | `?trajectory=circle&radius=4&height=2`                 | Camera path for batch capture.                                                           |
+| `batchCount` | `?batchCount=50`                                       | Preset the batch slider.                                                                 |
+| `seed`       | `?seed=42`                                             | Seed the RNG — every random choice in batch jitter + realism becomes deterministic.       |
+| `embed`      | `?embed=1`                                             | Hide sidebar + HUD for clean iframe embeds.                                              |
+| `theme`      | `?theme=light`                                         | Force the chrome theme on this load.                                                     |
+| `apiKey`     | `?apiKey=ei_…`                                         | Pre-fill the Edge Impulse API key.                                                       |
 
 Examples:
 
 ```
-https://your-host/?theme=light
-https://your-host/?apiKey=ei_abc123&category=testing
-https://your-host/?theme=dark&category=split
+https://synthetic.jennyspeelman.dev/?env=outdoor&objects=cube,sphere&batchCount=20&trajectory=circle&seed=42
+https://synthetic.jennyspeelman.dev/?onlyMode=detection&embed=1
+https://synthetic.jennyspeelman.dev/?mode=arm&armPose=1.57,1.0,0.5,1.57,1.57,0.5
+https://synthetic.jennyspeelman.dev/?apiKey=ei_abc123&eiCategory=split&autoUpload=1
 ```
 
-Unknown values are ignored — the app falls back to whatever was stored or the built-in default (dark theme, training bucket). The values are case-insensitive.
+Unknown values are dropped silently — the app falls back to whatever was stored or the built-in default. Values are case-insensitive.
 
 ## Privacy notes
 
@@ -181,6 +191,7 @@ Unknown values are ignored — the app falls back to whatever was stored or the 
 ## More docs
 
 - **[docs/workflows.md](docs/workflows.md)** — step-by-step instructions for every mode.
+- **[docs/url-parameters.md](docs/url-parameters.md)** — deep-link query string reference (`?env=outdoor&seed=42&objects=cube,sphere&batchCount=50&trajectory=circle…`).
 - **[docs/usdz.md](docs/usdz.md)** — USDZ import: what's supported, capturing real-world objects, format conversion, MDL/Omniverse caveats, cross-origin isolation setup.
 - **[docs/internals.md](docs/internals.md)** — project structure, IMU math, bbox projection, tunables, EI payload formats.
 - **[docs/troubleshooting.md](docs/troubleshooting.md)** — common errors and fixes.

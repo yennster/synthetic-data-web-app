@@ -6,8 +6,38 @@ import type {
   LidarSample,
 } from '../store/useStore';
 
-const INGESTION_BASE = 'https://ingestion.edgeimpulse.com/api';
-const STUDIO_BASE = 'https://studio.edgeimpulse.com/v1/api';
+const DEFAULT_INGESTION_HOST = 'ingestion.edgeimpulse.com';
+const DEFAULT_STUDIO_HOST = 'studio.edgeimpulse.com';
+
+let INGESTION_BASE = `https://${DEFAULT_INGESTION_HOST}/api`;
+let STUDIO_BASE = `https://${DEFAULT_STUDIO_HOST}/v1/api`;
+
+/**
+ * Resolve a host string to a fully-qualified `scheme://host[:port]` base.
+ * Accepts:
+ *   - `studio.example.com`         → `https://studio.example.com`
+ *   - `https://studio.example.com` → `https://studio.example.com`
+ *   - `http://localhost:4800`      → `http://localhost:4800` (kept as-is
+ *                                     so local-dev backends still work)
+ * Trailing slashes are stripped.
+ */
+export function normalizeHost(host: string): string {
+  const trimmed = host.trim().replace(/\/+$/, '');
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
+
+export function setEdgeImpulseHosts(opts: {
+  studioHost?: string | null;
+  ingestionHost?: string | null;
+}): void {
+  if (opts.ingestionHost) {
+    INGESTION_BASE = `${normalizeHost(opts.ingestionHost)}/api`;
+  }
+  if (opts.studioHost) {
+    STUDIO_BASE = `${normalizeHost(opts.studioHost)}/v1/api`;
+  }
+}
 
 const METADATA_SOURCE = 'Synthetic Data Studio';
 

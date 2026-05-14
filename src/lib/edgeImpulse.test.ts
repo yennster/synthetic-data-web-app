@@ -8,6 +8,7 @@ import {
   buildRoverDataAcquisitionPayload,
   getEiProjectDataKinds,
   inferIntervalMs,
+  normalizeHost,
   resolveBucket,
   uploadCaptures,
   uploadImage,
@@ -1017,5 +1018,37 @@ describe('getEiProjectDataKinds', () => {
     }
     // First call is the project info on /<id>, then raw-data per category.
     expect(fetchMock.mock.calls[0][0]).toMatch(/\/7$/);
+  });
+});
+
+describe('normalizeHost', () => {
+  it('prepends https:// when no scheme is supplied', () => {
+    expect(normalizeHost('studio.example.com')).toBe('https://studio.example.com');
+  });
+
+  it('preserves an explicit https:// scheme', () => {
+    expect(normalizeHost('https://studio.example.com')).toBe(
+      'https://studio.example.com',
+    );
+  });
+
+  it('preserves an explicit http:// scheme (for local-dev backends)', () => {
+    expect(normalizeHost('http://localhost:4800')).toBe('http://localhost:4800');
+  });
+
+  it('strips trailing slashes', () => {
+    expect(normalizeHost('https://studio.example.com/')).toBe(
+      'https://studio.example.com',
+    );
+    expect(normalizeHost('staging.example.com///')).toBe(
+      'https://staging.example.com',
+    );
+  });
+
+  it('is case-insensitive about the scheme', () => {
+    expect(normalizeHost('HTTPS://STUDIO.EXAMPLE.COM')).toBe(
+      'HTTPS://STUDIO.EXAMPLE.COM',
+    );
+    expect(normalizeHost('HTTP://localhost')).toBe('HTTP://localhost');
   });
 });

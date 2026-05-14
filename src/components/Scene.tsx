@@ -7,12 +7,15 @@ import { SoftShadows } from '@react-three/drei/core/softShadows.js';
 import { Physics } from '@react-three/rapier';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { sampleCameraTrajectory } from '../lib/cameraTrajectory';
 import { cameraRelativeToWorld } from '../lib/handMath';
+import { URL_FLAGS } from '../lib/urlParams';
 import { MotionSim } from '../lib/mujoco/MotionSim';
 import { loadMujocoModule } from '../lib/mujoco/runtime';
 import { sampleImu, type NoiseStateRef } from '../lib/mujoco/imuSensor';
 import { useStore, type ObjectKind } from '../store/useStore';
 import { Conveyor } from './Conveyor';
+import { DebugOverlay } from './DebugOverlay';
 import { SceneEnvironment } from './SceneEnvironment';
 import { SpawnedObjects } from './SpawnedObjects';
 
@@ -52,24 +55,6 @@ function backgroundForPreset(preset: string): string {
     case 'studio':
     default:
       return 'linear-gradient(180deg, #0b0d10 0%, #14181d 100%)';
-  }
-}
-
-/** Solid color used as `scene.background` so it shows up in both the
- * live render AND captured frames. The CSS gradient on the canvas div
- * still drives the visible look in the main view, but for offscreen
- * captures the GL renderer needs an explicit clear color. */
-function sceneBackgroundColor(preset: string): string {
-  switch (preset) {
-    case 'whitebox':
-      return '#eeeeea';
-    case 'outdoor':
-      return '#a3cae1';
-    case 'warehouse':
-      return '#1f1c18';
-    case 'studio':
-    default:
-      return '#0e1115';
   }
 }
 
@@ -396,14 +381,6 @@ function ManipulatedMesh({
   }
 }
 
-function SceneBackground({ color }: { color: string }) {
-  const { scene } = useThree();
-  useEffect(() => {
-    scene.background = new THREE.Color(color);
-  }, [scene, color]);
-  return null;
-}
-
 function PinchMarker() {
   const target = useStore((s) => s.pinchTarget);
   const grabbed = useStore((s) => s.isGrabbed);
@@ -544,6 +521,7 @@ function ArmScene() {
  */
 function CameraRig() {
   const camera = useThree((s) => s.camera);
+  const raycaster = useThree((s) => s.raycaster);
   const controls = useThree(
     (s) => s.controls as unknown as {
       target: THREE.Vector3;
@@ -552,6 +530,21 @@ function CameraRig() {
   );
   const mode = useStore((s) => s.mode);
   const robotKind = useStore((s) => s.robot.kind);
+
+  // Enable the gizmo layer on the orbit camera so the trajectory
+  // gizmo (and any future editor-only helpers) shows up in the live
+  // view. Capture cameras don't enable this layer, so PNG captures
+  // stay clean.
+  //
+  // We also enable the gizmo layer on r3f's pointer-event raycaster,
+  // otherwise the virtual-camera handle's hit-target mesh (which lives
+  // on layer 1) can be seen but never picked — pointer events
+  // silently fall through to OrbitControls, and the user can't drag
+  // the camera handle no matter how hard they try.
+  useEffect(() => {
+    camera.layers.enable(GIZMO_LAYER);
+    raycaster.layers.enable(GIZMO_LAYER);
+  }, [camera, raycaster]);
 
   useEffect(() => {
     if (!controls) return;
@@ -594,6 +587,313 @@ function CameraRig() {
   return null;
 }
 
+/**
+ * Visualizes the configured batch-capture camera trajectory as a line
+ * loop with sample-point markers, sitting in the live scene. Only
+ * renders in detection / anomaly modes and only when the user has
+ * selected a non-random trajectory — otherwise it stays out of frame so
+ * captures themselves aren't polluted.
+ *
+ * Both the line and the markers carry `depthTest: false` + a high
+ * `renderOrder` so the gizmo is visible even when it passes behind the
+ * floor or imported geometry.
+ */
+/** Layer used by editor gizmos that should be visible in the main
+ * orbit view but never end up in captured frames. The capture cameras
+ * (VirtualCamera, RobotPovCamera) stay on the default layer 0 so they
+ * skip these objects without any explicit hide/show toggling. */
+const GIZMO_LAYER = 1;
+
+/** Recursively set every object in a tree to render *only* on the
+ * gizmo layer. Three.js' `Object3D.layers.set` replaces the mask, so
+ * the object stops rendering on layer 0 too — exactly what we want
+ * for the capture camera to skip it. */
+function setLayerRecursive(root: THREE.Object3D, layer: number): void {
+  root.traverse((o) => o.layers.set(layer));
+}
+
+function TrajectoryGizmo() {
+  const mode = useStore((s) => s.mode);
+  const trajectory = useStore((s) => s.capture.cameraTrajectory);
+  const radius = useStore((s) => s.capture.trajectoryRadius);
+  const height = useStore((s) => s.capture.trajectoryHeight);
+  const target = useStore((s) => s.capture.camTarget);
+  const batchCount = useStore((s) => s.capture.batchCount);
+
+  // Sample the path at a moderate fixed density (independent of
+  // batchCount) so the curve stays smooth even on a tiny batch. The
+  // sample markers themselves use batchCount so the user can see the
+  // discrete capture poses they'll actually visit.
+  //
+  // We render the curve as a TubeGeometry rather than a Line: WebGL
+  // line widths are clamped to 1 px on most drivers, which makes a
+  // flat line invisible against the skybox at meter scales.
+  const { tubeObject, markerPositions } = useMemo(() => {
+    const LINE_SAMPLES = 256;
+    const points: THREE.Vector3[] = [];
+    for (let i = 0; i < LINE_SAMPLES; i++) {
+      const p = sampleCameraTrajectory({
+        trajectory,
+        index: i,
+        total: LINE_SAMPLES,
+        target: [target[0], target[1], target[2]],
+        radius,
+        height,
+      });
+      points.push(new THREE.Vector3(p[0], p[1], p[2]));
+    }
+    // Closed loop for cyclical paths (circle / figure8 / orbit_dome),
+    // open for `arc` and `spiral`.
+    const isClosed = trajectory === 'circle' || trajectory === 'figure8';
+    const curve = new THREE.CatmullRomCurve3(points, isClosed);
+    const tubeGeom = new THREE.TubeGeometry(
+      curve,
+      LINE_SAMPLES,
+      0.03,
+      6,
+      isClosed,
+    );
+    const mat = new THREE.MeshBasicMaterial({
+      color: '#5eead4',
+      transparent: true,
+      opacity: 0.9,
+      depthTest: false,
+      depthWrite: false,
+    });
+    const obj = new THREE.Mesh(tubeGeom, mat);
+    obj.renderOrder = 998;
+    const markers: [number, number, number][] = [];
+    const n = Math.max(1, Math.min(batchCount, 64));
+    for (let i = 0; i < n; i++) {
+      markers.push(
+        sampleCameraTrajectory({
+          trajectory,
+          index: i,
+          total: n,
+          target: [target[0], target[1], target[2]],
+          radius,
+          height,
+        }),
+      );
+    }
+    return { tubeObject: obj, markerPositions: markers };
+  }, [trajectory, radius, height, target, batchCount]);
+
+  useEffect(() => {
+    return () => {
+      tubeObject.geometry.dispose();
+      (tubeObject.material as THREE.Material).dispose();
+    };
+  }, [tubeObject]);
+
+  const visible =
+    URL_FLAGS.gizmos &&
+    (mode === 'detection' || mode === 'anomaly') &&
+    trajectory !== 'random';
+
+  // Pin the entire subtree to the gizmo layer once it's mounted so the
+  // capture cameras (which stay on layer 0) ignore it. Re-runs whenever
+  // the tube object changes — that's also when fresh marker meshes are
+  // re-created.
+  const groupRef = useRef<THREE.Group>(null);
+  useEffect(() => {
+    if (groupRef.current) setLayerRecursive(groupRef.current, GIZMO_LAYER);
+  }, [tubeObject, markerPositions, visible]);
+
+  if (!visible) return null;
+
+  return (
+    <group ref={groupRef} renderOrder={998}>
+      <primitive object={tubeObject} />
+      {markerPositions.map((p, i) => (
+        <mesh key={i} position={p} renderOrder={999}>
+          <sphereGeometry args={[0.06, 12, 12]} />
+          <meshBasicMaterial
+            color={i === 0 ? '#fbbf24' : '#38bdf8'}
+            transparent
+            opacity={0.95}
+            depthTest={false}
+          />
+        </mesh>
+      ))}
+      {/* Marker on the target itself so the user can see the orbit
+          center even when it sits inside an object. */}
+      <mesh position={target as [number, number, number]} renderOrder={999}>
+        <sphereGeometry args={[0.04, 10, 10]} />
+        <meshBasicMaterial
+          color="#f472b6"
+          transparent
+          opacity={0.9}
+          depthTest={false}
+        />
+      </mesh>
+    </group>
+  );
+}
+
+/**
+ * Keyboard input handler for camera rotation, panning, and Shift-pan
+ * toggle.
+ *
+ * Keys (when the canvas / window has focus, and the user isn't typing
+ * into a sidebar input):
+ *   - Q / E       : rotate camera azimuth (yaw) left / right around target
+ *   - [ / ]       : rotate the current selection (or all objects when
+ *                   nothing is selected) around Y
+ *   - Esc         : clear the current scene-object selection
+ *   - Arrow keys  : pan the framed view
+ *
+ * Use right-mouse-drag (or two-finger touch) to pan, which is
+ * OrbitControls' default — left-drag remains rotate so the standard
+ * 3D-viewer feel is preserved.
+ *
+ * Polar-tilt keys (formerly R/F) were dropped — `R` was being eaten by
+ * the browser-refresh shortcut on macOS (Cmd+R) and the bare `R` was
+ * surprising users by appearing to no-op.
+ */
+function CameraKeyboardInput() {
+  const camera = useThree((s) => s.camera);
+  const controls = useThree(
+    (s) =>
+      s.controls as unknown as {
+        target: THREE.Vector3;
+        update: () => void;
+        mouseButtons: { LEFT: unknown; MIDDLE: unknown; RIGHT: unknown };
+      } | null,
+  );
+
+  useEffect(() => {
+    if (!controls) return;
+    const isEditableTarget = (el: EventTarget | null): boolean => {
+      if (!(el instanceof HTMLElement)) return false;
+      const tag = el.tagName;
+      return (
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        tag === 'SELECT' ||
+        el.isContentEditable
+      );
+    };
+
+    const rotateAroundTarget = (deltaAz: number, deltaPolar: number) => {
+      const offset = new THREE.Vector3().subVectors(
+        camera.position,
+        controls.target,
+      );
+      const sph = new THREE.Spherical().setFromVector3(offset);
+      sph.theta -= deltaAz;
+      sph.phi -= deltaPolar;
+      sph.phi = Math.max(0.05, Math.min(Math.PI - 0.05, sph.phi));
+      offset.setFromSpherical(sph);
+      camera.position.copy(controls.target).add(offset);
+      camera.lookAt(controls.target);
+      controls.update();
+    };
+
+    const panInScreenSpace = (dx: number, dy: number) => {
+      // Pan both the camera and the orbit target in the camera's local
+      // X / Y axes so the framed point translates rather than rotating.
+      const xAxis = new THREE.Vector3();
+      const yAxis = new THREE.Vector3();
+      camera.matrix.extractBasis(xAxis, yAxis, new THREE.Vector3());
+      const move = new THREE.Vector3()
+        .addScaledVector(xAxis, dx)
+        .addScaledVector(yAxis, dy);
+      camera.position.add(move);
+      controls.target.add(move);
+      controls.update();
+    };
+
+    const rotateObjectsY = (delta: number) => {
+      const {
+        sceneObjects,
+        updateSceneObject,
+        assets,
+        updateAsset,
+        selectedIds,
+      } = useStore.getState();
+      const hasSelection = selectedIds.length > 0;
+      const objectMatches = (id: string) =>
+        !hasSelection || selectedIds.includes(id);
+      for (const o of sceneObjects) {
+        if (!objectMatches(o.id)) continue;
+        const r: [number, number, number] = [
+          o.rotation[0],
+          (o.rotation[1] ?? 0) + delta,
+          o.rotation[2],
+        ];
+        updateSceneObject(o.id, { rotation: r });
+      }
+      for (const a of assets) {
+        if (!objectMatches(a.id)) continue;
+        const r: [number, number, number] = [
+          a.rotation[0],
+          (a.rotation[1] ?? 0) + delta,
+          a.rotation[2],
+        ];
+        updateAsset(a.id, { rotation: r });
+      }
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (isEditableTarget(e.target)) return;
+      if (e.key === 'Escape') {
+        const { selectedIds, clearSelection } = useStore.getState();
+        if (selectedIds.length > 0) {
+          clearSelection();
+          e.preventDefault();
+        }
+        return;
+      }
+      // Step sizes: 5° for camera rotation, 10° for object rotation.
+      // Holding Shift doubles the step for fast adjustments.
+      const stepCam = (e.shiftKey ? 10 : 5) * (Math.PI / 180);
+      const stepObj = (e.shiftKey ? 20 : 10) * (Math.PI / 180);
+      const panStep = e.shiftKey ? 0.5 : 0.2;
+      switch (e.key.toLowerCase()) {
+        case 'q':
+          rotateAroundTarget(stepCam, 0);
+          e.preventDefault();
+          break;
+        case 'e':
+          rotateAroundTarget(-stepCam, 0);
+          e.preventDefault();
+          break;
+        case '[':
+          rotateObjectsY(-stepObj);
+          e.preventDefault();
+          break;
+        case ']':
+          rotateObjectsY(stepObj);
+          e.preventDefault();
+          break;
+        case 'arrowleft':
+          panInScreenSpace(-panStep, 0);
+          e.preventDefault();
+          break;
+        case 'arrowright':
+          panInScreenSpace(panStep, 0);
+          e.preventDefault();
+          break;
+        case 'arrowup':
+          panInScreenSpace(0, panStep);
+          e.preventDefault();
+          break;
+        case 'arrowdown':
+          panInScreenSpace(0, -panStep);
+          e.preventDefault();
+          break;
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [camera, controls]);
+
+  return null;
+}
+
 export function Scene({
   previewCanvas,
 }: {
@@ -616,13 +916,9 @@ export function Scene({
       style={{ background: backgroundForPreset(envPreset) }}
     >
       <SoftShadows size={20} samples={12} />
-      {/* Solid scene background so the off-screen capture renderer sees the
-          same backdrop as the on-canvas preview (CSS body backgrounds don't
-          carry into a fresh WebGLRenderer). Outdoor gets a sky-blue, the
-          rest match their gradient's middle tone. Set imperatively via
-          useThree because the `<color attach="background">` JSX form
-          doesn't reconcile reliably across preset changes. */}
-      <SceneBackground color={sceneBackgroundColor(envPreset)} />
+      {/* `scene.background` is installed by SceneEnvironment as an
+          equirectangular skybox texture so the same backdrop shows up
+          on the live canvas and in capture-renderer output. */}
       <SceneLighting />
 
       <Grid
@@ -682,6 +978,7 @@ export function Scene({
           <VirtualCamera previewCanvas={previewCanvas} />
         </Suspense>
       )}
+      <TrajectoryGizmo />
       {mode === 'robot' && (
         <Suspense fallback={null}>
           <RobotPovCamera previewCanvas={previewCanvas} />
@@ -694,9 +991,13 @@ export function Scene({
         dampingFactor={0.1}
         minDistance={0.3}
         maxDistance={20}
+        enablePan
+        screenSpacePanning
         target={[0, 0.7, 0]}
       />
       <CameraRig />
+      <CameraKeyboardInput />
+      <DebugOverlay />
       <PreviewCanvasMount setCanvas={() => {}} />
     </Canvas>
   );

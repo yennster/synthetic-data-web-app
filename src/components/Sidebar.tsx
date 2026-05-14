@@ -6,6 +6,7 @@ import {
   type CSSProperties,
 } from 'react';
 import { useStore, type AppMode } from '../store/useStore';
+import { URL_PRESETS } from '../lib/urlParams';
 import { ThemeToggle } from './ThemeToggle';
 
 const MotionPanel = lazy(() =>
@@ -23,12 +24,22 @@ const VisionPanel = lazy(() =>
  * upload/inference actions that consume it (after Capture in vision,
  * before Upload in motion). */
 
-const MODES: { value: AppMode; label: string; hint: string }[] = [
+const ALL_MODES: { value: AppMode; label: string; hint: string }[] = [
   { value: 'motion', label: 'Motion', hint: 'Accelerometer' },
   { value: 'detection', label: 'Object detection', hint: 'Images + bboxes' },
   { value: 'anomaly', label: 'Visual anomaly', hint: 'Images, batch label' },
   { value: 'robot', label: 'Robotics', hint: 'Rover & Arm telemetry' },
 ];
+
+/** `?onlyMode=` filters this list down. When unset, all modes are
+ * shown. When set to a single mode, the Mode card collapses to a
+ * single button (still useful as a label/affordance). */
+const MODES = (() => {
+  const only = URL_PRESETS.onlyMode;
+  if (!only || only.length === 0) return ALL_MODES;
+  const keep = new Set(only);
+  return ALL_MODES.filter((m) => keep.has(m.value));
+})();
 
 /* Right-edge drawer dismiss thresholds. The drawer slides in from the
  * right, so dragging *right* (positive dx) moves it back off-screen.

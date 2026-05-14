@@ -1,4 +1,4 @@
-import { useFrame } from '@react-three/fiber';
+import { useFrame, type ThreeEvent } from '@react-three/fiber';
 import { RigidBody, type RapierRigidBody } from '@react-three/rapier';
 import { useEffect, useRef, useState } from 'react';
 import { BELT_TRANSPORTABLES } from '../lib/beltDynamics';
@@ -9,6 +9,30 @@ import {
   type SceneObject,
   type SceneObjectOwner,
 } from '../store/useStore';
+
+/**
+ * Build a click handler that wires plain click → single-select and
+ * Cmd/Ctrl/Shift+click → toggle-in-selection for the given object id.
+ * Suppressed for clicks that followed a drag (r3f's onClick still fires
+ * after a drag-release on the same target), which would otherwise
+ * select objects unexpectedly when the user just dragged one.
+ */
+function useSelectClickHandler(id: string) {
+  return (e: ThreeEvent<MouseEvent>) => {
+    // Shift+click in this app is taken by useDragMove; the user expects
+    // it to grab the object, not select it. Same for Alt/Option (depth
+    // mode). Only treat Cmd/Ctrl as "add to selection"; treat plain
+    // click as "replace selection".
+    if (e.shiftKey || e.altKey) return;
+    e.stopPropagation();
+    const { setSelectedIds, toggleSelectedId } = useStore.getState();
+    if (e.metaKey || e.ctrlKey) {
+      toggleSelectedId(id);
+    } else {
+      setSelectedIds([id]);
+    }
+  };
+}
 
 // If a body somehow tunnels through the ground (fast Shift+drag release, CCD
 // edge cases, scale change mid-fall, etc.) it would otherwise fall forever
@@ -67,10 +91,12 @@ function Geometry({ kind }: { kind: ObjectKind }) {
  */
 function StaticSpawnedMesh({ obj }: { obj: SceneObject }) {
   const updateSceneObject = useStore((s) => s.updateSceneObject);
+  const selected = useStore((s) => s.selectedIds.includes(obj.id));
   const dragHandlers = useDragMove({
     getPosition: () => obj.position,
     setPosition: (p) => updateSceneObject(obj.id, { position: p }),
   });
+  const onClick = useSelectClickHandler(obj.id);
   return (
     <mesh
       position={obj.position}
@@ -79,6 +105,7 @@ function StaticSpawnedMesh({ obj }: { obj: SceneObject }) {
       castShadow
       receiveShadow
       userData={{ label: obj.label, sceneObjectId: obj.id }}
+      onClick={onClick}
       {...dragHandlers}
     >
       <Geometry kind={obj.kind} />
@@ -86,6 +113,8 @@ function StaticSpawnedMesh({ obj }: { obj: SceneObject }) {
         color={obj.color}
         roughness={obj.roughness}
         metalness={obj.metalness}
+        emissive={selected ? '#22d3ee' : '#000000'}
+        emissiveIntensity={selected ? 0.55 : 0}
       />
     </mesh>
   );
@@ -221,6 +250,9 @@ function SpawnedMesh({ obj }: { obj: SceneObject }) {
     onDragEnd: () => setIsDragging(false),
   });
 
+  const selected = useStore((s) => s.selectedIds.includes(obj.id));
+  const onClick = useSelectClickHandler(obj.id);
+
   return (
     <RigidBody
       ref={bodyRef}
@@ -237,6 +269,7 @@ function SpawnedMesh({ obj }: { obj: SceneObject }) {
         castShadow
         receiveShadow
         userData={{ label: obj.label, sceneObjectId: obj.id }}
+        onClick={onClick}
         {...dragHandlers}
       >
         <Geometry kind={obj.kind} />
@@ -244,6 +277,8 @@ function SpawnedMesh({ obj }: { obj: SceneObject }) {
           color={obj.color}
           roughness={obj.roughness}
           metalness={obj.metalness}
+          emissive={selected ? '#22d3ee' : '#000000'}
+          emissiveIntensity={selected ? 0.55 : 0}
         />
       </mesh>
     </RigidBody>

@@ -9,7 +9,12 @@ import {
   saveBlob,
 } from '../lib/capture';
 import { BELT_TRANSPORTABLES, isOnBelt } from '../lib/beltDynamics';
+import { uploadCaptures } from '../lib/edgeImpulse';
+import { sampleCameraTrajectory } from '../lib/cameraTrajectory';
+import { useDragMove } from '../lib/dragMove';
 import { applyRealismToBlob, resetDiffusionBudget } from '../lib/realism';
+import { getRng, rng } from '../lib/rng';
+import { URL_FLAGS } from '../lib/urlParams';
 import {
   createReadbackBlitState,
   ensureReadbackBlitState,
@@ -96,6 +101,10 @@ export function VirtualCamera({
     const mats = Array.isArray(helper.material) ? helper.material : [helper.material];
     for (const m of mats) (m as THREE.Material).depthTest = false;
     helper.renderOrder = 1000;
+    // Hide the frustum gizmo from capture cameras via the gizmo layer.
+    // The existing visible/hidden toggle around captureFrame stays as a
+    // belt-and-braces guard for any non-layer-aware render code paths.
+    helper.traverse((o) => o.layers.set(GIZMO_LAYER));
     helperRef.current = helper;
     scene.add(helper);
     return () => {
@@ -244,6 +253,7 @@ export function VirtualCamera({
         mode: realism.mode,
         intensities: realism,
         randomize: realism.randomize,
+        rng: getRng(),
       });
 
       const idx = useStore.getState().captures.length;
@@ -343,29 +353,43 @@ export function VirtualCamera({
       for (let i = 0; i < total; i++) {
         // Randomize per the toggles
         const setCapture = useStore.getState().setCapture;
-        if (cs.randomizeCamera) {
+        if (cs.cameraTrajectory !== 'random') {
+          // Trajectory mode: deterministic camera path around the
+          // base target. The named trajectories provide their own
+          // variation, so we skip the random-jitter pass even when
+          // `randomizeCamera` is on.
+          const pos = sampleCameraTrajectory({
+            trajectory: cs.cameraTrajectory,
+            index: i,
+            total,
+            target: baseTarget,
+            radius: cs.trajectoryRadius,
+            height: cs.trajectoryHeight,
+          });
+          setCapture({ camPos: pos, camTarget: baseTarget, fov: baseFov });
+        } else if (cs.randomizeCamera) {
           const r = 0.6;
           setCapture({
             camPos: [
-              baseCam[0] + (Math.random() - 0.5) * r * 2,
-              Math.max(0.5, baseCam[1] + (Math.random() - 0.5) * r),
-              baseCam[2] + (Math.random() - 0.5) * r * 2,
+              baseCam[0] + (rng() - 0.5) * r * 2,
+              Math.max(0.5, baseCam[1] + (rng() - 0.5) * r),
+              baseCam[2] + (rng() - 0.5) * r * 2,
             ],
             camTarget: [
-              baseTarget[0] + (Math.random() - 0.5) * 0.4,
-              baseTarget[1] + (Math.random() - 0.5) * 0.2,
-              baseTarget[2] + (Math.random() - 0.5) * 0.4,
+              baseTarget[0] + (rng() - 0.5) * 0.4,
+              baseTarget[1] + (rng() - 0.5) * 0.2,
+              baseTarget[2] + (rng() - 0.5) * 0.4,
             ],
-            fov: baseFov + (Math.random() - 0.5) * 10,
+            fov: baseFov + (rng() - 0.5) * 10,
           });
         }
         if (cs.randomizeLighting) {
           setCapture({
             lightIntensity: Math.max(
               0.2,
-              baseLight + (Math.random() - 0.5) * 0.8,
+              baseLight + (rng() - 0.5) * 0.8,
             ),
-            envRotation: baseEnvRot + Math.random() * Math.PI * 2,
+            envRotation: baseEnvRot + rng() * Math.PI * 2,
           });
         }
         if (cs.randomizeObjects) {
@@ -377,14 +401,14 @@ export function VirtualCamera({
             sceneObjects.forEach((o) => {
               updateSceneObject(o.id, {
                 position: [
-                  (Math.random() - 0.5) * 1.2, // belt is ~1.6m wide
-                  1.6 + Math.random() * 0.4, // above belt top
-                  (Math.random() - 0.5) * 6, // belt is 8m long
+                  (rng() - 0.5) * 1.2, // belt is ~1.6m wide
+                  1.6 + rng() * 0.4, // above belt top
+                  (rng() - 0.5) * 6, // belt is 8m long
                 ],
                 rotation: [
-                  Math.random() * Math.PI * 2,
-                  Math.random() * Math.PI * 2,
-                  Math.random() * Math.PI * 2,
+                  rng() * Math.PI * 2,
+                  rng() * Math.PI * 2,
+                  rng() * Math.PI * 2,
                 ],
               });
             });
@@ -393,14 +417,14 @@ export function VirtualCamera({
               const base = baseObjPositions[idx] ?? [0, 0.5, 0];
               updateSceneObject(o.id, {
                 position: [
-                  base[0] + (Math.random() - 0.5) * 0.6,
-                  Math.max(0.2, base[1] + (Math.random() - 0.5) * 0.2),
-                  base[2] + (Math.random() - 0.5) * 0.6,
+                  base[0] + (rng() - 0.5) * 0.6,
+                  Math.max(0.2, base[1] + (rng() - 0.5) * 0.2),
+                  base[2] + (rng() - 0.5) * 0.6,
                 ],
                 rotation: [
-                  Math.random() * Math.PI * 2,
-                  Math.random() * Math.PI * 2,
-                  Math.random() * Math.PI * 2,
+                  rng() * Math.PI * 2,
+                  rng() * Math.PI * 2,
+                  rng() * Math.PI * 2,
                 ],
               });
             });
@@ -473,6 +497,48 @@ export function VirtualCamera({
       } else {
         setStatus('ok', `Batch complete: 0 images`);
       }
+
+      // `?autoUpload=1` kicks off an upload when the batch finishes.
+      // Paired with `?seed=` + `?batchCount=`, this makes "regenerate
+      // and upload N samples on every page load" a one-URL operation.
+      if (URL_FLAGS.autoUpload && batchCaptures.length > 0) {
+        const { ei } = useStore.getState();
+        if (!ei.apiKey) {
+          setStatus(
+            'err',
+            'autoUpload: no EI API key set (?apiKey= or use auth card)',
+          );
+          return;
+        }
+        setStatus('busy', `Uploading 0/${batchCaptures.length}…`);
+        const includeBoxes = mode === 'detection';
+        const defaultLabel =
+          mode === 'anomaly' ? anomalyLabel : ei.label;
+        const result = await uploadCaptures(
+          ei,
+          batchCaptures,
+          defaultLabel,
+          includeBoxes,
+          (p) => {
+            setStatus(
+              'busy',
+              `Uploading ${p.done}/${p.total}${
+                p.failed ? ` · ${p.failed} failed` : ''
+              }`,
+            );
+          },
+        );
+        if (result.failed === 0) {
+          setStatus('ok', `Uploaded ${result.done} images`);
+        } else {
+          setStatus(
+            'err',
+            `${result.done} ok / ${result.failed} failed: ${
+              result.lastError ?? '?'
+            }`,
+          );
+        }
+      }
     } catch (e) {
       setStatus('err', `Batch error: ${(e as Error).message}`);
     }
@@ -516,5 +582,99 @@ export function VirtualCamera({
     }
   }
 
-  return null;
+  return URL_FLAGS.gizmos ? <VirtualCameraHandle /> : null;
+}
+
+/**
+ * Render layer used for editor gizmos that should be visible to the
+ * orbit camera but invisible to capture cameras. Kept in sync with the
+ * constant of the same name in Scene.tsx — duplicated rather than
+ * imported to avoid the cyclic module reference.
+ */
+const GIZMO_LAYER = 1;
+
+/**
+ * A camera-shaped gizmo drawn at the virtual capture camera's position.
+ * Shift+drag it to translate the capture camera — uses the same
+ * `useDragMove` hook every other scene object uses, so the gesture
+ * (Shift+drag = camera-aligned plane, Alt/Cmd = depth, wheel = push)
+ * is consistent across the editor.
+ *
+ * The icon and the existing CameraHelper frustum both live on the
+ * gizmo render layer so they don't appear in captures.
+ *
+ * Lens orientation: the group is `lookAt`'d at `camTarget`. Object3D's
+ * `lookAt` orients local +Z toward the target, so the lens lives on
+ * the +Z side of the body (record dot lives on -Z).
+ */
+function VirtualCameraHandle() {
+  const setCapture = useStore((s) => s.setCapture);
+  const groupRef = useRef<THREE.Group>(null);
+  const hitTargetRef = useRef<THREE.Mesh>(null);
+
+  const dragHandlers = useDragMove({
+    getPosition: () => useStore.getState().capture.camPos,
+    setPosition: (p) => setCapture({ camPos: p }),
+  });
+
+  // Pin the whole handle subtree to the gizmo layer so capture cameras
+  // skip it visually. The hit-target mesh additionally stays on the
+  // gizmo layer so r3f's raycaster (which we've enabled for layer 1)
+  // can pick it.
+  useEffect(() => {
+    if (groupRef.current) {
+      groupRef.current.traverse((o) => o.layers.set(GIZMO_LAYER));
+    }
+  }, []);
+
+  // Per-frame: keep the icon glued to the live `camPos` and aim its lens
+  // at `camTarget` so the gizmo visibly reflects where the capture
+  // points. We pull from store directly (not a hook subscription) so
+  // active drag motion shows immediately.
+  useFrame(() => {
+    const g = groupRef.current;
+    if (!g) return;
+    const { camPos, camTarget } = useStore.getState().capture;
+    g.position.set(camPos[0], camPos[1], camPos[2]);
+    g.lookAt(camTarget[0], camTarget[1], camTarget[2]);
+  });
+
+  return (
+    <group ref={groupRef}>
+      {/* Hit-target — primary pointer surface. `visible={false}` skips
+          the draw call entirely (so no white sphere artefact) but
+          three.js's Raycaster intersects regardless of visibility, and
+          r3f's events module doesn't filter on `visible` either, so
+          Shift+drag still picks it. 0.5 m radius gives a generous
+          ~50 px target at the default orbit distance. */}
+      <mesh ref={hitTargetRef} visible={false} {...dragHandlers}>
+        <sphereGeometry args={[0.5, 12, 12]} />
+        <meshBasicMaterial />
+      </mesh>
+      {/* Body */}
+      <mesh renderOrder={1001}>
+        <boxGeometry args={[0.28, 0.2, 0.18]} />
+        <meshBasicMaterial color="#1f2937" depthTest={false} />
+      </mesh>
+      {/* Lens glass — a flat disk flush with the front of the body
+          (+Z is the direction Object3D.lookAt orients toward
+          `camTarget`). No long protruding lens barrel; the disk is
+          enough to signal "this end forward". */}
+      <mesh position={[0, 0, 0.091]} rotation={[Math.PI / 2, 0, 0]} renderOrder={1003}>
+        <cylinderGeometry args={[0.055, 0.055, 0.005, 20]} />
+        <meshBasicMaterial color="#fbbf24" depthTest={false} />
+      </mesh>
+      {/* Viewfinder hump on top of the body */}
+      <mesh position={[0.06, 0.14, 0]} renderOrder={1001}>
+        <boxGeometry args={[0.1, 0.08, 0.12]} />
+        <meshBasicMaterial color="#1f2937" depthTest={false} />
+      </mesh>
+      {/* Record dot on the back (-Z side) so the icon is recognisable
+          when viewed from behind. */}
+      <mesh position={[0, 0, -0.1]} renderOrder={1003}>
+        <sphereGeometry args={[0.025, 12, 12]} />
+        <meshBasicMaterial color="#ef4444" depthTest={false} />
+      </mesh>
+    </group>
+  );
 }
