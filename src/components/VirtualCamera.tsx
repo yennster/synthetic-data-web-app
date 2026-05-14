@@ -9,9 +9,12 @@ import {
   saveBlob,
 } from '../lib/capture';
 import { BELT_TRANSPORTABLES, isOnBelt } from '../lib/beltDynamics';
+import { uploadCaptures } from '../lib/edgeImpulse';
 import { sampleCameraTrajectory } from '../lib/cameraTrajectory';
 import { useDragMove } from '../lib/dragMove';
 import { applyRealismToBlob, resetDiffusionBudget } from '../lib/realism';
+import { getRng, rng } from '../lib/rng';
+import { URL_FLAGS } from '../lib/urlParams';
 import {
   createReadbackBlitState,
   ensureReadbackBlitState,
@@ -250,6 +253,7 @@ export function VirtualCamera({
         mode: realism.mode,
         intensities: realism,
         randomize: realism.randomize,
+        rng: getRng(),
       });
 
       const idx = useStore.getState().captures.length;
@@ -367,25 +371,25 @@ export function VirtualCamera({
           const r = 0.6;
           setCapture({
             camPos: [
-              baseCam[0] + (Math.random() - 0.5) * r * 2,
-              Math.max(0.5, baseCam[1] + (Math.random() - 0.5) * r),
-              baseCam[2] + (Math.random() - 0.5) * r * 2,
+              baseCam[0] + (rng() - 0.5) * r * 2,
+              Math.max(0.5, baseCam[1] + (rng() - 0.5) * r),
+              baseCam[2] + (rng() - 0.5) * r * 2,
             ],
             camTarget: [
-              baseTarget[0] + (Math.random() - 0.5) * 0.4,
-              baseTarget[1] + (Math.random() - 0.5) * 0.2,
-              baseTarget[2] + (Math.random() - 0.5) * 0.4,
+              baseTarget[0] + (rng() - 0.5) * 0.4,
+              baseTarget[1] + (rng() - 0.5) * 0.2,
+              baseTarget[2] + (rng() - 0.5) * 0.4,
             ],
-            fov: baseFov + (Math.random() - 0.5) * 10,
+            fov: baseFov + (rng() - 0.5) * 10,
           });
         }
         if (cs.randomizeLighting) {
           setCapture({
             lightIntensity: Math.max(
               0.2,
-              baseLight + (Math.random() - 0.5) * 0.8,
+              baseLight + (rng() - 0.5) * 0.8,
             ),
-            envRotation: baseEnvRot + Math.random() * Math.PI * 2,
+            envRotation: baseEnvRot + rng() * Math.PI * 2,
           });
         }
         if (cs.randomizeObjects) {
@@ -397,14 +401,14 @@ export function VirtualCamera({
             sceneObjects.forEach((o) => {
               updateSceneObject(o.id, {
                 position: [
-                  (Math.random() - 0.5) * 1.2, // belt is ~1.6m wide
-                  1.6 + Math.random() * 0.4, // above belt top
-                  (Math.random() - 0.5) * 6, // belt is 8m long
+                  (rng() - 0.5) * 1.2, // belt is ~1.6m wide
+                  1.6 + rng() * 0.4, // above belt top
+                  (rng() - 0.5) * 6, // belt is 8m long
                 ],
                 rotation: [
-                  Math.random() * Math.PI * 2,
-                  Math.random() * Math.PI * 2,
-                  Math.random() * Math.PI * 2,
+                  rng() * Math.PI * 2,
+                  rng() * Math.PI * 2,
+                  rng() * Math.PI * 2,
                 ],
               });
             });
@@ -413,14 +417,14 @@ export function VirtualCamera({
               const base = baseObjPositions[idx] ?? [0, 0.5, 0];
               updateSceneObject(o.id, {
                 position: [
-                  base[0] + (Math.random() - 0.5) * 0.6,
-                  Math.max(0.2, base[1] + (Math.random() - 0.5) * 0.2),
-                  base[2] + (Math.random() - 0.5) * 0.6,
+                  base[0] + (rng() - 0.5) * 0.6,
+                  Math.max(0.2, base[1] + (rng() - 0.5) * 0.2),
+                  base[2] + (rng() - 0.5) * 0.6,
                 ],
                 rotation: [
-                  Math.random() * Math.PI * 2,
-                  Math.random() * Math.PI * 2,
-                  Math.random() * Math.PI * 2,
+                  rng() * Math.PI * 2,
+                  rng() * Math.PI * 2,
+                  rng() * Math.PI * 2,
                 ],
               });
             });
@@ -493,6 +497,48 @@ export function VirtualCamera({
       } else {
         setStatus('ok', `Batch complete: 0 images`);
       }
+
+      // `?autoUpload=1` kicks off an upload when the batch finishes.
+      // Paired with `?seed=` + `?batchCount=`, this makes "regenerate
+      // and upload N samples on every page load" a one-URL operation.
+      if (URL_FLAGS.autoUpload && batchCaptures.length > 0) {
+        const { ei } = useStore.getState();
+        if (!ei.apiKey) {
+          setStatus(
+            'err',
+            'autoUpload: no EI API key set (?apiKey= or use auth card)',
+          );
+          return;
+        }
+        setStatus('busy', `Uploading 0/${batchCaptures.length}…`);
+        const includeBoxes = mode === 'detection';
+        const defaultLabel =
+          mode === 'anomaly' ? anomalyLabel : ei.label;
+        const result = await uploadCaptures(
+          ei,
+          batchCaptures,
+          defaultLabel,
+          includeBoxes,
+          (p) => {
+            setStatus(
+              'busy',
+              `Uploading ${p.done}/${p.total}${
+                p.failed ? ` · ${p.failed} failed` : ''
+              }`,
+            );
+          },
+        );
+        if (result.failed === 0) {
+          setStatus('ok', `Uploaded ${result.done} images`);
+        } else {
+          setStatus(
+            'err',
+            `${result.done} ok / ${result.failed} failed: ${
+              result.lastError ?? '?'
+            }`,
+          );
+        }
+      }
     } catch (e) {
       setStatus('err', `Batch error: ${(e as Error).message}`);
     }
@@ -536,7 +582,7 @@ export function VirtualCamera({
     }
   }
 
-  return <VirtualCameraHandle />;
+  return URL_FLAGS.gizmos ? <VirtualCameraHandle /> : null;
 }
 
 /**

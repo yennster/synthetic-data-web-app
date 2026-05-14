@@ -8,6 +8,7 @@ import { useStore, type AppMode } from './store/useStore';
 import { useRehydrateAssets } from './lib/rehydrateAssets';
 import { useTheme } from './lib/useTheme';
 import { setEdgeImpulseHosts } from './lib/edgeImpulse';
+import { URL_FLAGS } from './lib/urlParams';
 
 // Read host overrides from the URL at module load — must happen before
 // any edgeImpulse call so the very first request goes to the right host.
@@ -188,6 +189,10 @@ export default function App() {
   const previewPixelW = Math.max(1, Math.round(previewW * previewDpr));
   const previewPixelH = Math.max(1, Math.round(previewH * previewDpr));
 
+  // `?embed=1` and `?ui=minimal` both strip the controls drawer. Cached
+  // as a single boolean so the JSX below stays readable.
+  const showChrome = !URL_FLAGS.embed && URL_FLAGS.ui !== 'minimal';
+
   return (
     <div className="app">
       <div className="scene">
@@ -259,46 +264,50 @@ export default function App() {
           </div>
         )}
       </div>
-      <button
-        type="button"
-        className="drawer-toggle"
-        aria-label={drawerOpen ? 'Close controls' : 'Open controls'}
-        aria-expanded={drawerOpen}
-        onClick={() => setDrawerOpen((v) => !v)}
-      >
-        {drawerOpen ? (
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M18 6 6 18M6 6l12 12" />
-          </svg>
-        ) : (
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M3 6h18M3 12h18M3 18h18" />
-          </svg>
-        )}
-      </button>
+      {showChrome && (
+        <button
+          type="button"
+          className="drawer-toggle"
+          aria-label={drawerOpen ? 'Close controls' : 'Open controls'}
+          aria-expanded={drawerOpen}
+          onClick={() => setDrawerOpen((v) => !v)}
+        >
+          {drawerOpen ? (
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M18 6 6 18M6 6l12 12" />
+            </svg>
+          ) : (
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M3 6h18M3 12h18M3 18h18" />
+            </svg>
+          )}
+        </button>
+      )}
       {drawerOpen && (
         <div
           className="drawer-backdrop"
           onClick={() => setDrawerOpen(false)}
         />
       )}
-      <Sidebar drawerOpen={drawerOpen} onClose={() => setDrawerOpen(false)} />
+      {showChrome && (
+        <Sidebar drawerOpen={drawerOpen} onClose={() => setDrawerOpen(false)} />
+      )}
       <Analytics />
     </div>
   );

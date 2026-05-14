@@ -1,6 +1,15 @@
 import { useStore } from '../store/useStore';
+import { URL_FLAGS } from '../lib/urlParams';
 
 export function Hud() {
+  // `?embed=1` strips the HUD entirely for clean iframe embeds. Hook
+  // placement keeps subsequent hooks unconditional (we just early-
+  // return before subscribing).
+  if (URL_FLAGS.embed) return null;
+  return <HudPills />;
+}
+
+function HudPills() {
   const mode = useStore((s) => s.mode);
   const handDetected = useStore((s) => s.handDetected);
   const pinchStrength = useStore((s) => s.pinchStrength);

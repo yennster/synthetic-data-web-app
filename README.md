@@ -181,6 +181,7 @@ Unknown values are ignored — the app falls back to whatever was stored or the 
 ## More docs
 
 - **[docs/workflows.md](docs/workflows.md)** — step-by-step instructions for every mode.
+- **[docs/url-parameters.md](docs/url-parameters.md)** — deep-link query string reference (`?env=outdoor&seed=42&objects=cube,sphere&batchCount=50&trajectory=circle…`).
 - **[docs/usdz.md](docs/usdz.md)** — USDZ import: what's supported, capturing real-world objects, format conversion, MDL/Omniverse caveats, cross-origin isolation setup.
 - **[docs/internals.md](docs/internals.md)** — project structure, IMU math, bbox projection, tunables, EI payload formats.
 - **[docs/troubleshooting.md](docs/troubleshooting.md)** — common errors and fixes.

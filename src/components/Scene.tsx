@@ -9,11 +9,13 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { sampleCameraTrajectory } from '../lib/cameraTrajectory';
 import { cameraRelativeToWorld } from '../lib/handMath';
+import { URL_FLAGS } from '../lib/urlParams';
 import { MotionSim } from '../lib/mujoco/MotionSim';
 import { loadMujocoModule } from '../lib/mujoco/runtime';
 import { sampleImu, type NoiseStateRef } from '../lib/mujoco/imuSensor';
 import { useStore, type ObjectKind } from '../store/useStore';
 import { Conveyor } from './Conveyor';
+import { DebugOverlay } from './DebugOverlay';
 import { SceneEnvironment } from './SceneEnvironment';
 import { SpawnedObjects } from './SpawnedObjects';
 
@@ -685,7 +687,9 @@ function TrajectoryGizmo() {
   }, [tubeObject]);
 
   const visible =
-    (mode === 'detection' || mode === 'anomaly') && trajectory !== 'random';
+    URL_FLAGS.gizmos &&
+    (mode === 'detection' || mode === 'anomaly') &&
+    trajectory !== 'random';
 
   // Pin the entire subtree to the gizmo layer once it's mounted so the
   // capture cameras (which stay on layer 0) ignore it. Re-runs whenever
@@ -993,6 +997,7 @@ export function Scene({
       />
       <CameraRig />
       <CameraKeyboardInput />
+      <DebugOverlay />
       <PreviewCanvasMount setCanvas={() => {}} />
     </Canvas>
   );
