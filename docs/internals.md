@@ -24,7 +24,7 @@ src/
 │   ├── ImportedAssetsCard.tsx    // USDZ import rows and transform controls
 │   ├── ObjectCaptureCard.tsx     // Real-world USDZ capture guidance
 │   ├── CollapsibleCard.tsx       // Shared collapsible-card chrome (chevron + badge)
-│   ├── RealismCard.tsx           // Off / Random / Diffusion realism picker + intensity
+│   ├── RealismCard.tsx           // Off / Random realism picker + per-effect sliders
 │   ├── ImuNoiseToggle.tsx        // Shared IMU noise enable / disable control
 │   ├── Conveyor.tsx              // Animated conveyor belt prop (incl. wall colliders)
 │   ├── SpawnedObjects.tsx        // Multi-object spawn renderer (physics on/off)
@@ -60,7 +60,7 @@ src/
 │   ├── dragMove.ts               // Shift+drag pointer-event handlers (XZ plane)
 │   ├── capture.ts                // Off-screen render, bbox projection, download helper
 │   ├── robotCapture.ts           // Awaitable bridge for in-canvas POV-camera frames
-│   ├── realism.ts                // Sim-to-real pixel transforms (grain, CA, vignette, jitter)
+│   ├── realism.ts                // Sim-to-real pixel transforms (grain, radial CA, vignette, jitter) + JPEG round-trip; per-effect intensities
 │   ├── edgeImpulse.ts            // Ingestion API, metadata sidecars, Studio API
 │   ├── rosMessages.ts            // ROS 2 JSONL message builders
 │   ├── eiModel.ts                // EI WebAssembly model loader + classifier wrapper
@@ -75,9 +75,10 @@ api/
 └── realism-diffusion.ts          // Vercel Function — proxies a single img2img call
                                   // to Hugging Face Inference (default model
                                   // timbrooks/instruct-pix2pix). Keeps HF_TOKEN
-                                  // server-side; called by realism.ts for the first
-                                  // 3 images of each batch, then falls back to
-                                  // the local Random pixel pass.
+                                  // server-side. Wired internally but hidden from
+                                  // the Realism picker until a stable serverless
+                                  // image-to-image model is sourced; falls back to
+                                  // the local Random pixel pass on any upstream error.
 ```
 
 ## Physics + sensors: one pipeline (MuJoCo WASM)

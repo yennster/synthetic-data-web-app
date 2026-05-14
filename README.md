@@ -59,9 +59,7 @@ Built with AI coding assistants.
 - Virtual capture camera (XYZ + target + FOV) with frustum gizmo.
 - Single-shot capture downloads as a zip with the PNG + matching `bounding_boxes.labels` sidecar; batch capture randomizes camera / lighting / object positions and zips the whole batch.
 - Direct upload to EI with bounding boxes attached; one-click retrain.
-- **Realism post-process** — optional per-capture pass that narrows the sim-to-real gap. Two modes:
-  - **Random** runs client-side: film grain + chromatic aberration + vignette + color jitter on the raw PNG. Geometry never moves, so bounding boxes stay byte-perfect.
-  - **Diffusion** routes the first 3 images of each capture / batch through a Vercel Function (`api/realism-diffusion.ts`) that calls Hugging Face Inference for real img2img (`timbrooks/instruct-pix2pix` by default; override with `HF_REALISM_MODEL`). Any image past the budget — and any image where the HF call errors or rate-limits — falls back to the Random pass. Set `HF_TOKEN` in Vercel env vars for higher quota. Bounding boxes may drift slightly under diffusion; use for visual prototyping, not detection ground truth.
+- **Realism post-process** — optional per-capture pass that narrows the sim-to-real gap. Five independent sliders (0–100%): **film grain**, **radial chromatic aberration** (zero at the optical center, max at the corners), **vignette**, **color jitter**, and a **JPEG round-trip** that injects real 8×8 DCT compression artifacts. Each effect is its own knob so you can dial them in independently (e.g., heavy grain + no vignette). All five run client-side — no API calls, no spend. Geometry never moves, so bounding boxes stay byte-perfect against the modified PNG. Per-effect intensities are recorded as `realism_*` metadata on every EI upload so you can ablate against them later. (A `Diffusion` mode is wired internally — Vercel Function → Hugging Face Inference — but hidden in the UI until a stable serverless image-to-image model is sourced.)
 - Scene state persists across reloads (primitives, USDZ assets, camera settings).
 
 **Edge Impulse model inference (vision + robot POV)**

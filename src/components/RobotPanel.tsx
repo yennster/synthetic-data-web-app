@@ -2,11 +2,13 @@ import { useState } from 'react';
 import {
   ALL_ROVER_EVENTS,
   ALL_ROVER_UPLOAD_MODALITIES,
+  realismAverage,
   useStore,
   type AccelSample,
   type BoundingBox,
   type ImportedAsset,
   type LidarSample,
+  type RealismConfig,
   type RobotKind,
   type RoverEvent,
   type RoverUploadModality,
@@ -136,6 +138,28 @@ function summarizeArmTarget(state: ArmTargetState): ArmPickupTargetMetadata {
     };
   }
   return { id, type: 'unknown' };
+}
+
+/** Flatten the realism config into the EI image-metadata envelope.
+ * One field per knob so a downstream ablation can group / filter by
+ * exact transform intensity, plus a `realism_intensity` average for
+ * backward compatibility with datasets uploaded before the split. */
+function realismMeta(
+  r: RealismConfig,
+): Record<string, number | string | boolean> {
+  if (r.mode === 'off') {
+    return { realism_mode: 'off', realism_intensity: 0 };
+  }
+  return {
+    realism_mode: r.mode,
+    realism_intensity: realismAverage(r),
+    realism_grain: r.grain,
+    realism_chromatic: r.chromatic,
+    realism_vignette: r.vignette,
+    realism_jitter: r.jitter,
+    realism_jpeg: r.jpeg,
+    realism_randomize: r.randomize,
+  };
 }
 
 class CancelledError extends Error {
@@ -459,7 +483,11 @@ export function RobotPanel() {
       // Pixel-level transforms preserve geometry, so cap.boxes are
       // still valid against the processed blob.
       const realism = useStore.getState().realism;
-      const blob = await applyRealismToBlob(cap.blob, realism);
+      const blob = await applyRealismToBlob(cap.blob, {
+        mode: realism.mode,
+        intensities: realism,
+        randomize: realism.randomize,
+      });
       const filename = imageFileName(
         `rover_${event}`,
         iterIdx + 1,
@@ -474,9 +502,7 @@ export function RobotPanel() {
         capture_phase: phase,
         capture_width: cap.width,
         capture_height: cap.height,
-        realism_mode: realism.mode,
-        realism_intensity:
-          realism.mode === 'off' ? 0 : realism.intensity,
+        ...realismMeta(realism),
       };
       if (routing.imageDest === 'upload') {
         try {
@@ -821,7 +847,11 @@ export function RobotPanel() {
         return;
       }
       const realism = useStore.getState().realism;
-      const blob = await applyRealismToBlob(cap.blob, realism);
+      const blob = await applyRealismToBlob(cap.blob, {
+        mode: realism.mode,
+        intensities: realism,
+        randomize: realism.randomize,
+      });
       const filename = imageFileName(
         `arm_${trajectory}`,
         iterIdx + 1,
@@ -836,9 +866,7 @@ export function RobotPanel() {
         capture_phase: phase,
         capture_width: cap.width,
         capture_height: cap.height,
-        realism_mode: realism.mode,
-        realism_intensity:
-          realism.mode === 'off' ? 0 : realism.intensity,
+        ...realismMeta(realism),
       };
       if (routing.imageDest === 'upload') {
         try {

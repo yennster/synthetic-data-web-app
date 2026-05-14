@@ -234,12 +234,17 @@ export function VirtualCamera({
         height,
       });
 
-      // Realism post-process — film grain + chromatic aberration +
-      // vignette + color jitter to narrow the sim-to-real gap. Pure
-      // pixel ops so bounding boxes stay valid against the result.
-      // Falls through unchanged when mode is off (the common case).
+      // Realism post-process — five independent pixel transforms
+      // (grain, radial CA, vignette, color jitter) plus an optional
+      // JPEG round-trip. Pure pixel ops so bounding boxes stay valid
+      // against the result. Falls through unchanged when mode is off
+      // (the common case).
       const realism = useStore.getState().realism;
-      const blob = await applyRealismToBlob(rawBlob, realism);
+      const blob = await applyRealismToBlob(rawBlob, {
+        mode: realism.mode,
+        intensities: realism,
+        randomize: realism.randomize,
+      });
 
       const idx = useStore.getState().captures.length;
       const labelPrefix =

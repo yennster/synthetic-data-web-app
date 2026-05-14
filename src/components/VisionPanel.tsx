@@ -1,5 +1,9 @@
 import { useState } from 'react';
-import { useStore } from '../store/useStore';
+import {
+  realismAverage,
+  useStore,
+  type RealismConfig,
+} from '../store/useStore';
 import {
   listEiProjects,
   retrainEiModel,
@@ -20,6 +24,27 @@ import { ImportedAssetsCard } from './ImportedAssetsCard';
 import { ObjectCaptureCard } from './ObjectCaptureCard';
 import { RealismCard } from './RealismCard';
 import { SceneObjectsCard } from './SceneObjectsCard';
+
+/** Flatten realism config into EI image-metadata fields — same shape
+ * as RobotPanel's `realismMeta` so a downstream consumer can mix
+ * vision + robotics captures without branching. */
+function realismMeta(
+  r: RealismConfig,
+): Record<string, number | string | boolean> {
+  if (r.mode === 'off') {
+    return { realism_mode: 'off', realism_intensity: 0 };
+  }
+  return {
+    realism_mode: r.mode,
+    realism_intensity: realismAverage(r),
+    realism_grain: r.grain,
+    realism_chromatic: r.chromatic,
+    realism_vignette: r.vignette,
+    realism_jitter: r.jitter,
+    realism_jpeg: r.jpeg,
+    realism_randomize: r.randomize,
+  };
+}
 
 export function VisionPanel() {
   const {
@@ -107,9 +132,7 @@ export function VisionPanel() {
         env_preset: envPreset,
         conveyor: showConveyor,
         conveyor_speed: showConveyor ? conveyorSpeed : undefined,
-        realism_mode: realism.mode,
-        realism_intensity:
-          realism.mode === 'off' ? 0 : realism.intensity,
+        ...realismMeta(realism),
       },
     );
     if (result.failed === 0) {

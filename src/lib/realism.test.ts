@@ -188,25 +188,64 @@ describe('applyColorJitter', () => {
 });
 
 describe('applyRandomRealism', () => {
-  it('is a no-op when intensity is zero', () => {
+  const zero = { grain: 0, chromatic: 0, vignette: 0, jitter: 0 };
+
+  it('is a no-op when every per-effect intensity is zero', () => {
     const buf = solidImage(8, 8);
     const before = new Uint8ClampedArray(buf);
-    applyRandomRealism(buf, 8, 8, 0, mulberry32(1));
+    applyRandomRealism(buf, 8, 8, zero, mulberry32(1));
     expect(buf).toEqual(before);
   });
 
   it('preserves buffer length', () => {
     const buf = solidImage(16, 16);
     const len = buf.length;
-    applyRandomRealism(buf, 16, 16, 0.5, mulberry32(1));
+    applyRandomRealism(
+      buf,
+      16,
+      16,
+      { grain: 0.5, chromatic: 0.5, vignette: 0.3, jitter: 0.5 },
+      mulberry32(1),
+    );
     expect(buf.length).toBe(len);
   });
 
   it('mutates RGB but preserves alpha bytes', () => {
     const buf = solidImage(32, 32, [128, 128, 128, 222]);
-    applyRandomRealism(buf, 32, 32, 0.6, mulberry32(1));
+    applyRandomRealism(
+      buf,
+      32,
+      32,
+      { grain: 0.6, chromatic: 0.6, vignette: 0.4, jitter: 0.6 },
+      mulberry32(1),
+    );
     expect(meanChannel(buf, 3)).toBe(222);
     // RGB variance should be non-trivial after the pass.
     expect(varianceChannel(buf, 0)).toBeGreaterThan(0);
+  });
+
+  it('respects individual effect knobs — grain-only adds variance, jitter-only shifts mean', () => {
+    const grainOnly = solidImage(32, 32);
+    applyRandomRealism(
+      grainOnly,
+      32,
+      32,
+      { grain: 0.7, chromatic: 0, vignette: 0, jitter: 0 },
+      mulberry32(2),
+    );
+    expect(varianceChannel(grainOnly, 0)).toBeGreaterThan(0);
+
+    const jitterOnly = solidImage(32, 32);
+    applyRandomRealism(
+      jitterOnly,
+      32,
+      32,
+      { grain: 0, chromatic: 0, vignette: 0, jitter: 0.7 },
+      mulberry32(2),
+    );
+    // Jitter is a flat per-channel gain+offset, so variance stays
+    // near zero but the channel mean shifts off the solid 128.
+    expect(varianceChannel(jitterOnly, 0)).toBeLessThan(1);
+    expect(Math.abs(meanChannel(jitterOnly, 0) - 128)).toBeGreaterThan(0);
   });
 });

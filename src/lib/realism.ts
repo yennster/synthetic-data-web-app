@@ -212,6 +212,18 @@ export function applyColorJitter(
   return rgba;
 }
 
+/** Per-effect intensities (0..1) for `applyRandomRealism`. Each knob
+ * is independent so callers can compose, e.g. heavy grain + no
+ * vignette. `jpeg` isn't in this struct because the JPEG round-trip
+ * is a blob-level op (it needs the encoded image), not a pixel-buffer
+ * op — it lives on `RealismIntensities` for `applyRealismToBlob`. */
+export interface PixelIntensities {
+  grain: number;
+  chromatic: number;
+  vignette: number;
+  jitter: number;
+}
+
 /**
  * Compose the full random pass on an RGBA buffer. Order matters:
  *   1. Chromatic aberration (operates on clean source, before grain).
@@ -219,21 +231,21 @@ export function applyColorJitter(
  *   3. Vignette (multiplicative falloff — also before grain).
  *   4. Film grain LAST so the noise carries through unmodified.
  *
- * Same `Rng` is threaded through the random transforms so a seeded
- * call is fully reproducible.
+ * Each transform receives its own intensity so users can dial them
+ * independently. The same `Rng` is threaded through all four so a
+ * seeded call is fully reproducible.
  */
 export function applyRandomRealism(
   rgba: Uint8ClampedArray,
   width: number,
   height: number,
-  intensity: number,
+  intensities: PixelIntensities,
   rng: Rng,
 ): Uint8ClampedArray {
-  if (intensity <= 0) return rgba;
-  applyChromaticAberration(rgba, width, height, intensity, rng);
-  applyColorJitter(rgba, intensity, rng);
-  applyVignette(rgba, width, height, intensity * 0.6); // vignette scales softer than grain
-  applyFilmGrain(rgba, intensity, rng);
+  applyChromaticAberration(rgba, width, height, intensities.chromatic, rng);
+  applyColorJitter(rgba, intensities.jitter, rng);
+  applyVignette(rgba, width, height, intensities.vignette);
+  applyFilmGrain(rgba, intensities.grain, rng);
   return rgba;
 }
 
@@ -264,13 +276,20 @@ export function getDiffusionBudgetRemaining(): number {
   return diffusionBudgetRemaining;
 }
 
+/** Full per-effect intensity bundle for the blob-level pass. Pixel
+ * transforms get `grain` / `chromatic` / `vignette` / `jitter`; the
+ * blob-level JPEG round-trip gets `jpeg`. */
+export interface RealismIntensities extends PixelIntensities {
+  jpeg: number;
+}
+
 /**
  * Apply the realism pass to a captured PNG blob. Returns a fresh PNG;
  * the input blob is not mutated.
  *
  * - `off`: return the input unchanged.
- * - `random`: decode → run pixel transforms → re-encode (pure
- *   client-side, ~10ms, bounding-box-preserving).
+ * - `random`: decode → run pixel transforms → JPEG round-trip → re-
+ *   encode as PNG (pure client-side, ~30-50ms, bounding-box-preserving).
  * - `diffusion`: for the first `DIFFUSION_BUDGET` calls of a batch,
  *   POST to `/api/realism-diffusion` (Vercel Function → HF Inference
  *   img2img). On any error — and for every call after the budget is
@@ -279,22 +298,67 @@ export function getDiffusionBudgetRemaining(): number {
  */
 export async function applyRealismToBlob(
   blob: Blob,
-  opts: { mode: 'off' | 'random' | 'diffusion'; intensity: number; rng?: Rng },
+  opts: {
+    mode: 'off' | 'random' | 'diffusion';
+    intensities: RealismIntensities;
+    /** When true, each invocation re-samples the effective intensity
+     * for every effect in `[0, intensities[k]]`, so a batch produces
+     * varied output instead of running the same fixed transform on
+     * every PNG. The slider values then act as upper bounds. */
+    randomize?: boolean;
+    rng?: Rng;
+  },
 ): Promise<Blob> {
-  if (opts.mode === 'off' || opts.intensity <= 0) return blob;
+  if (opts.mode === 'off') return blob;
+  // Skip the whole pass when every knob is at 0 — equivalent to off,
+  // saves a canvas round-trip per capture.
+  const baseline = opts.intensities;
+  if (
+    baseline.grain <= 0 &&
+    baseline.chromatic <= 0 &&
+    baseline.vignette <= 0 &&
+    baseline.jitter <= 0 &&
+    baseline.jpeg <= 0
+  ) {
+    return blob;
+  }
+  const rng = opts.rng ?? Math.random;
+  // When randomize is on, draw each effective intensity uniformly in
+  // [0, slider]. The user's slider therefore acts as the *max* for
+  // that effect across the batch, not a fixed value. Five rng()
+  // calls so each effect has independent variation.
+  const effective: RealismIntensities = opts.randomize
+    ? {
+        grain: baseline.grain * rng(),
+        chromatic: baseline.chromatic * rng(),
+        vignette: baseline.vignette * rng(),
+        jitter: baseline.jitter * rng(),
+        jpeg: baseline.jpeg * rng(),
+      }
+    : baseline;
   if (opts.mode === 'diffusion' && diffusionBudgetRemaining > 0) {
     // Decrement up front: even if the call fails, we've spent the
     // budget slot on the attempt. This keeps a slow / throttled HF
     // backend from burning through the whole budget on retries.
     diffusionBudgetRemaining -= 1;
     try {
-      const diffused = await callDiffusionEndpoint(blob, opts.intensity);
+      const diffused = await callDiffusionEndpoint(
+        blob,
+        // Diffusion has no per-effect knobs of its own — pass the
+        // average across the pixel intensities as a rough "how much
+        // realism" signal to the upstream model.
+        (effective.grain +
+          effective.chromatic +
+          effective.vignette +
+          effective.jitter) /
+          4,
+      );
       if (diffused) return diffused;
     } catch {
       // Fall through to random.
     }
   }
-  return applyRandomToBlob(blob, opts.intensity, opts.rng ?? Math.random);
+  return applyRandomToBlob(blob, effective, rng);
 }
 
 async function callDiffusionEndpoint(
@@ -320,7 +384,7 @@ async function callDiffusionEndpoint(
 
 async function applyRandomToBlob(
   blob: Blob,
-  intensity: number,
+  intensities: RealismIntensities,
   rng: Rng,
 ): Promise<Blob> {
   const bitmap = await createImageBitmap(blob);
@@ -335,19 +399,23 @@ async function applyRandomToBlob(
   ctx.drawImage(bitmap as unknown as CanvasImageSource, 0, 0);
   bitmap.close();
   const imageData = ctx.getImageData(0, 0, w, h);
-  applyRandomRealism(imageData.data, w, h, intensity, rng);
+  applyRandomRealism(imageData.data, w, h, intensities, rng);
   ctx.putImageData(imageData, 0, 0);
 
   // JPEG round-trip: encode the post-pass canvas to JPEG (lossy DCT,
   // 8×8 block artifacts, mild color banding), decode it back, then
   // re-encode as PNG so downstream code (`saveBlob`, EI upload) keeps
-  // the same content-type contract. Quality scales with intensity —
-  // high realism intensity means more aggressive compression artifacts.
-  // 0.92→0.65 maps the slider range onto "fine phone-camera JPEG" →
-  // "obvious WhatsApp-screenshot artifacts". This is the only step
-  // that actually introduces real camera-pipeline compression noise,
-  // which models trained on web photos learn to be invariant to.
-  const jpegQuality = 0.92 - intensity * 0.27;
+  // the same content-type contract. Quality scales with the dedicated
+  // `jpeg` knob — 0 → skip the round-trip entirely (no artifacts),
+  // 1 → quality 0.55 (obvious WhatsApp-screenshot artifacts).
+  // 0.95 → 0.55 maps the slider range onto "fine phone-camera JPEG"
+  // → "aggressive compression". This is the only step that injects
+  // real camera-pipeline compression noise, which models trained on
+  // web photos learn to be invariant to.
+  if (intensities.jpeg <= 0) {
+    return (await canvasToPng(canvas)) ?? blob;
+  }
+  const jpegQuality = 0.95 - intensities.jpeg * 0.4;
   const jpegBlob = await canvasToBlob(canvas, 'image/jpeg', jpegQuality);
   if (!jpegBlob) return canvasToPng(canvas).then((b) => b ?? blob);
   const jpegBitmap = await createImageBitmap(jpegBlob);

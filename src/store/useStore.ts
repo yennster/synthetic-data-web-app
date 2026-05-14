@@ -256,12 +256,42 @@ export type BoundingBox = {
  */
 export type RealismMode = 'off' | 'random' | 'diffusion';
 
+/** Per-effect intensities (0..1) for the Photo FX realism pass. Each
+ * knob is independent so users can dial in, e.g., heavy grain with
+ * no vignette, or strong JPEG artifacts with subtle CA. `jpeg` of 0
+ * skips the JPEG round-trip entirely.
+ *
+ * `randomize` is an orthogonal toggle: when true, each capture
+ * re-samples its effective intensities in [0, slider value], so a
+ * batch sees varied realism instead of identical settings on every
+ * PNG. When false, the slider values are applied verbatim. */
 export type RealismConfig = {
   mode: RealismMode;
-  /** Master intensity for the random pass (0..1). Each pixel transform
-   * scales its own magnitude by this factor so a single slider tunes
-   * everything from "barely noticeable" to "obvious filter". */
-  intensity: number;
+  grain: number;
+  chromatic: number;
+  vignette: number;
+  jitter: number;
+  jpeg: number;
+  randomize: boolean;
+};
+
+/** Average across the five effect knobs — used as a convenience
+ * for places (EI metadata fallback) where a single 0..1 value is
+ * still useful even though the pass no longer has a master slider. */
+export function realismAverage(r: RealismConfig): number {
+  return (r.grain + r.chromatic + r.vignette + r.jitter + r.jpeg) / 5;
+}
+
+/** Default per-effect intensities. 0.5 across the board matches the
+ * old single-slider default at 0.5. */
+export const DEFAULT_REALISM: RealismConfig = {
+  mode: 'off',
+  grain: 0.5,
+  chromatic: 0.5,
+  vignette: 0.3,
+  jitter: 0.5,
+  jpeg: 0.5,
+  randomize: false,
 };
 
 export type Capture = {
@@ -1112,7 +1142,7 @@ export const useStore = create<State>()(
 
   // Realism post-process. Defaults off so the existing pipeline is
   // bit-for-bit unchanged unless the user opts in.
-  realism: { mode: 'off' as RealismMode, intensity: 0.5 },
+  realism: { ...DEFAULT_REALISM },
   setRealism: (patch) =>
     set((s) => ({ realism: { ...s.realism, ...patch } })),
 
@@ -1155,7 +1185,7 @@ export const useStore = create<State>()(
     }),
     {
       name: 'sds-store',
-      version: 9,
+      version: 11,
       storage: createJSONStorage(() => localStorage),
       migrate: (persistedState, version) => {
         if (
@@ -1225,10 +1255,15 @@ export const useStore = create<State>()(
         }
         // v7 → v8: introduce the realism post-process config. Default
         // is off so an upgraded user sees no change unless they opt in.
+        // The intermediate v8 shape had `{ mode, intensity }`; the
+        // v9→v10 step below normalizes it to the current per-effect
+        // shape, so the cast here is safe.
         if (version < 8) {
           state = {
             ...state,
-            realism: state.realism ?? { mode: 'off', intensity: 0.5 },
+            realism:
+              state.realism ??
+              ({ mode: 'off', intensity: 0.5 } as unknown as RealismConfig),
           };
         }
         // v8 → v9: hide the Diffusion radio while server-side img2img
@@ -1240,6 +1275,45 @@ export const useStore = create<State>()(
           state = {
             ...state,
             realism: { ...state.realism, mode: 'random' },
+          };
+        }
+        // v9 → v10: split the single `realism.intensity` knob into
+        // five per-effect knobs (grain / chromatic / vignette / jitter
+        // / jpeg). Backfill all five from the old `intensity` so an
+        // upgraded user sees roughly the same output until they dial
+        // in individual sliders.
+        if (version < 10 && state.realism) {
+          // The old shape had `intensity: number`; if for some reason
+          // that's missing or invalid, fall back to the default 0.5
+          // so the per-effect knobs don't end up undefined / NaN.
+          const legacy = state.realism as Partial<RealismConfig> & {
+            intensity?: number;
+          };
+          const seed =
+            typeof legacy.intensity === 'number' ? legacy.intensity : 0.5;
+          state = {
+            ...state,
+            realism: {
+              mode: legacy.mode ?? 'off',
+              grain: legacy.grain ?? seed,
+              chromatic: legacy.chromatic ?? seed,
+              vignette: legacy.vignette ?? seed * 0.6,
+              jitter: legacy.jitter ?? seed,
+              jpeg: legacy.jpeg ?? seed,
+              randomize: false,
+            },
+          };
+        }
+        // v10 → v11: introduce the `randomize` toggle. Default off so
+        // an upgraded user sees deterministic per-capture output until
+        // they opt into per-capture variation.
+        if (version < 11 && state.realism) {
+          state = {
+            ...state,
+            realism: {
+              ...state.realism,
+              randomize: state.realism.randomize ?? false,
+            },
           };
         }
         return state;
