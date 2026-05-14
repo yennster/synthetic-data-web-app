@@ -1095,15 +1095,21 @@ label.field, div.field {
 /* Tip card: a compact keyboard-shortcuts reference that the user can
    collapse via the × in the corner. When collapsed, the pill is
    replaced by a small "?" button that brings it back. Persisted in
-   localStorage so power users stay closed-by-default after one click. */
+   localStorage so power users stay closed-by-default after one click.
+   Overrides the parent `.hud .pill` pill-radius (999px) with a small
+   fixed radius — the card is tall enough that a 999px radius produces
+   huge bulging oval ends. */
 .hud .pill.tip {
   font-size: 10px;
   color: var(--text-dim);
   display: block;
-  max-width: 260px;
+  /* Wide enough that the longest row (`Shift+drag → move object
+     (Alt/Cmd = depth)`) fits on a single line. */
+  max-width: 340px;
   white-space: normal;
   line-height: 1.4;
-  padding: 6px 22px 6px 10px;
+  padding: 8px 22px 8px 10px;
+  border-radius: 10px;
   position: relative;
   pointer-events: auto;
 }
@@ -1127,7 +1133,6 @@ label.field, div.field {
   display: flex;
   align-items: baseline;
   gap: 6px;
-  white-space: nowrap;
 }
 .hud .pill.tip .tip-keys {
   flex: 0 0 auto;
@@ -1135,9 +1140,14 @@ label.field, div.field {
   color: var(--text);
   font-weight: 500;
   min-width: 84px;
+  white-space: nowrap;
 }
 .hud .pill.tip .tip-label {
+  flex: 1 1 auto;
   color: var(--text-dim);
+  /* Single-line descriptions — the card max-width is sized to fit the
+     longest row, so wrapping isn't needed and would just look uneven. */
+  white-space: nowrap;
 }
 .hud .pill.tip .tip-close {
   position: absolute;
@@ -1158,19 +1168,31 @@ label.field, div.field {
   color: var(--text);
   background: var(--overlay-pill);
 }
-/* Closed-state pill: a circular "?" button. */
+/* Closed-state pill: a small "?" button that matches the other HUD
+   pills in height. Same padding / border-radius / font-size as the
+   default `.hud .pill` rule so it visually lines up with `Captures: 0`
+   etc. — only the contents differ. */
 .hud .pill.tip.tip-toggle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  font-family: var(--t-mono);
-  font-size: 12px;
+  padding: 0 9px;
+  border-radius: var(--r-pill);
+  /* Inherit font from `.hud` so the pill matches `Captures: 0` etc. */
+  font-family: inherit;
+  font-size: var(--t-xs);
   font-weight: 600;
   cursor: pointer;
   pointer-events: auto;
+  /* Lock the height to match the other pills (3+3 padding + border +
+     ~17px line-box at the inherited line-height). Using min-height
+     instead of padding gives a stable target regardless of font-metrics
+     differences between the body font and the monospace `?` glyph. */
+  min-height: 25px;
+  /* Tip-card style above set color/max-width/etc — reset the bits
+     that would otherwise make the toggle look different. */
+  color: var(--text-dim);
+  max-width: none;
 }
 .hud .pill.tip.tip-toggle:hover {
   color: var(--text);

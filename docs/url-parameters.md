@@ -15,7 +15,7 @@ Parameters are parsed once at page load. Sidebar toggles afterward don't push to
 
 - **`bool`** — accepts `1` / `true` / `yes` / `on` for true and `0` / `false` / `no` / `off` for false. Anything else is treated as the default.
 - **`int`** / **`float`** — standard decimal numbers. Out-of-range values are rejected silently.
-- **`csv`** — comma-separated list. Unknown items are dropped; the rest still apply.
+- **Comma-separated list** — values separated by commas (no spaces needed). Unknown items are dropped; the rest still apply.
 - **`enum`** — one of the values listed in the row (any case).
 
 ---
@@ -25,7 +25,7 @@ Parameters are parsed once at page load. Sidebar toggles afterward don't push to
 | Param | Allowed values | Example | What it does |
 | --- | --- | --- | --- |
 | `env` | `studio` · `warehouse` · `whitebox` · `outdoor` | `?env=outdoor` | Switch backdrop. |
-| `objects` | csv of `cube` · `sphere` · `phone` · `capsule` · `cylinder` · `torus` · `soda_can` (alias `can`) | `?objects=cube,sphere,phone` | Pre-spawn these object kinds. Unknown kinds dropped. |
+| `objects` | comma-separated list of `cube` · `sphere` · `phone` · `capsule` · `cylinder` · `torus` · `soda_can` (alias `can`) | `?objects=cube,sphere,phone` | Pre-spawn these object kinds. Unknown kinds dropped. |
 | `objectCount` | int 0–200 | `?objectCount=10` | Spawn N random objects. Composes with `objects=`. |
 | `conveyor` | bool | `?conveyor=1` | Show the conveyor belt. |
 | `conveyorSpeed` | float -5 to 5 (m/s) | `?conveyorSpeed=0.7` | Belt speed. |
@@ -51,7 +51,7 @@ Every mode alias resolves to one of four canonical modes:
 | `mode` | any mode alias above | `?mode=objectdetection` | Land in a specific mode. |
 | `robot` | `arm` · `rover` | `?robot=arm` | Robotics sub-mode (independent of `mode`). |
 | `theme` | `dark` · `light` | `?theme=light` | Force the chrome theme. Applied pre-paint so there's no flash. |
-| `onlyMode` | csv of mode aliases | `?onlyMode=detection` | Hide every Mode-picker button except the listed mode(s). Auto-snaps to the first allowed mode if the user's persisted mode isn't in the set. |
+| `onlyMode` | comma-separated list of mode aliases | `?onlyMode=detection` | Hide every Mode-picker button except the listed mode(s). Auto-snaps to the first allowed mode if the user's persisted mode isn't in the set. |
 
 ## Batch capture & virtual camera
 
