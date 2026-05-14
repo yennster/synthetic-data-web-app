@@ -61,10 +61,15 @@ const SECURITY_HEADERS = {
     "default-src 'self'",
     "img-src 'self' blob: data:",
     "media-src 'self' blob:",
-    "script-src 'self' 'wasm-unsafe-eval'",
+    // cdn.jsdelivr.net hosts the MediaPipe `tasks-vision` WASM loader
+    // that hand tracking calls via FilesetResolver. The loader script
+    // is fetched as code, so it needs script-src too — not just
+    // connect-src. storage.googleapis.com hosts the hand-landmarker
+    // model file (fetched as bytes only).
+    "script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net",
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self' data:",
-    "connect-src 'self' https://*.edgeimpulse.com https://api-inference.huggingface.co",
+    "connect-src 'self' https://*.edgeimpulse.com https://api-inference.huggingface.co https://cdn.jsdelivr.net https://storage.googleapis.com",
     "worker-src 'self' blob:",
     "object-src 'none'",
     "base-uri 'self'",
