@@ -1092,22 +1092,88 @@ label.field, div.field {
   border-color: var(--accent-line);
   background: var(--accent-soft);
 }
-/* Tip pill: smaller type and an extra-subtle background so the long help
-   string doesn't compete with the live readouts above it. Theme-aware
-   via the same overlay tokens as the other HUD pills.
-   Wraps onto multiple lines when the viewport is narrow so the pill
-   doesn't stretch across the entire scene viewport — the parent .hud
-   stack has `align-items: flex-start` so a wrapped pill still anchors
-   to the left edge. */
+/* Tip card: a compact keyboard-shortcuts reference that the user can
+   collapse via the × in the corner. When collapsed, the pill is
+   replaced by a small "?" button that brings it back. Persisted in
+   localStorage so power users stay closed-by-default after one click. */
 .hud .pill.tip {
   font-size: 10px;
   color: var(--text-dim);
-  display: inline-block;
-  max-width: min(640px, calc(100vw - 32px));
+  display: block;
+  max-width: 260px;
   white-space: normal;
-  line-height: 1.45;
-  padding-top: 5px;
-  padding-bottom: 5px;
+  line-height: 1.4;
+  padding: 6px 22px 6px 10px;
+  position: relative;
+  pointer-events: auto;
+}
+.hud .pill.tip .tip-header {
+  font-weight: 600;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.hud .pill.tip .tip-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.hud .pill.tip .tip-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  white-space: nowrap;
+}
+.hud .pill.tip .tip-keys {
+  flex: 0 0 auto;
+  font-family: var(--t-mono);
+  color: var(--text);
+  font-weight: 500;
+  min-width: 84px;
+}
+.hud .pill.tip .tip-label {
+  color: var(--text-dim);
+}
+.hud .pill.tip .tip-close {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  width: 16px;
+  height: 16px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  border-radius: 2px;
+}
+.hud .pill.tip .tip-close:hover {
+  color: var(--text);
+  background: var(--overlay-pill);
+}
+/* Closed-state pill: a circular "?" button. */
+.hud .pill.tip.tip-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  font-family: var(--t-mono);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.hud .pill.tip.tip-toggle:hover {
+  color: var(--text);
 }
 .hud .pill.rec {
   color: var(--record-on);
