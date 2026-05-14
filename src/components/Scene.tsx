@@ -125,16 +125,42 @@ function ManipulatedObject() {
   const meshRef = useRef<THREE.Mesh>(null);
 
   // Async sim load. The same WASM is shared with the arm + rover, so
-  // entering motion mode after robotics mode is instant.
+  // entering motion mode after robotics mode is instant. Failures
+  // (CSP block, OOM on iOS Safari, Emscripten init quirks, …) used to
+  // be swallowed — the cube would just sit at the mesh default and
+  // hand tracking would appear to "work" without driving anything.
+  // Surface those to the user via the sidebar status so a regression
+  // doesn't hide silently.
   const [sim, setSim] = useState<MotionSim | null>(null);
   useEffect(() => {
     let cancelled = false;
     let local: MotionSim | null = null;
-    loadMujocoModule().then((mujoco) => {
-      if (cancelled) return;
-      local = new MotionSim(mujoco, objectKind);
-      setSim(local);
-    });
+    loadMujocoModule()
+      .then((mujoco) => {
+        if (cancelled) return;
+        try {
+          local = new MotionSim(mujoco, objectKind);
+          setSim(local);
+        } catch (err) {
+          console.error('[motion] MotionSim init failed', err);
+          useStore
+            .getState()
+            .setStatus(
+              'err',
+              `Physics init failed: ${(err as Error)?.message ?? err}`,
+            );
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error('[motion] MuJoCo module load failed', err);
+        useStore
+          .getState()
+          .setStatus(
+            'err',
+            `Physics load failed: ${(err as Error)?.message ?? err}`,
+          );
+      });
     return () => {
       cancelled = true;
       local?.dispose();
