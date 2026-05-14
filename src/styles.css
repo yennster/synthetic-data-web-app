@@ -434,6 +434,64 @@ label.field, div.field {
   font-size: var(--t-sm);
 }
 
+/* Error boundary fallback. Sits on top of whatever scope crashed
+   (full app or just the scene) so the user sees a readable message
+   instead of the body's dark background. The inner panel uses
+   --surface-1 so it visually pops against the dark scene and can't
+   be mistaken for the bug-it-is-meant-to-surface (a black screen). */
+.error-fallback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--backdrop);
+  color: var(--text);
+  z-index: 100;
+  overflow: auto;
+}
+.error-fallback-inner {
+  max-width: 480px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 22px;
+  background: var(--surface-1);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-2);
+}
+.error-fallback h1 {
+  margin: 0;
+  font-size: var(--t-xl);
+  font-weight: 600;
+}
+.error-fallback p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--t-md);
+}
+.error-fallback pre {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--surface-sunk);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--text-muted);
+  font-family: var(--t-mono);
+  font-size: var(--t-xs);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 40vh;
+  overflow: auto;
+}
+.error-fallback-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .sidebar {
   background: var(--surface-1);
   border-left: 1px solid var(--line);

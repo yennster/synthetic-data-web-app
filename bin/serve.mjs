@@ -61,14 +61,44 @@ const SECURITY_HEADERS = {
     "default-src 'self'",
     "img-src 'self' blob: data:",
     "media-src 'self' blob:",
-    "script-src 'self' 'wasm-unsafe-eval'",
+    // cdn.jsdelivr.net hosts the MediaPipe `tasks-vision` WASM loader
+    // that hand tracking calls via FilesetResolver. The loader script
+    // is fetched as code, so it needs script-src too — not just
+    // connect-src. storage.googleapis.com hosts the hand-landmarker
+    // model file (fetched as bytes only).
+    //
+    // 'unsafe-eval' is required by the @mujoco/mujoco Emscripten
+    // runtime, which uses `new Function(...)` for dynamic dispatch
+    // during init. 'wasm-unsafe-eval' alone covers WebAssembly
+    // compilation but not JS eval, so without 'unsafe-eval' MuJoCo
+    // refuses to load and Motion mode's cube physics is silently
+    // broken.
+    //
+    // 'unsafe-inline' is required because `index.html` runs two pre-
+    // paint bootstrap blocks inline (theme persistence + ?clearStore
+    // handler) that must execute synchronously before any module
+    // loads. Without it, the page reloads in dark mode briefly even
+    // when the user's persisted theme is light.
+    //
+    // blob: is required so `eiModel.ts` can dynamically `import()` a
+    // blob URL containing the user's Edge Impulse model JS (ESM
+    // fallback path C). Without it, ESM-style models silently fail.
+    //
+    // All three are tradeoffs against the original strict CSP but are
+    // necessary for the features this app actually ships.
+    "script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval' 'unsafe-inline' blob: https://va.vercel-scripts.com https://cdn.jsdelivr.net",
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self' data:",
-    "connect-src 'self' https://*.edgeimpulse.com https://api-inference.huggingface.co",
+    "connect-src 'self' https://*.edgeimpulse.com https://api-inference.huggingface.co https://va.vercel-scripts.com https://*.vercel-insights.com https://cdn.jsdelivr.net https://storage.googleapis.com",
     "worker-src 'self' blob:",
     "object-src 'none'",
     "base-uri 'self'",
-    "frame-ancestors 'self'",
+    // The app ships a documented `?embed=1` mode (see
+    // docs/url-parameters.md) for being iframed from external sites.
+    // `frame-ancestors 'self'` would block every cross-origin
+    // embedder. Use `*` so the documented embed feature works; tighten
+    // to a specific allowlist if/when the set of embedders is known.
+    "frame-ancestors *",
   ].join('; '),
 };
 
@@ -76,9 +106,17 @@ const HEADERS = COEP
   ? {
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'credentialless',
+      // Lets a cross-origin parent with `Cross-Origin-Embedder-Policy:
+      // require-corp` embed this app in an iframe. Without it, strict-
+      // COEP parents would block the iframe entirely. Paired with the
+      // `frame-ancestors *` CSP for the documented `?embed=1` mode.
+      'Cross-Origin-Resource-Policy': 'cross-origin',
       ...SECURITY_HEADERS,
     }
-  : { ...SECURITY_HEADERS };
+  : {
+      'Cross-Origin-Resource-Policy': 'cross-origin',
+      ...SECURITY_HEADERS,
+    };
 
 try {
   // realpath() throws when missing — same effect as the old stat() probe,
