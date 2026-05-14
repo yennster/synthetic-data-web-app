@@ -89,6 +89,18 @@ async function seedScene(page, modeKey) {
   await page.evaluate((mode) => {
     const store = window.__useStore;
     const state = store.getState();
+    // Light the Realism card up so its screenshot shows the full
+    // feature surface (mode picker + five sliders + randomize toggle)
+    // instead of the empty Off state. Applies to every mode that
+    // renders RealismCard.
+    if (
+      mode === 'detection' ||
+      mode === 'anomaly' ||
+      mode === 'rover' ||
+      mode === 'arm'
+    ) {
+      state.setRealism({ mode: 'random', randomize: true });
+    }
     if (mode === 'detection' || mode === 'anomaly') {
       state.setShowConveyor(true);
       state.clearSceneObjects();
