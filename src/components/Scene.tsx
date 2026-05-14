@@ -719,6 +719,169 @@ function TrajectoryGizmo() {
   );
 }
 
+/**
+ * Keyboard input handler for camera rotation, panning, and Shift-pan
+ * toggle.
+ *
+ * Keys (when the canvas / window has focus, and the user isn't typing
+ * into a sidebar input):
+ *   - Q / E       : rotate camera azimuth (yaw) left / right around target
+ *   - [ / ]       : rotate the current selection (or all objects when
+ *                   nothing is selected) around Y
+ *   - Esc         : clear the current scene-object selection
+ *   - Arrow keys  : pan the framed view
+ *
+ * Use right-mouse-drag (or two-finger touch) to pan, which is
+ * OrbitControls' default — left-drag remains rotate so the standard
+ * 3D-viewer feel is preserved.
+ *
+ * Polar-tilt keys (formerly R/F) were dropped — `R` was being eaten by
+ * the browser-refresh shortcut on macOS (Cmd+R) and the bare `R` was
+ * surprising users by appearing to no-op.
+ */
+function CameraKeyboardInput() {
+  const camera = useThree((s) => s.camera);
+  const controls = useThree(
+    (s) =>
+      s.controls as unknown as {
+        target: THREE.Vector3;
+        update: () => void;
+        mouseButtons: { LEFT: unknown; MIDDLE: unknown; RIGHT: unknown };
+      } | null,
+  );
+
+  useEffect(() => {
+    if (!controls) return;
+    const isEditableTarget = (el: EventTarget | null): boolean => {
+      if (!(el instanceof HTMLElement)) return false;
+      const tag = el.tagName;
+      return (
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        tag === 'SELECT' ||
+        el.isContentEditable
+      );
+    };
+
+    const rotateAroundTarget = (deltaAz: number, deltaPolar: number) => {
+      const offset = new THREE.Vector3().subVectors(
+        camera.position,
+        controls.target,
+      );
+      const sph = new THREE.Spherical().setFromVector3(offset);
+      sph.theta -= deltaAz;
+      sph.phi -= deltaPolar;
+      sph.phi = Math.max(0.05, Math.min(Math.PI - 0.05, sph.phi));
+      offset.setFromSpherical(sph);
+      camera.position.copy(controls.target).add(offset);
+      camera.lookAt(controls.target);
+      controls.update();
+    };
+
+    const panInScreenSpace = (dx: number, dy: number) => {
+      // Pan both the camera and the orbit target in the camera's local
+      // X / Y axes so the framed point translates rather than rotating.
+      const xAxis = new THREE.Vector3();
+      const yAxis = new THREE.Vector3();
+      camera.matrix.extractBasis(xAxis, yAxis, new THREE.Vector3());
+      const move = new THREE.Vector3()
+        .addScaledVector(xAxis, dx)
+        .addScaledVector(yAxis, dy);
+      camera.position.add(move);
+      controls.target.add(move);
+      controls.update();
+    };
+
+    const rotateObjectsY = (delta: number) => {
+      const {
+        sceneObjects,
+        updateSceneObject,
+        assets,
+        updateAsset,
+        selectedIds,
+      } = useStore.getState();
+      const hasSelection = selectedIds.length > 0;
+      const objectMatches = (id: string) =>
+        !hasSelection || selectedIds.includes(id);
+      for (const o of sceneObjects) {
+        if (!objectMatches(o.id)) continue;
+        const r: [number, number, number] = [
+          o.rotation[0],
+          (o.rotation[1] ?? 0) + delta,
+          o.rotation[2],
+        ];
+        updateSceneObject(o.id, { rotation: r });
+      }
+      for (const a of assets) {
+        if (!objectMatches(a.id)) continue;
+        const r: [number, number, number] = [
+          a.rotation[0],
+          (a.rotation[1] ?? 0) + delta,
+          a.rotation[2],
+        ];
+        updateAsset(a.id, { rotation: r });
+      }
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (isEditableTarget(e.target)) return;
+      if (e.key === 'Escape') {
+        const { selectedIds, clearSelection } = useStore.getState();
+        if (selectedIds.length > 0) {
+          clearSelection();
+          e.preventDefault();
+        }
+        return;
+      }
+      // Step sizes: 5° for camera rotation, 10° for object rotation.
+      // Holding Shift doubles the step for fast adjustments.
+      const stepCam = (e.shiftKey ? 10 : 5) * (Math.PI / 180);
+      const stepObj = (e.shiftKey ? 20 : 10) * (Math.PI / 180);
+      const panStep = e.shiftKey ? 0.5 : 0.2;
+      switch (e.key.toLowerCase()) {
+        case 'q':
+          rotateAroundTarget(stepCam, 0);
+          e.preventDefault();
+          break;
+        case 'e':
+          rotateAroundTarget(-stepCam, 0);
+          e.preventDefault();
+          break;
+        case '[':
+          rotateObjectsY(-stepObj);
+          e.preventDefault();
+          break;
+        case ']':
+          rotateObjectsY(stepObj);
+          e.preventDefault();
+          break;
+        case 'arrowleft':
+          panInScreenSpace(-panStep, 0);
+          e.preventDefault();
+          break;
+        case 'arrowright':
+          panInScreenSpace(panStep, 0);
+          e.preventDefault();
+          break;
+        case 'arrowup':
+          panInScreenSpace(0, panStep);
+          e.preventDefault();
+          break;
+        case 'arrowdown':
+          panInScreenSpace(0, -panStep);
+          e.preventDefault();
+          break;
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [camera, controls]);
+
+  return null;
+}
+
 export function Scene({
   previewCanvas,
 }: {
@@ -821,6 +984,7 @@ export function Scene({
         target={[0, 0.7, 0]}
       />
       <CameraRig />
+      <CameraKeyboardInput />
       <PreviewCanvasMount setCanvas={() => {}} />
     </Canvas>
   );

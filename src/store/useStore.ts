@@ -628,6 +628,17 @@ type State = {
   armTargetId: string | null;
   setArmTargetId: (id: string | null) => void;
 
+  // ---------- Selection ----------
+  /** IDs of currently-selected scene objects (primitives + imported
+   * assets). The keyboard handler in Scene.tsx rotates this selection
+   * around Y when `[` or `]` is pressed. Empty array = no selection,
+   * in which case the rotation hotkeys fall back to operating on every
+   * spawned object in the active mode pool. */
+  selectedIds: string[];
+  setSelectedIds: (ids: string[]) => void;
+  toggleSelectedId: (id: string) => void;
+  clearSelection: () => void;
+
   // ---------- Scene (detection/anomaly) ----------
   sceneObjects: SceneObject[];
   addSceneObject: (
@@ -1009,6 +1020,17 @@ export const useStore = create<State>()(
   armTargetId: null,
   setArmTargetId: (id) => set({ armTargetId: id }),
 
+  // selection
+  selectedIds: [],
+  setSelectedIds: (ids) => set({ selectedIds: ids }),
+  toggleSelectedId: (id) =>
+    set((s) => ({
+      selectedIds: s.selectedIds.includes(id)
+        ? s.selectedIds.filter((x) => x !== id)
+        : [...s.selectedIds, id],
+    })),
+  clearSelection: () => set({ selectedIds: [] }),
+
   // scene
   sceneObjects: [],
   addSceneObject: (kind, label, owner) =>
@@ -1098,14 +1120,17 @@ export const useStore = create<State>()(
     }));
   },
   removeSceneObject: (id) =>
-    set((s) => ({ sceneObjects: s.sceneObjects.filter((o) => o.id !== id) })),
+    set((s) => ({
+      sceneObjects: s.sceneObjects.filter((o) => o.id !== id),
+      selectedIds: s.selectedIds.filter((sid) => sid !== id),
+    })),
   updateSceneObject: (id, patch) =>
     set((s) => ({
       sceneObjects: s.sceneObjects.map((o) =>
         o.id === id ? { ...o, ...patch } : o,
       ),
     })),
-  clearSceneObjects: () => set({ sceneObjects: [] }),
+  clearSceneObjects: () => set({ sceneObjects: [], selectedIds: [] }),
 
   showConveyor: false,
   setShowConveyor: (b) => set({ showConveyor: b }),

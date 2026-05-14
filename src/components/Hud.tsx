@@ -61,9 +61,9 @@ export function Hud() {
       </div>
       <div
         className="pill tip"
-        title="Shift+drag = camera-aligned plane. Press/release Alt/Option/Ctrl/Cmd mid-drag to switch into depth mode — vertical cursor motion brings the object closer (up) or farther (down). Mouse wheel during drag does the same depth motion."
+        title="Shift+drag = camera-aligned plane. Hold Alt/Option/Ctrl for depth (cursor up = closer). Click to select, Cmd/Ctrl-click to multi-select, Esc clears. [ / ] rotate the selection (or all objects if none selected). Q/E rotate the camera; arrow keys pan; right-mouse drag also pans."
       >
-        Tip: Shift+drag · Hold Alt/Option/Ctrl for depth
+        Tip: Click select · Cmd-click multi · [ ] rotate · Q/E cam · Shift+drag move
       </div>
       {restoring.phase === 'busy' && (
         <div className="pill" title="Re-importing USDZ assets saved from a previous session">
