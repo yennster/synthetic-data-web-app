@@ -247,3 +247,197 @@ describe('parseUrlParams — composition', () => {
     expect(flags.autoUpload).toBe(true);
   });
 });
+
+describe('parseUrlParams — stress: alias coverage', () => {
+  // Every mode alias should resolve to the canonical mode.
+  const MODE_ALIASES: [string, string][] = [
+    ['motion', 'motion'],
+    ['imu', 'motion'],
+    ['accel', 'motion'],
+    ['detection', 'detection'],
+    ['object', 'detection'],
+    ['objects', 'detection'],
+    ['object-detection', 'detection'],
+    ['objectdetection', 'detection'],
+    ['anomaly', 'anomaly'],
+    ['visual-anomaly', 'anomaly'],
+    ['robot', 'robot'],
+    ['robotics', 'robot'],
+    ['arm', 'robot'],
+    ['rover', 'robot'],
+  ];
+  for (const [alias, canonical] of MODE_ALIASES) {
+    it(`?mode=${alias} resolves to ${canonical}`, () => {
+      expect(parse(`mode=${alias}`).presets.mode).toBe(canonical);
+    });
+    it(`?onlyMode=${alias} includes ${canonical}`, () => {
+      const out = parse(`onlyMode=${alias}`).presets.onlyMode;
+      expect(out).toContain(canonical);
+    });
+  }
+
+  it('?mode=arm sets the robotKind sub-mode too', () => {
+    const { presets } = parse('mode=arm');
+    expect(presets.mode).toBe('robot');
+    expect(presets.robotKind).toBe('arm');
+  });
+});
+
+describe('parseUrlParams — stress: case-insensitivity', () => {
+  const cases: [string, (p: ReturnType<typeof parse>) => unknown, unknown][] = [
+    ['env=OUTDOOR', (p) => p.presets.env, 'outdoor'],
+    ['theme=DARK', (p) => p.presets.theme, 'dark'],
+    ['mode=ObjectDetection', (p) => p.presets.mode, 'detection'],
+    ['onlyMode=Motion,Detection', (p) => p.presets.onlyMode, ['motion', 'detection']],
+    ['trajectory=Circle', (p) => p.presets.trajectory, 'circle'],
+    ['realism=Random', (p) => p.presets.realismMode, 'random'],
+    ['eiCategory=SPLIT', (p) => p.presets.eiCategory, 'split'],
+    ['roverEvent=COLLISION', (p) => p.presets.roverEvent, 'collision'],
+    ['robot=ARM', (p) => p.presets.robotKind, 'arm'],
+    ['gizmos=FALSE', (p) => p.flags.gizmos, false],
+    ['embed=ON', (p) => p.flags.embed, true],
+    ['ui=MINIMAL', (p) => p.flags.ui, 'minimal'],
+  ];
+  for (const [qs, get, expected] of cases) {
+    it(`?${qs} parses regardless of case`, () => {
+      expect(get(parse(qs))).toEqual(expected);
+    });
+  }
+});
+
+describe('parseUrlParams — stress: bounds enforcement', () => {
+  const numericBounds: Array<{
+    qs: string;
+    pick: (p: ReturnType<typeof parse>) => unknown;
+    accept: string;
+    reject: string[];
+  }> = [
+    {
+      qs: 'objectCount',
+      pick: (p) => p.presets.objectCount,
+      accept: '50',
+      reject: ['-1', '201', 'NaN', '1e9'],
+    },
+    {
+      qs: 'batchCount',
+      pick: (p) => p.presets.batchCount,
+      accept: '50',
+      reject: ['0', '501', '-3'],
+    },
+    {
+      qs: 'fov',
+      pick: (p) => p.presets.fov,
+      accept: '60',
+      reject: ['9', '171', '-1'],
+    },
+    {
+      qs: 'radius',
+      pick: (p) => p.presets.trajectoryRadius,
+      accept: '4',
+      reject: ['0', '51', '-1'],
+    },
+    {
+      qs: 'height',
+      pick: (p) => p.presets.trajectoryHeight,
+      accept: '2',
+      reject: ['-21', '51'],
+    },
+    {
+      qs: 'conveyorSpeed',
+      pick: (p) => p.presets.conveyorSpeed,
+      accept: '0.5',
+      reject: ['-5.5', '5.5'],
+    },
+    {
+      qs: 'lightIntensity',
+      pick: (p) => p.presets.lightIntensity,
+      accept: '1.2',
+      reject: ['-0.1', '10.1'],
+    },
+    {
+      qs: 'sampleRate',
+      pick: (p) => p.presets.sampleRate,
+      accept: '200',
+      reject: ['0', '2001'],
+    },
+    {
+      qs: 'eiProject',
+      pick: (p) => p.presets.eiProject,
+      accept: '12345',
+      reject: ['0', '-3'],
+    },
+  ];
+
+  for (const { qs, pick, accept, reject } of numericBounds) {
+    it(`${qs}=${accept} is accepted`, () => {
+      expect(pick(parse(`${qs}=${accept}`))).toBeDefined();
+    });
+    for (const bad of reject) {
+      it(`${qs}=${bad} is rejected`, () => {
+        expect(pick(parse(`${qs}=${bad}`))).toBeUndefined();
+      });
+    }
+  }
+});
+
+describe('parseUrlParams — stress: pathological input', () => {
+  it('handles a totally empty search string', () => {
+    expect(() => parse('')).not.toThrow();
+  });
+
+  it('ignores unknown keys without affecting valid neighbours', () => {
+    const { presets } = parse('env=outdoor&foo=bar&baz');
+    expect(presets.env).toBe('outdoor');
+  });
+
+  it('treats duplicate keys as last-write-wins (URLSearchParams behaviour)', () => {
+    // URLSearchParams.get returns the FIRST value, so behaviour locks in.
+    expect(parse('env=outdoor&env=studio').presets.env).toBe('outdoor');
+  });
+
+  it('does not throw on percent-decoded weird inputs', () => {
+    expect(() =>
+      parse(
+        'eiLabel=%E2%9C%85%20good&objects=%20cube%2C%20sphere&armPose=' +
+          encodeURIComponent('1,2,3,4,5,6'),
+      ),
+    ).not.toThrow();
+  });
+
+  it('parses ascii numbers (not localized) — radius=4 valid; radius=four invalid', () => {
+    expect(parse('radius=4').presets.trajectoryRadius).toBe(4);
+    expect(parse('radius=four').presets.trajectoryRadius).toBeUndefined();
+  });
+
+  it('three-tuple parsers reject 2- or 4-component inputs', () => {
+    expect(parse('camera=1,2').presets.camPos).toBeUndefined();
+    expect(parse('camera=1,2,3,4').presets.camPos).toBeUndefined();
+    expect(parse('target=,,').presets.camTarget).toBeUndefined();
+  });
+
+  it('arm-pose parser rejects non-6-tuples', () => {
+    expect(parse('armPose=1,2,3,4,5').presets.armPose).toBeUndefined();
+    expect(parse('armPose=1,2,3,4,5,6,7').presets.armPose).toBeUndefined();
+  });
+
+  it('resolution parser uses W×H or WxH but not arbitrary separators', () => {
+    expect(parse('resolution=1024x768').presets.resolution).toEqual({
+      width: 1024,
+      height: 768,
+    });
+    expect(parse('resolution=1024×768').presets.resolution).toEqual({
+      width: 1024,
+      height: 768,
+    });
+    expect(parse('resolution=1024*768').presets.resolution).toBeUndefined();
+    expect(parse('resolution=1024').presets.resolution).toBeUndefined();
+  });
+
+  it('all flags off by default + flags survive partial fills', () => {
+    const { flags } = parse('debug=1');
+    expect(flags.debug).toBe(true);
+    expect(flags.embed).toBe(false);
+    expect(flags.ui).toBe('default');
+    expect(flags.gizmos).toBe(true); // default-on
+  });
+});

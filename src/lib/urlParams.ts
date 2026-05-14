@@ -100,8 +100,12 @@ function parseInteger(
 
 function parseTuple3(raw: string | null): [number, number, number] | undefined {
   if (raw == null) return undefined;
-  const parts = raw.split(',').map((s) => Number(s.trim()));
-  if (parts.length !== 3 || parts.some((p) => !Number.isFinite(p))) return undefined;
+  const tokens = raw.split(',').map((s) => s.trim());
+  // Reject empty components — `Number('')` is 0, which would silently
+  // accept malformed input like `target=,,`.
+  if (tokens.length !== 3 || tokens.some((t) => t === '')) return undefined;
+  const parts = tokens.map((s) => Number(s));
+  if (parts.some((p) => !Number.isFinite(p))) return undefined;
   return [parts[0], parts[1], parts[2]];
 }
 
@@ -123,8 +127,10 @@ function parseArmPose(
   raw: string | null,
 ): [number, number, number, number, number, number] | undefined {
   if (raw == null) return undefined;
-  const parts = raw.split(',').map((s) => Number(s.trim()));
-  if (parts.length !== 6 || parts.some((p) => !Number.isFinite(p))) return undefined;
+  const tokens = raw.split(',').map((s) => s.trim());
+  if (tokens.length !== 6 || tokens.some((t) => t === '')) return undefined;
+  const parts = tokens.map((s) => Number(s));
+  if (parts.some((p) => !Number.isFinite(p))) return undefined;
   return [parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]];
 }
 
@@ -381,6 +387,7 @@ export function parseUrlParams(params: URLSearchParams): {
     case 'object':
     case 'objects':
     case 'object-detection':
+    case 'objectdetection':
       presets.mode = 'detection';
       break;
     case 'anomaly':
@@ -422,6 +429,7 @@ export function parseUrlParams(params: URLSearchParams): {
         case 'object':
         case 'objects':
         case 'object-detection':
+        case 'objectdetection':
           allowed.push('detection');
           break;
         case 'anomaly':

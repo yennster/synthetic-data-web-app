@@ -79,6 +79,7 @@ function parseModeQuery(raw: string | null): AppMode | null {
     case 'object':
     case 'objects':
     case 'object-detection':
+    case 'objectdetection':
       return 'detection';
     case 'anomaly':
     case 'visual-anomaly':
