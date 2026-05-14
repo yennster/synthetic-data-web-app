@@ -72,18 +72,33 @@ const SECURITY_HEADERS = {
     // during init. 'wasm-unsafe-eval' alone covers WebAssembly
     // compilation but not JS eval, so without 'unsafe-eval' MuJoCo
     // refuses to load and Motion mode's cube physics is silently
-    // broken (the cube sits where the mesh defaults to, and hand
-    // tracking never drives anything). Tradeoff: 'unsafe-eval'
-    // broadens the script-src surface; in this app it's unavoidable
-    // until @mujoco/mujoco ships an `-sDYNAMIC_EXECUTION=0` build.
-    "script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval' https://cdn.jsdelivr.net",
+    // broken.
+    //
+    // 'unsafe-inline' is required because `index.html` runs two pre-
+    // paint bootstrap blocks inline (theme persistence + ?clearStore
+    // handler) that must execute synchronously before any module
+    // loads. Without it, the page reloads in dark mode briefly even
+    // when the user's persisted theme is light.
+    //
+    // blob: is required so `eiModel.ts` can dynamically `import()` a
+    // blob URL containing the user's Edge Impulse model JS (ESM
+    // fallback path C). Without it, ESM-style models silently fail.
+    //
+    // All three are tradeoffs against the original strict CSP but are
+    // necessary for the features this app actually ships.
+    "script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval' 'unsafe-inline' blob: https://cdn.jsdelivr.net",
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self' data:",
     "connect-src 'self' https://*.edgeimpulse.com https://api-inference.huggingface.co https://cdn.jsdelivr.net https://storage.googleapis.com",
     "worker-src 'self' blob:",
     "object-src 'none'",
     "base-uri 'self'",
-    "frame-ancestors 'self'",
+    // The app ships a documented `?embed=1` mode (see
+    // docs/url-parameters.md) for being iframed from external sites.
+    // `frame-ancestors 'self'` would block every cross-origin
+    // embedder. Use `*` so the documented embed feature works; tighten
+    // to a specific allowlist if/when the set of embedders is known.
+    "frame-ancestors *",
   ].join('; '),
 };
 
