@@ -2,11 +2,13 @@ import { useState } from 'react';
 import {
   ALL_ROVER_EVENTS,
   ALL_ROVER_UPLOAD_MODALITIES,
+  realismAverage,
   useStore,
   type AccelSample,
   type BoundingBox,
   type ImportedAsset,
   type LidarSample,
+  type RealismConfig,
   type RobotKind,
   type RoverEvent,
   type RoverUploadModality,
@@ -38,15 +40,18 @@ import {
   type EdgeImpulseInfoLabelsEntry,
 } from '../lib/edgeImpulse';
 import { awaitRobotCapture } from '../lib/robotCapture';
+import { applyRealismToBlob, resetDiffusionBudget } from '../lib/realism';
 import { buildArmRosJsonl, buildRoverRosJsonl } from '../lib/rosMessages';
 import { useNumberInput } from '../lib/useNumberInput';
 import { disposeUsdz } from '../lib/usdz';
 import type { ZipEntry } from '../lib/zip';
 import { buildZipOffThread } from '../lib/zipWorkerClient';
+import { ChevronGlyph, CollapsibleCard } from './CollapsibleCard';
 import { EiAuthCard } from './EiAuthCard';
 import { EiInferenceCard } from './EiInferenceCard';
 import { ImportedAssetsCard } from './ImportedAssetsCard';
 import { ImuNoiseToggle } from './ImuNoiseToggle';
+import { RealismCard } from './RealismCard';
 import { SceneObjectsCard } from './SceneObjectsCard';
 
 const ROBOT_KINDS: { value: RobotKind; label: string; hint: string }[] = [
@@ -133,6 +138,28 @@ function summarizeArmTarget(state: ArmTargetState): ArmPickupTargetMetadata {
     };
   }
   return { id, type: 'unknown' };
+}
+
+/** Flatten the realism config into the EI image-metadata envelope.
+ * One field per knob so a downstream ablation can group / filter by
+ * exact transform intensity, plus a `realism_intensity` average for
+ * backward compatibility with datasets uploaded before the split. */
+function realismMeta(
+  r: RealismConfig,
+): Record<string, number | string | boolean> {
+  if (r.mode === 'off') {
+    return { realism_mode: 'off', realism_intensity: 0 };
+  }
+  return {
+    realism_mode: r.mode,
+    realism_intensity: realismAverage(r),
+    realism_grain: r.grain,
+    realism_chromatic: r.chromatic,
+    realism_vignette: r.vignette,
+    realism_jitter: r.jitter,
+    realism_jpeg: r.jpeg,
+    realism_randomize: r.randomize,
+  };
 }
 
 class CancelledError extends Error {
@@ -366,6 +393,7 @@ export function RobotPanel() {
     }
     setRobotRunning(true);
     resetRobotCaptures();
+    resetDiffusionBudget();
     let uploaded = 0;
     let captured = 0;
     let failed = 0;
@@ -451,6 +479,15 @@ export function RobotPanel() {
         failed += 1;
         return;
       }
+      // Apply the realism post-process pass (no-op when mode === 'off').
+      // Pixel-level transforms preserve geometry, so cap.boxes are
+      // still valid against the processed blob.
+      const realism = useStore.getState().realism;
+      const blob = await applyRealismToBlob(cap.blob, {
+        mode: realism.mode,
+        intensities: realism,
+        randomize: realism.randomize,
+      });
       const filename = imageFileName(
         `rover_${event}`,
         iterIdx + 1,
@@ -465,12 +502,13 @@ export function RobotPanel() {
         capture_phase: phase,
         capture_width: cap.width,
         capture_height: cap.height,
+        ...realismMeta(realism),
       };
       if (routing.imageDest === 'upload') {
         try {
           const res = await uploadImage(
             { ...runEi, label: event },
-            cap.blob,
+            blob,
             filename,
             event,
             cap.boxes,
@@ -486,7 +524,7 @@ export function RobotPanel() {
       } else {
         imageCaptures.push({
           filename,
-          blob: cap.blob,
+          blob,
           boxes: cap.boxes,
           width: cap.width,
           height: cap.height,
@@ -731,6 +769,7 @@ export function RobotPanel() {
     }
     setRobotRunning(true);
     resetRobotCaptures();
+    resetDiffusionBudget();
     let uploaded = 0;
     let captured = 0;
     let failed = 0;
@@ -807,6 +846,12 @@ export function RobotPanel() {
         failed += 1;
         return;
       }
+      const realism = useStore.getState().realism;
+      const blob = await applyRealismToBlob(cap.blob, {
+        mode: realism.mode,
+        intensities: realism,
+        randomize: realism.randomize,
+      });
       const filename = imageFileName(
         `arm_${trajectory}`,
         iterIdx + 1,
@@ -821,12 +866,13 @@ export function RobotPanel() {
         capture_phase: phase,
         capture_width: cap.width,
         capture_height: cap.height,
+        ...realismMeta(realism),
       };
       if (routing.imageDest === 'upload') {
         try {
           const res = await uploadImage(
             { ...runEi, label: trajectory },
-            cap.blob,
+            blob,
             filename,
             trajectory,
             cap.boxes,
@@ -842,7 +888,7 @@ export function RobotPanel() {
       } else {
         imageCaptures.push({
           filename,
-          blob: cap.blob,
+          blob,
           boxes: cap.boxes,
           width: cap.width,
           height: cap.height,
@@ -1033,8 +1079,7 @@ export function RobotPanel() {
 
   return (
     <>
-      <div className="card">
-        <h3>Robot</h3>
+      <CollapsibleCard heading="Robot" defaultOpen>
         <div
           style={{
             display: 'grid',
@@ -1068,11 +1113,10 @@ export function RobotPanel() {
             ↺ Reset scene
           </button>
         </div>
-      </div>
+      </CollapsibleCard>
 
       {robot.kind === 'rover' ? (
-        <div className="card">
-          <h3>Event</h3>
+        <CollapsibleCard heading="Event" defaultOpen>
           <div
             className="motion-pills trajectory-pills"
             role="radiogroup"
@@ -1103,10 +1147,9 @@ export function RobotPanel() {
             {robot.roverEvent === 'stuck' &&
               'Pin a wheel against an obstacle; vibrate without translation.'}
           </div>
-        </div>
+        </CollapsibleCard>
       ) : (
-        <div className="card">
-          <h3>Trajectory</h3>
+        <CollapsibleCard heading="Trajectory" defaultOpen>
           <ArmTrajectoryPicker
             value={robot.armTrajectory}
             onChange={(t) => setRobot({ armTrajectory: t })}
@@ -1124,7 +1167,7 @@ export function RobotPanel() {
             {robot.armTrajectory === 'draw_circle' &&
               'End-effector traces a horizontal circle via planar IK.'}
           </div>
-        </div>
+        </CollapsibleCard>
       )}
 
       {robot.kind === 'arm' && (
@@ -1232,8 +1275,7 @@ export function RobotPanel() {
         />
       )}
 
-      <div className="card">
-        <h3>Recording</h3>
+      <CollapsibleCard heading="Recording">
         <div className="row">
           <label className="field">
             Count
@@ -1268,7 +1310,7 @@ export function RobotPanel() {
               : '6-channel end-effector IMU per sample.'}
         </div>
         <ImuNoiseToggle />
-      </div>
+      </CollapsibleCard>
 
       {robot.kind === 'rover' && (
         <SceneObjectsCard
@@ -1296,8 +1338,7 @@ export function RobotPanel() {
 
       {robot.kind === 'rover' && (
         <>
-          <div className="card">
-            <h3>Lidar / ToF ring</h3>
+          <CollapsibleCard heading="Lidar / ToF ring">
             <label className="field">
               Beams {robot.lidarBins}
               <input
@@ -1324,9 +1365,8 @@ export function RobotPanel() {
                 disabled={robotRunning}
               />
             </label>
-          </div>
-          <div className="card">
-            <h3>Sensor modality</h3>
+          </CollapsibleCard>
+          <CollapsibleCard heading="Sensor modality">
             <div
               className="motion-pills trajectory-pills"
               role="radiogroup"
@@ -1361,7 +1401,7 @@ export function RobotPanel() {
               {robot.uploadModality === 'lidar' &&
                 'Lidar only. Useful for environment-classification models.'}
             </div>
-          </div>
+          </CollapsibleCard>
         </>
       )}
 
@@ -1525,6 +1565,11 @@ export function RobotPanel() {
         )}
       </div>
 
+      {/* Realism only modifies image captures, so gate on
+          objectDetection — sensor-only runs (IMU / lidar) don't
+          produce images for the pass to touch. */}
+      {robot.objectDetection && <RealismCard />}
+
       <EiAuthCard showHmac />
 
       {/* Mount the EI inference card whenever object detection is on
@@ -1535,8 +1580,7 @@ export function RobotPanel() {
         <EiInferenceCard previewSource="robot-pov" />
       )}
 
-      <div className="card">
-        <h3>Generate</h3>
+      <CollapsibleCard heading="Generate">
         <div style={{ fontSize: 11, color: 'var(--muted)' }}>
           {robot.kind === 'rover' ? (
             <>
@@ -1617,7 +1661,7 @@ export function RobotPanel() {
             {`⚡ Generate & ${hasApiKey ? 'upload' : 'download'} ${robot.count} samples`}
           </button>
         )}
-      </div>
+      </CollapsibleCard>
     </>
   );
 }
@@ -1692,7 +1736,7 @@ function ArmHomePoseCard({ disabled }: { disabled: boolean }) {
           }}
           aria-hidden
         >
-          ▸
+          <ChevronGlyph />
         </span>
       </button>
       {!open ? null : (
@@ -1777,8 +1821,7 @@ function ArmCameraMountCard({ disabled }: { disabled: boolean }) {
     { value: 'gripper', label: 'Gripper', hint: 'Between the fingers, looking at the grasp point.' },
   ];
   return (
-    <div className="card">
-      <h3>POV camera mount</h3>
+    <CollapsibleCard heading="POV camera mount">
       <div
         className="motion-pills trajectory-pills"
         role="radiogroup"
@@ -1805,7 +1848,7 @@ function ArmCameraMountCard({ disabled }: { disabled: boolean }) {
       <div style={{ fontSize: 11, color: 'var(--muted)' }}>
         {OPTIONS.find((o) => o.value === mount)?.hint}
       </div>
-    </div>
+    </CollapsibleCard>
   );
 }
 

@@ -550,19 +550,46 @@ label.field, div.field {
 }
 .section-toggle[aria-expanded="true"] { color: var(--text); }
 .section-toggle-chevron {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   /* Order: park the chevron on the trailing edge of the row. The optional
      summary span uses its own margin-left: auto to sit between the label
      and the chevron rather than fighting it for trailing space. */
   order: 1;
   margin-left: auto;
-  font-size: 11px;
-  color: var(--text-muted);
-  transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1), color 120ms ease;
+  /* Larger box around a heavier glyph so users actually notice it
+     and read it as "I can click this." 22px hits the iOS-HIG hint-
+     target floor; the explicit width/height ensures the rotate
+     pivots around the visual center even when the glyph is asymmetric. */
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  background: var(--surface-sunk);
+  border: 1px solid var(--line);
+  transition:
+    transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    color 120ms ease,
+    background 120ms ease,
+    border-color 120ms ease;
 }
-.section-toggle:hover .section-toggle-chevron { color: var(--text); }
-.section-toggle[aria-expanded="true"] .section-toggle-chevron {
+/* Hover state lives on the parent button so the entire heading row
+   participates — the chevron lifts to the accent fill in sync with
+   the rest of the click target. */
+.section-toggle:hover .section-toggle-chevron,
+.card-heading-toggle:hover .section-toggle-chevron {
+  color: var(--accent-on);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.section-toggle[aria-expanded="true"] .section-toggle-chevron,
+.card-heading-toggle[aria-expanded="true"] .section-toggle-chevron {
   color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
 }
 
 /* ---------------------------------------------------------------------- *
@@ -588,11 +615,36 @@ label.field, div.field {
   color: var(--text);
   text-transform: uppercase;
   position: relative;
-  padding: 0 0 0 14px;
+  /* Absorb the `.card` top breathing room into the button so the
+     entire strip above the heading text is part of the click target
+     — otherwise the button is only 13px tall and you had to land
+     directly on the text. The `:has()` rule below zeroes out the
+     card's own padding-top so the visual layout is unchanged. The
+     14px of accent-bar gutter lives on the inner heading span (see
+     `.card-heading-toggle > span:first-child` below). */
+  padding: 24px 0 6px 0;
   margin: 0;
   line-height: 1;
 }
-.card-heading-toggle::before {
+/* Cards whose first child is a CollapsibleCard heading button defer
+   their top breathing room to the button (above). Bottom is unchanged. */
+.card:has(> .card-heading-toggle) {
+  padding-top: 0;
+  /* The button also owns 6px of bottom click bleed, so trim the
+     gap-to-body the same amount. */
+  gap: 8px;
+}
+/* Accent bar lives on the heading SPAN, not the button, so it always
+   tracks the text vertical center even when the chevron (22px tall)
+   stretches the flex row past the text's 13px line-height. Matches the
+   `.card h3::before` rule above so collapsible cards and the few
+   remaining static-heading cards (Sidebar Mode picker, robot Object-
+   detection card) line up to the same baseline. */
+.card-heading-toggle > span:first-child {
+  position: relative;
+  padding-left: 14px;
+}
+.card-heading-toggle > span:first-child::before {
   content: "";
   position: absolute;
   left: 0;
@@ -621,7 +673,13 @@ label.field, div.field {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
-  padding: 6px 0;
+  /* Bottom padding mirrors the 6px click bleed inside
+     `.card-heading-toggle` so an OFF webcam-control card matches the
+     height of a collapsed CollapsibleCard heading. Top stays at 0 —
+     the parent `.card` already provides the 24px breathing room.
+     4px (not 6) because the switch is 14px-with-borders -> 16px
+     measured, slightly taller than the 13px heading text. */
+  padding: 0 0 4px;
   border: 0;
   background: transparent;
   border-radius: 0;
@@ -662,9 +720,12 @@ label.field, div.field {
    but the off-state is neutral and the on-state is the lone accent fill. */
 .webcam-switch {
   flex: none;
-  width: 40px;
-  height: 22px;
-  padding: 2px;
+  /* Sized to match the 13px line-height of `.card h3` so an OFF
+     webcam-control card is the same height as a collapsed
+     `.card-heading-toggle` heading. */
+  width: 28px;
+  height: 14px;
+  padding: 1px;
   border-radius: var(--r-pill);
   border: 1px solid var(--line-strong);
   background: var(--surface-sunk);
@@ -680,8 +741,8 @@ label.field, div.field {
 .webcam-switch.on:hover { background: var(--accent-hover-soft); }
 .webcam-switch-thumb {
   display: block;
-  width: 16px;
-  height: 16px;
+  width: 10px;
+  height: 10px;
   border-radius: var(--r-pill);
   background: var(--text-muted);
   box-shadow: var(--shadow-1);
@@ -692,7 +753,7 @@ label.field, div.field {
 }
 .webcam-switch.on .webcam-switch-thumb {
   background: var(--accent);
-  transform: translateX(18px);
+  transform: translateX(14px);
 }
 
 /* ---------------------------------------------------------------------- *

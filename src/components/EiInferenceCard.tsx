@@ -9,6 +9,7 @@ import {
   type EiProject,
 } from '../lib/edgeImpulse';
 import { loadEiModel, loadEiModelFromZip } from '../lib/eiModel';
+import { CollapsibleCard } from './CollapsibleCard';
 
 /**
  * Edge Impulse model picker, loader, and live-inference controller.
@@ -311,8 +312,11 @@ export function EiInferenceCard({
       : 'Detections appear as boxes on the virtual-camera preview in the bottom-left.';
 
   return (
-    <div className="card ei-inference-card">
-      <h3>Inference (Edge Impulse model)</h3>
+    <CollapsibleCard
+      heading="Inference (Edge Impulse model)"
+      className="card ei-inference-card"
+      badge={eiModel ? (eiLive ? 'live' : 'loaded') : undefined}
+    >
       {!eiModel ? (
         <>
           <div style={{ fontSize: 11, color: 'var(--muted)' }}>
@@ -494,6 +498,6 @@ export function EiInferenceCard({
           )}
         </>
       )}
-    </div>
+    </CollapsibleCard>
   );
 }

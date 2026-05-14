@@ -8,7 +8,6 @@ const ALL_KINDS: ObjectKind[] = [
   'phone',
   'capsule',
   'cylinder',
-  'cone',
   'torus',
   'soda_can',
 ];

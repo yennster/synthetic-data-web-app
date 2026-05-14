@@ -1,4 +1,5 @@
 import { useStore } from '../store/useStore';
+import { CollapsibleCard } from './CollapsibleCard';
 
 /**
  * Shared Edge Impulse credentials card. Used by both motion and vision
@@ -15,8 +16,10 @@ export function EiAuthCard({ showHmac = false }: { showHmac?: boolean }) {
   const ei = useStore((s) => s.ei);
   const setEi = useStore((s) => s.setEi);
   return (
-    <div className="card">
-      <h3>Edge Impulse · auth</h3>
+    <CollapsibleCard
+      heading="Edge Impulse · auth"
+      badge={ei.apiKey ? 'set' : undefined}
+    >
       <label className="field">
         API Key
         <input
@@ -57,6 +60,6 @@ export function EiAuthCard({ showHmac = false }: { showHmac?: boolean }) {
           <option value="split">Split 80:20 (training:testing)</option>
         </select>
       </label>
-    </div>
+    </CollapsibleCard>
   );
 }

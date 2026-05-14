@@ -169,12 +169,12 @@ describe('sceneObjects', () => {
 
   it('removeSceneObject removes by id', () => {
     useStore.getState().addSceneObject('cube');
-    useStore.getState().addSceneObject('cone');
+    useStore.getState().addSceneObject('torus');
     const id = useStore.getState().sceneObjects[0].id;
     useStore.getState().removeSceneObject(id);
     const left = useStore.getState().sceneObjects;
     expect(left).toHaveLength(1);
-    expect(left[0].kind).toBe('cone');
+    expect(left[0].kind).toBe('torus');
   });
 
   it('updateSceneObject patches a single object without touching others', () => {
@@ -189,7 +189,7 @@ describe('sceneObjects', () => {
 
   it('clearSceneObjects empties the list', () => {
     useStore.getState().addSceneObject('cube');
-    useStore.getState().addSceneObject('cone');
+    useStore.getState().addSceneObject('torus');
     useStore.getState().clearSceneObjects();
     expect(useStore.getState().sceneObjects).toEqual([]);
   });
@@ -384,7 +384,7 @@ describe('robot scene reset', () => {
       armHomePose: [0, 0, 0, 0, 0, 0],
     });
     useStore.getState().addSceneObject('cube', 'pickup', 'arm');
-    useStore.getState().addSceneObject('cone', 'obstacle', 'rover');
+    useStore.getState().addSceneObject('cylinder', 'obstacle', 'rover');
 
     useStore.getState().resetRobotScene();
 

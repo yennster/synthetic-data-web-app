@@ -12,6 +12,15 @@ import type { BoundingBox, Capture } from '../store/useStore';
 let captureRenderer: THREE.WebGLRenderer | null = null;
 let captureCanvas: HTMLCanvasElement | null = null;
 
+// Supersampling factor applied to every capture. We render at SSAA× the
+// requested resolution and downsample with a high-quality bilinear filter
+// before emitting the PNG — effectively free SSAA. 2× quadruples the
+// fragment work *during a capture only* (the live R3F canvas is unaffected,
+// which is what keeps weaker computers fast in editor / preview). 4 MB of
+// extra render-target memory at 1280×960×SSAA=2 is trivial; pixel cost
+// scales linearly with the user's chosen capture resolution.
+const SSAA_FACTOR = 2;
+
 function getCaptureRenderer(
   width: number,
   height: number,
@@ -53,7 +62,14 @@ export async function captureFrame(opts: {
   height: number;
 }): Promise<{ blob: Blob; boxes: BoundingBox[] }> {
   const { scene, camera, width, height } = opts;
-  const { renderer: r, canvas: cv } = getCaptureRenderer(width, height);
+  // Render at the supersampled size, then downsample on a 2D canvas so the
+  // final PNG matches the user's requested resolution. Aspect ratio is
+  // preserved; bounding boxes are computed against the user-facing pixel
+  // grid so the SSAA factor is invisible to downstream consumers (EI
+  // ingestion, info.labels, the live inference path).
+  const ssWidth = width * SSAA_FACTOR;
+  const ssHeight = height * SSAA_FACTOR;
+  const { renderer: r, canvas: cv } = getCaptureRenderer(ssWidth, ssHeight);
 
   // Update camera aspect to match capture resolution.
   const prevAspect = camera.aspect;
@@ -63,22 +79,57 @@ export async function captureFrame(opts: {
   try {
     r.render(scene, camera);
 
-    // Compute bboxes BEFORE restoring aspect (uses the same matrices we just rendered with).
+    // Compute bboxes against the OUTPUT resolution (width × height), not the
+    // supersampled internal buffer. The projection matrix is aspect-only, so
+    // the math is identical; we just want pixel coordinates that match the
+    // PNG the user gets.
     const boxes = computeBoundingBoxes(scene, camera, width, height);
 
-    const blob: Blob = await new Promise((resolve, reject) =>
-      cv.toBlob(
-        (b) => (b ? resolve(b) : reject(new Error('toBlob failed'))),
-        'image/png',
-      ),
-    );
-
+    const blob = await downsampleToBlob(cv, width, height);
     return { blob, boxes };
   } finally {
     // Restore camera aspect — but DON'T dispose the renderer; we reuse it.
     camera.aspect = prevAspect;
     camera.updateProjectionMatrix();
   }
+}
+
+/**
+ * Downsample the supersampled WebGL canvas to the final width × height
+ * via a 2D canvas blit. `imageSmoothingQuality: 'high'` triggers the
+ * browser's best-quality bilinear / lanczos path (Chromium uses Lanczos
+ * at large downscale ratios), giving the effect of SSAA without
+ * implementing a custom shader.
+ */
+async function downsampleToBlob(
+  source: HTMLCanvasElement,
+  width: number,
+  height: number,
+): Promise<Blob> {
+  const out = document.createElement('canvas');
+  out.width = width;
+  out.height = height;
+  const ctx = out.getContext('2d');
+  if (!ctx) {
+    // Fallback: just emit the supersampled canvas as-is. Bboxes will still
+    // line up because they were computed in OUTPUT-resolution space — the
+    // PNG will simply be SSAA× too big.
+    return new Promise((resolve, reject) =>
+      source.toBlob(
+        (b) => (b ? resolve(b) : reject(new Error('toBlob failed'))),
+        'image/png',
+      ),
+    );
+  }
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(source, 0, 0, width, height);
+  return new Promise((resolve, reject) =>
+    out.toBlob(
+      (b) => (b ? resolve(b) : reject(new Error('toBlob failed'))),
+      'image/png',
+    ),
+  );
 }
 
 /**

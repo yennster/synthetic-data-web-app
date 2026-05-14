@@ -1,5 +1,9 @@
 import { useState } from 'react';
-import { useStore } from '../store/useStore';
+import {
+  realismAverage,
+  useStore,
+  type RealismConfig,
+} from '../store/useStore';
 import {
   listEiProjects,
   retrainEiModel,
@@ -13,11 +17,34 @@ import {
   putCustomTexture,
   type TextureKind,
 } from '../lib/textureStore';
+import { ChevronGlyph, CollapsibleCard } from './CollapsibleCard';
 import { EiAuthCard } from './EiAuthCard';
 import { EiInferenceCard } from './EiInferenceCard';
 import { ImportedAssetsCard } from './ImportedAssetsCard';
 import { ObjectCaptureCard } from './ObjectCaptureCard';
+import { RealismCard } from './RealismCard';
 import { SceneObjectsCard } from './SceneObjectsCard';
+
+/** Flatten realism config into EI image-metadata fields — same shape
+ * as RobotPanel's `realismMeta` so a downstream consumer can mix
+ * vision + robotics captures without branching. */
+function realismMeta(
+  r: RealismConfig,
+): Record<string, number | string | boolean> {
+  if (r.mode === 'off') {
+    return { realism_mode: 'off', realism_intensity: 0 };
+  }
+  return {
+    realism_mode: r.mode,
+    realism_intensity: realismAverage(r),
+    realism_grain: r.grain,
+    realism_chromatic: r.chromatic,
+    realism_vignette: r.vignette,
+    realism_jitter: r.jitter,
+    realism_jpeg: r.jpeg,
+    realism_randomize: r.randomize,
+  };
+}
 
 export function VisionPanel() {
   const {
@@ -88,6 +115,7 @@ export function VisionPanel() {
     setStatus('busy', `Uploading 0/${captures.length}…`);
     const includeBoxes = mode === 'detection';
     const defaultLabel = mode === 'anomaly' ? anomalyLabel : ei.label;
+    const realism = useStore.getState().realism;
     const result = await uploadCaptures(
       ei,
       captures,
@@ -104,6 +132,7 @@ export function VisionPanel() {
         env_preset: envPreset,
         conveyor: showConveyor,
         conveyor_speed: showConveyor ? conveyorSpeed : undefined,
+        ...realismMeta(realism),
       },
     );
     if (result.failed === 0) {
@@ -166,8 +195,7 @@ export function VisionPanel() {
 
   return (
     <>
-      <div className="card">
-        <h3>Scene</h3>
+      <CollapsibleCard heading="Scene" defaultOpen>
         <label className="field">
           Environment
           <select
@@ -194,7 +222,7 @@ export function VisionPanel() {
             style={{ transform: texturesOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}
             aria-hidden
           >
-            ▸
+            <ChevronGlyph />
           </span>
           {(customFloorTexture || customWallTexture) && !texturesOpen && (
             <span
@@ -331,9 +359,9 @@ export function VisionPanel() {
           }
           style={{ marginTop: 4 }}
         >
-          Reset scene
+          ↺ Reset scene
         </button>
-      </div>
+      </CollapsibleCard>
 
       <SceneObjectsCard ownerFilter="vision" />
 
@@ -341,8 +369,7 @@ export function VisionPanel() {
 
       <ObjectCaptureCard />
 
-      <div className="card">
-        <h3>Virtual camera</h3>
+      <CollapsibleCard heading="Virtual camera">
         <div className="row">
           <label className="field">
             Width
@@ -407,10 +434,11 @@ export function VisionPanel() {
             ))}
           </div>
         </label>
-      </div>
+      </CollapsibleCard>
 
-      <div className="card capture-card">
-        <h3>Capture</h3>
+      <RealismCard />
+
+      <CollapsibleCard heading="Capture" className="card capture-card">
         {mode === 'anomaly' && (
           <label className="field">
             Batch label
@@ -491,14 +519,13 @@ export function VisionPanel() {
             Clear
           </button>
         </div>
-      </div>
+      </CollapsibleCard>
 
       <EiAuthCard />
 
       <EiInferenceCard previewSource="virtual-camera" />
 
-      <div className="card">
-        <h3>Upload to Edge Impulse</h3>
+      <CollapsibleCard heading="Upload to Edge Impulse">
         {!ei.apiKey && (
           <div style={{ fontSize: 11, color: 'var(--muted)' }}>
             Set your API key in the <strong>Edge Impulse · auth</strong> card.
@@ -534,7 +561,7 @@ export function VisionPanel() {
         >
           ↻ Retrain model
         </button>
-      </div>
+      </CollapsibleCard>
     </>
   );
 }

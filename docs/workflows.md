@@ -35,9 +35,10 @@ Run the generator once per class to build a balanced multi-class dataset (e.g. 5
 3. Add objects from the **Objects** card — pick a kind, type a label, hit **+ Add**. Repeat for as many objects/classes as you need. Edit the label or **Size** inline, toggle **Physics** off if you want it pinned in place; remove with `×`.
 4. (Optional) Drop `.usdz` files into the **Import (.usdz)** card to bring in real assets. Each gets its own scale / position / yaw / label and an opt-in physics toggle.
 5. Position the **Virtual camera** in the Virtual Camera card. The orange frustum gizmo updates live in the scene; the corner preview shows the captured framing — drag its bottom-right corner to enlarge.
-6. Click **📸 Capture frame** for one image, or set a batch count + randomization toggles and click **⚡ Batch (N)** — both single shots and batches download as `.zip` files. Single-frame zips contain the PNG + a matching `bounding_boxes.labels`; batch zips contain every PNG plus one shared sidecar.
-7. Or upload directly: paste your API key and click **⤴ Upload N images**. Each image is sent with its bounding boxes attached as the `x-bounding-boxes` header.
-8. After uploading new training data, click **↻ Retrain model** in the Upload card. If your API key can access multiple projects, pick the project in the Inference card first.
+6. (Optional) In the **Realism** card pick **Photo FX** and dial the five per-effect sliders — **film grain**, **radial chromatic aberration**, **vignette**, **color jitter**, and **JPEG artifacts**. Each runs independently on every captured PNG to narrow the sim-to-real gap. Flip the **Randomize per capture** toggle below the sliders to make each capture re-sample its effective intensity in `[0, slider value]` so a batch sees varied realism instead of identical settings on every PNG. Bounding boxes are preserved either way.
+7. Click **📸 Capture frame** for one image, or set a batch count + randomization toggles and click **⚡ Batch (N)** — both single shots and batches download as `.zip` files. Single-frame zips contain the PNG + a matching `bounding_boxes.labels`; batch zips contain every PNG plus one shared sidecar.
+8. Or upload directly: paste your API key and click **⤴ Upload N images**. Each image is sent with its bounding boxes attached as the `x-bounding-boxes` header.
+9. After uploading new training data, click **↻ Retrain model** in the Upload card. If your API key can access multiple projects, pick the project in the Inference card first.
 
 ## Running an Edge Impulse model in-browser
 

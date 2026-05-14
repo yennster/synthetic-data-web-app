@@ -36,7 +36,7 @@ If you'd rather skip the camera entirely, use the **procedural motion generator*
 
 ![Synthetic Data Studio — Object detection mode](../docs/screenshots/screenshot-detection.png)
 
-You can spawn objects (cube, sphere, cylinder, cone, torus, capsule, phone slab, soda can — or import your own [USDZ assets](https://openusd.org/release/spec_usdz.html)), give them labels, drop them on a backdrop, point the virtual camera at them, and capture. Single shots or randomized batches. Bounding boxes are auto-projected from each labelled mesh's world-space and auto-uploaded to your Edge Impulse project, no user bounding box labeling required.
+You can spawn objects (cube, sphere, cylinder, torus, capsule, phone slab, soda can — or import your own [USDZ assets](https://openusd.org/release/spec_usdz.html)), give them labels, drop them on a backdrop, point the virtual camera at them, and capture. Single shots or randomized batches. Bounding boxes are auto-projected from each labelled mesh's world-space and auto-uploaded to your Edge Impulse project, no user bounding box labeling required.
 
 ### Robotics mode — rover and arm time-series
 
@@ -44,7 +44,7 @@ Robotics mode adds two MuJoCo-backed rigs: a differential-drive rover with chass
 
 ### Inference, in the browser
 
-![Inference card](../docs/screenshots/screenshot-inference.png)
+![Inference card](../docs/screenshots/card-detection-inference-edge-impulse-model.png)
 
 Once you've trained a model in Edge Impulse, the Synthetic Data Studio can fetch your project's WebAssembly deployment, unpack the zip in-browser, and run inference on the virtual camera's preview at ~5 Hz. Detection boxes, FOMO centroids, and labels overlay onto the preview live. It's a useful sanity check — you can tell within a few seconds whether your synthetic dataset generalised at all.
 

@@ -6,6 +6,7 @@ import {
   type SceneObjectOwner,
 } from '../store/useStore';
 import { NumberField } from '../lib/useNumberInput';
+import { CollapsibleCard } from './CollapsibleCard';
 
 /**
  * Shared "Objects" card used by detection / anomaly / robotics-arm
@@ -105,10 +106,14 @@ export function SceneObjectsCard({
   };
 
   return (
-    <div className="card">
-      <h3>
-        {title} ({filtered.length})
-      </h3>
+    <CollapsibleCard
+      heading={`${title} (${filtered.length})`}
+      badge={filtered.length > 0 ? String(filtered.length) : undefined}
+      // Heading includes a live count, so derive a stable storage key
+      // from the title + owner — otherwise persisted open-state would
+      // be lost every time an object is added/removed.
+      storageKey={`scene-objects:${ownerFilter ?? 'vision'}:${title}`}
+    >
       {helpText && (
         <div style={{ fontSize: 11, color: 'var(--muted)' }}>{helpText}</div>
       )}
@@ -163,7 +168,7 @@ export function SceneObjectsCard({
         </div>
       )}
       {footer}
-    </div>
+    </CollapsibleCard>
   );
 }
 
@@ -171,7 +176,6 @@ const OBJECT_OPTIONS: ObjectKind[] = [
   'cube',
   'sphere',
   'cylinder',
-  'cone',
   'torus',
   'capsule',
   'phone',

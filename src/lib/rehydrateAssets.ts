@@ -98,6 +98,19 @@ export function useRehydrateAssets(): void {
       setTimeout(() => {
         setRestoringAssets({ done: 0, total: 0, phase: 'idle' });
       }, 1000);
+      // Also auto-clear the sidebar text status. Otherwise the
+      // "Restored N asset(s)" line lives forever in `state.status`
+      // and bleeds into Motion mode's sidebar (where USDZ rehydration
+      // isn't a meaningful event). 3s is long enough that a user
+      // glancing at the sidebar after the first paint will still see
+      // confirmation, short enough that it disappears before they
+      // switch modes.
+      setTimeout(() => {
+        const cur = useStore.getState().status;
+        if (cur.kind === 'ok' && cur.msg?.startsWith('Restored ')) {
+          setStatus('idle', '');
+        }
+      }, 3000);
     })();
   }, []);
 }

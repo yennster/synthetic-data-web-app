@@ -44,3 +44,4 @@ public/usdz-wasm/
 *.zip
 *.tar.gz
 tsconfig.tsbuildinfo
+.vercel

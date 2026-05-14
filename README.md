@@ -46,7 +46,7 @@ Built with AI coding assistants.
 - Hand tracking (Google MediaPipe `HandLandmarker`, in-browser, ~60 fps); toggle off for cameraless work.
 - Pinch-to-grab + rotate; release inherits hand velocity for throws.
 - 6-channel IMU output (`accX/Y/Z` m/s² + `gyrX/Y/Z` rad/s, body frame).
-- 8 object kinds (cube, sphere, cylinder, cone, torus, capsule, phone, soda can).
+- 7 object kinds (cube, sphere, cylinder, torus, capsule, phone, soda can).
 - **Procedural motion generator** — pick `drop` / `throw` / `push` / `shake`, set count, height range, and per-sample duration; auto-runs through the batch. Upload directly or download as a zip.
 - Configurable sample rate (20–500 Hz, default 100). Optional HMAC-SHA256 signing for time-series JSON payloads.
 
@@ -59,6 +59,7 @@ Built with AI coding assistants.
 - Virtual capture camera (XYZ + target + FOV) with frustum gizmo.
 - Single-shot capture downloads as a zip with the PNG + matching `bounding_boxes.labels` sidecar; batch capture randomizes camera / lighting / object positions and zips the whole batch.
 - Direct upload to EI with bounding boxes attached; one-click retrain.
+- **Realism post-process** — optional per-capture pass that narrows the sim-to-real gap. Five independent sliders (0–100%): **film grain**, **radial chromatic aberration** (zero at the optical center, max at the corners), **vignette**, **color jitter**, and a **JPEG round-trip** that injects real 8×8 DCT compression artifacts. Each effect is its own knob so you can dial them in independently (e.g., heavy grain + no vignette). All five run client-side — no API calls, no spend. Geometry never moves, so bounding boxes stay byte-perfect against the modified PNG. Per-effect intensities are recorded as `realism_*` metadata on every EI upload so you can ablate against them later. (A `Diffusion` mode is wired internally — Vercel Function → Hugging Face Inference — but hidden in the UI until a stable serverless image-to-image model is sourced.)
 - Scene state persists across reloads (primitives, USDZ assets, camera settings).
 
 **Edge Impulse model inference (vision + robot POV)**
@@ -72,10 +73,11 @@ Built with AI coding assistants.
 - **Sensor modality picker** for the rover: upload **Fused (IMU+lidar)**, **IMU only**, or **Lidar only** to compare model accuracy or train one tower at a time.
 - **ROS 2 export**: toggle on to also write canonical JSONL bundles alongside the EI payload: rover exports `sensor_msgs/Imu` + `sensor_msgs/LaserScan`, and arm exports `sensor_msgs/Imu` + `sensor_msgs/JointState`.
 - Synthetic IMU noise model (MathWorks `imuSensor`-style: Allan-variance noise density, bias instability, scale-factor error, ADC quantization, saturation) applied to motion / rover / arm IMU paths. Defaults match an LSM6DSO at ±4 g / ±2000 dps.
-- Manual object spawning (pillars / crates / cones) and USDZ imports via the **Scene obstacles** / **Pickup objects** / **Imported** cards; obstacles and pickup targets are draggable with the same `Shift+drag` controls as detection mode.
+- Manual object spawning (pillars / crates / cans) and USDZ imports via the **Scene obstacles** / **Pickup objects** / **Imported** cards; obstacles and pickup targets are draggable with the same `Shift+drag` controls as detection mode.
 - First-person POV camera (front-mounted on rover, wrist-mounted on arm) renders into the corner overlay so you can see what the robot's onboard camera would see during the trajectory.
 - **Object detection capture**: toggle on to layer image capture (with auto-projected 2D bounding boxes) on top of the sensor recording. The runner probes the linked EI project's data type up-front and asks you to confirm — matching data uploads, conflicting data downloads as a local zip with `bounding_boxes.labels`. Configurable N images per iteration (mid-motion) or one image at rest. Lidar / ToF beams are auto-hidden from the captured PNGs.
 - **Live model inference on the POV preview**: when object detection is on, load an Edge Impulse WebAssembly deployment and run it against the rover / arm POV at 5 Hz to see what the onboard model would detect.
+- **Realism post-process** also available here — applies to the POV image captures when object detection is on.
 
 - URL deep links: `?mode=robotics&robot=arm` lands directly on the arm rig.
 

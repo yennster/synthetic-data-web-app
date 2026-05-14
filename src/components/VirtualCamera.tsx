@@ -9,6 +9,7 @@ import {
   saveBlob,
 } from '../lib/capture';
 import { BELT_TRANSPORTABLES, isOnBelt } from '../lib/beltDynamics';
+import { applyRealismToBlob, resetDiffusionBudget } from '../lib/realism';
 import {
   createReadbackBlitState,
   ensureReadbackBlitState,
@@ -197,6 +198,10 @@ export function VirtualCamera({
   // Single-shot capture
   useEffect(() => {
     if (captureSignal === 0) return;
+    // Fresh HF img2img quota per user-initiated capture. A single
+    // shot always gets to use the diffusion path if the user picked
+    // it; batch resets below.
+    resetDiffusionBudget();
     void doCapture();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [captureSignal]);
@@ -221,12 +226,24 @@ export function VirtualCamera({
       // into the saved PNG.
       if (helper) helper.visible = false;
 
-      const { blob, boxes } = await captureFrame({
+      const { blob: rawBlob, boxes } = await captureFrame({
         renderer: gl as THREE.WebGLRenderer,
         scene,
         camera: cam,
         width,
         height,
+      });
+
+      // Realism post-process — five independent pixel transforms
+      // (grain, radial CA, vignette, color jitter) plus an optional
+      // JPEG round-trip. Pure pixel ops so bounding boxes stay valid
+      // against the result. Falls through unchanged when mode is off
+      // (the common case).
+      const realism = useStore.getState().realism;
+      const blob = await applyRealismToBlob(rawBlob, {
+        mode: realism.mode,
+        intensities: realism,
+        randomize: realism.randomize,
       });
 
       const idx = useStore.getState().captures.length;
@@ -303,6 +320,10 @@ export function VirtualCamera({
   async function doBatch() {
     const { capture: cs, sceneObjects, showConveyor } = useStore.getState();
     const total = cs.batchCount;
+
+    // Spend the HF img2img quota across the FIRST images of the
+    // batch; everything after falls back to the Random pass.
+    resetDiffusionBudget();
 
     // Snapshot the user's chosen camera/light origin to jitter around.
     const baseCam = [...cs.camPos] as [number, number, number];

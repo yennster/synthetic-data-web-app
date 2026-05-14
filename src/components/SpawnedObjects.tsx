@@ -47,8 +47,6 @@ function Geometry({ kind }: { kind: ObjectKind }) {
       return <capsuleGeometry args={[0.3, 0.6, 8, 16]} />;
     case 'cylinder':
       return <cylinderGeometry args={[0.35, 0.35, 0.7, 24]} />;
-    case 'cone':
-      return <coneGeometry args={[0.4, 0.8, 24]} />;
     case 'torus':
       return <torusGeometry args={[0.35, 0.12, 16, 32]} />;
     case 'soda_can':

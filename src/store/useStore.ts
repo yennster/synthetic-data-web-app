@@ -28,7 +28,6 @@ export type ObjectKind =
   | 'phone'
   | 'capsule'
   | 'cylinder'
-  | 'cone'
   | 'torus'
   | 'soda_can';
 
@@ -241,6 +240,58 @@ export type BoundingBox = {
   y: number;
   width: number;
   height: number;
+};
+
+/**
+ * Post-capture "realism" pass that runs over every captured PNG before
+ * it lands in EI or the local zip. `off` is the raw render. `random`
+ * applies a stack of cheap CPU-side pixel transforms (film grain,
+ * chromatic aberration, vignette, color jitter, JPEG re-encode) to
+ * narrow the sim-to-real gap. `diffusion` is reserved for a future
+ * server-side endpoint hitting img2img / ControlNet — wiring lives
+ * here so the UI doesn't need to be reshaped when it lands.
+ *
+ * Bounding boxes are structural and don't move during the random pass,
+ * so the EI labels stay valid regardless of the chosen mode.
+ */
+export type RealismMode = 'off' | 'random' | 'diffusion';
+
+/** Per-effect intensities (0..1) for the Photo FX realism pass. Each
+ * knob is independent so users can dial in, e.g., heavy grain with
+ * no vignette, or strong JPEG artifacts with subtle CA. `jpeg` of 0
+ * skips the JPEG round-trip entirely.
+ *
+ * `randomize` is an orthogonal toggle: when true, each capture
+ * re-samples its effective intensities in [0, slider value], so a
+ * batch sees varied realism instead of identical settings on every
+ * PNG. When false, the slider values are applied verbatim. */
+export type RealismConfig = {
+  mode: RealismMode;
+  grain: number;
+  chromatic: number;
+  vignette: number;
+  jitter: number;
+  jpeg: number;
+  randomize: boolean;
+};
+
+/** Average across the five effect knobs — used as a convenience
+ * for places (EI metadata fallback) where a single 0..1 value is
+ * still useful even though the pass no longer has a master slider. */
+export function realismAverage(r: RealismConfig): number {
+  return (r.grain + r.chromatic + r.vignette + r.jitter + r.jpeg) / 5;
+}
+
+/** Default per-effect intensities. 0.5 across the board matches the
+ * old single-slider default at 0.5. */
+export const DEFAULT_REALISM: RealismConfig = {
+  mode: 'off',
+  grain: 0.5,
+  chromatic: 0.5,
+  vignette: 0.3,
+  jitter: 0.5,
+  jpeg: 0.5,
+  randomize: false,
 };
 
 export type Capture = {
@@ -652,12 +703,26 @@ type State = {
   imuNoise: ImuNoiseConfig;
   setImuNoise: (patch: Partial<ImuNoiseConfig>) => void;
 
+  /** Realism post-process applied to every captured PNG before EI
+   * upload / local zip. See `RealismConfig` and `lib/realism.ts`. */
+  realism: RealismConfig;
+  setRealism: (patch: Partial<RealismConfig>) => void;
+
   // ---------- Edge Impulse ----------
   ei: EdgeImpulseConfig;
   setEi: (patch: Partial<EdgeImpulseConfig>) => void;
 
   status: { kind: 'idle' | 'ok' | 'err' | 'busy'; msg: string };
   setStatus: (kind: State['status']['kind'], msg: string) => void;
+
+  /** Persisted open/closed state for every CollapsibleCard. Keyed by a
+   * stable string (each card's `storageKey` prop, falling back to the
+   * heading text for cards with stable headings). Undefined entries
+   * fall back to the card's `defaultOpen` prop on first render, then
+   * track the user's toggling thereafter — so re-opening a card you
+   * collapsed survives a reload. */
+  cardOpen: Record<string, boolean>;
+  setCardOpen: (key: string, open: boolean) => void;
 
   // ---------- Inference (Edge Impulse local model) ----------
   /** Loaded EI model, if any. Hidden from devtools to avoid serializing the
@@ -1075,6 +1140,12 @@ export const useStore = create<State>()(
   setImuNoise: (patch) =>
     set((s) => ({ imuNoise: { ...s.imuNoise, ...patch } })),
 
+  // Realism post-process. Defaults off so the existing pipeline is
+  // bit-for-bit unchanged unless the user opts in.
+  realism: { ...DEFAULT_REALISM },
+  setRealism: (patch) =>
+    set((s) => ({ realism: { ...s.realism, ...patch } })),
+
   // EI
   ei: {
     apiKey: '',
@@ -1087,6 +1158,10 @@ export const useStore = create<State>()(
 
   status: { kind: 'idle', msg: '' },
   setStatus: (kind, msg) => set({ status: { kind, msg } }),
+
+  cardOpen: {},
+  setCardOpen: (key, open) =>
+    set((s) => ({ cardOpen: { ...s.cardOpen, [key]: open } })),
 
   // inference
   eiModel: null,
@@ -1110,7 +1185,7 @@ export const useStore = create<State>()(
     }),
     {
       name: 'sds-store',
-      version: 7,
+      version: 11,
       storage: createJSONStorage(() => localStorage),
       migrate: (persistedState, version) => {
         if (
@@ -1178,6 +1253,69 @@ export const useStore = create<State>()(
             },
           };
         }
+        // v7 → v8: introduce the realism post-process config. Default
+        // is off so an upgraded user sees no change unless they opt in.
+        // The intermediate v8 shape had `{ mode, intensity }`; the
+        // v9→v10 step below normalizes it to the current per-effect
+        // shape, so the cast here is safe.
+        if (version < 8) {
+          state = {
+            ...state,
+            realism:
+              state.realism ??
+              ({ mode: 'off', intensity: 0.5 } as unknown as RealismConfig),
+          };
+        }
+        // v8 → v9: hide the Diffusion radio while server-side img2img
+        // is still being figured out. Coerce any persisted 'diffusion'
+        // mode to 'random' so the picker doesn't end up with an
+        // invisible-selected state (the radio is gone but the
+        // intensity slider would still be visible).
+        if (version < 9 && state.realism?.mode === 'diffusion') {
+          state = {
+            ...state,
+            realism: { ...state.realism, mode: 'random' },
+          };
+        }
+        // v9 → v10: split the single `realism.intensity` knob into
+        // five per-effect knobs (grain / chromatic / vignette / jitter
+        // / jpeg). Backfill all five from the old `intensity` so an
+        // upgraded user sees roughly the same output until they dial
+        // in individual sliders.
+        if (version < 10 && state.realism) {
+          // The old shape had `intensity: number`; if for some reason
+          // that's missing or invalid, fall back to the default 0.5
+          // so the per-effect knobs don't end up undefined / NaN.
+          const legacy = state.realism as Partial<RealismConfig> & {
+            intensity?: number;
+          };
+          const seed =
+            typeof legacy.intensity === 'number' ? legacy.intensity : 0.5;
+          state = {
+            ...state,
+            realism: {
+              mode: legacy.mode ?? 'off',
+              grain: legacy.grain ?? seed,
+              chromatic: legacy.chromatic ?? seed,
+              vignette: legacy.vignette ?? seed * 0.6,
+              jitter: legacy.jitter ?? seed,
+              jpeg: legacy.jpeg ?? seed,
+              randomize: false,
+            },
+          };
+        }
+        // v10 → v11: introduce the `randomize` toggle. Default off so
+        // an upgraded user sees deterministic per-capture output until
+        // they opt into per-capture variation.
+        if (version < 11 && state.realism) {
+          state = {
+            ...state,
+            realism: {
+              ...state.realism,
+              randomize: state.realism.randomize ?? false,
+            },
+          };
+        }
         return state;
       },
       // Persist only the bits worth restoring: scene primitives, scene
@@ -1200,7 +1338,9 @@ export const useStore = create<State>()(
         drops: s.drops,
         robot: s.robot,
         imuNoise: s.imuNoise,
+        realism: s.realism,
         eiThreshold: s.eiThreshold,
+        cardOpen: s.cardOpen,
         pendingAssets: s.assets.map<PersistedAsset>((a) => ({
           id: a.id,
           name: a.name,

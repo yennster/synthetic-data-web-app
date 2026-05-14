@@ -372,13 +372,6 @@ function ManipulatedMesh({
           {material}
         </mesh>
       );
-    case 'cone':
-      return (
-        <mesh ref={meshRef} castShadow>
-          <coneGeometry args={[0.5, 1.0, 24]} />
-          {material}
-        </mesh>
-      );
     case 'torus':
       return (
         <mesh ref={meshRef} castShadow>
