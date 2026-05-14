@@ -9,8 +9,7 @@ The app uses [`@needle-tools/usd`](https://www.npmjs.com/package/@needle-tools/u
 
 ## Capturing real-world objects as USDZ
 
-The **Capture from real life** card (in the Detection / Anomaly / Robotics sidebars) routes you to Apple's [RealityKit Object Capture]
-(https://developer.apple.com/documentation/realitykit/realitykit-object-capture) pipeline — the studio detects whether you're on iOS 17+ or macOS 12+ and tailors the instructions accordingly. Object Capture is native-only (no JavaScript API), so the workflow is:
+The **Capture from real life** card (in the Detection / Anomaly / Robotics sidebars) routes you to Apple's [RealityKit Object Capture](https://developer.apple.com/documentation/realitykit/realitykit-object-capture) pipeline — the studio detects whether you're on iOS 17+ or macOS 12+ and tailors the instructions accordingly. Object Capture is native-only (no JavaScript API), so the workflow is:
 
 1. **On iPhone (iOS 17+)**: install [RealityScan](https://apps.apple.com/us/app/realityscan-mobile/id1584832280) (Epic Games, free, built on Object Capture). Walk around the object taking ~50–200 overlapping photos under even lighting (avoid shiny / transparent / featureless surfaces). Export as `.usdz`.
 2. **On Mac (macOS 12+)**: run Apple's [`HelloPhotogrammetry`](https://developer.apple.com/documentation/realitykit/creating-a-photogrammetry-command-line-app) command-line sample on a folder of photos to produce a USDZ headlessly.

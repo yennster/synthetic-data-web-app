@@ -57,7 +57,7 @@ src/
 │   │   ├── RoverSim.ts           //   Rover wrapper: planar chassis + MJCF rebuild
 │   │   ├── motionMjcf.ts         //   MJCF templates per ObjectKind
 │   │   └── MotionSim.ts          //   Motion-mode wrapper: grab/release via weld eq
-│   ├── dragMove.ts               // Shift+drag pointer-event handlers (XZ plane)
+│   ├── dragMove.ts               // Shift+drag pointer-event handlers (camera plane + depth mode)
 │   ├── capture.ts                // Off-screen render, bbox projection, download helper
 │   ├── robotCapture.ts           // Awaitable bridge for in-canvas POV-camera frames
 │   ├── realism.ts                // Sim-to-real pixel transforms (grain, radial CA, vignette, jitter) + JPEG round-trip; per-effect intensities
@@ -223,7 +223,7 @@ When time-series samples are downloaded locally instead of uploaded, the zip con
 - Header `x-label` = label
 - Header `x-bounding-boxes` (detection only) = `[{"label":"cube","x":120,"y":80,"width":56,"height":56}, ...]`
 
-When you save a single detection-mode capture to disk, it downloads as a `.zip` containing the PNG plus a `bounding_boxes.labels` sidecar keyed to that filename — drop the unzipped folder straight into the EI uploader. Batch saves zip the whole batch with one shared sidecar. The sidecar follows the [Edge Impulse uploader format](https://docs.edgeimpulse.com/docs/edge-impulse-studio/data-acquisition/uploader#bounding-boxes):
+When you save a single detection-mode capture to disk, it downloads as a `.zip` containing the PNG plus a `bounding_boxes.labels` sidecar keyed to that filename — drop the unzipped folder straight into the EI uploader. Batch saves zip the whole batch with one shared sidecar. The sidecar follows the [Edge Impulse uploader format](https://docs.edgeimpulse.com/studio/projects/data-acquisition/uploader#bounding-boxes):
 
 ```json
 {

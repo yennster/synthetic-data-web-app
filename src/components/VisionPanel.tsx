@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
   ALL_CAMERA_TRAJECTORIES,
+  isDefaultCaptureSettings,
   realismAverage,
   useStore,
   type CameraTrajectory,
@@ -91,6 +92,7 @@ export function VisionPanel() {
   const setPendingAssets = useStore((s) => s.setPendingAssets);
   const cs = useStore((s) => s.capture);
   const setCapture = useStore((s) => s.setCapture);
+  const resetCapture = useStore((s) => s.resetCapture);
   const captures = useStore((s) => s.captures);
   const clearCaptures = useStore((s) => s.clearCaptures);
   const triggerCapture = useStore((s) => s.triggerCapture);
@@ -216,6 +218,7 @@ export function VisionPanel() {
 
   const visionObjects = sceneObjects.filter((o) => o.owner == null);
   const visionAssets = assets.filter((a) => a.owner == null);
+  const captureIsDefault = isDefaultCaptureSettings(cs);
 
   return (
     <>
@@ -318,15 +321,24 @@ export function VisionPanel() {
             const textureCount =
               (customFloorTexture ? 1 : 0) + (customWallTexture ? 1 : 0);
             const total =
-              visionObjects.length + visionAssets.length + textureCount;
+              visionObjects.length +
+              visionAssets.length +
+              textureCount +
+              (captureIsDefault ? 0 : 1);
             if (total === 0) return;
-            const parts = [
-              `${visionObjects.length} object(s)`,
-              `${visionAssets.length} imported asset(s)`,
-            ];
+            const parts: string[] = [];
+            if (visionObjects.length) {
+              parts.push(`${visionObjects.length} object(s)`);
+            }
+            if (visionAssets.length) {
+              parts.push(`${visionAssets.length} imported asset(s)`);
+            }
             if (textureCount) parts.push(`${textureCount} custom texture(s)`);
+            if (!captureIsDefault) {
+              parts.push('capture camera / trajectory settings');
+            }
             const ok = window.confirm(
-              `Reset scene? This removes ${parts.join(', ')} from this session and from saved storage.`,
+              `Reset scene? This resets ${parts.join(', ')} for this session and saved storage where applicable.`,
             );
             if (!ok) return;
             for (const a of visionAssets) {
@@ -349,13 +361,15 @@ export function VisionPanel() {
             setCustomWallTexture(null);
             void deleteCustomTexture('floor').catch(() => {});
             void deleteCustomTexture('wall').catch(() => {});
+            resetCapture();
             setStatus('ok', 'Scene reset');
           }}
           disabled={
             visionObjects.length === 0 &&
             visionAssets.length === 0 &&
             !customFloorTexture &&
-            !customWallTexture
+            !customWallTexture &&
+            captureIsDefault
           }
           style={{ marginTop: 4 }}
         >

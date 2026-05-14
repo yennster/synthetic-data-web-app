@@ -22,7 +22,7 @@ Built with AI coding assistants.
 
 ![Synthetic Data Studio · Object Detection mode](docs/screenshots/screenshot-detection.png)
 
-*Object detection mode: 6 labelled objects on a scrolling conveyor belt, virtual capture camera shown as the orange frustum gizmo, live preview in the bottom-left corner.*
+*Object detection mode: 5 labelled objects on a scrolling conveyor belt, virtual capture camera shown as the orange frustum gizmo, live preview in the bottom-left corner.*
 
 ![Synthetic Data Studio · Motion mode](docs/screenshots/screenshot-motion.png)
 
@@ -56,7 +56,7 @@ Built with AI coding assistants.
 - Shift+drag to position objects; Alt/Option/Ctrl/Cmd mid-drag for depth mode; mouse wheel during drag for push/pull.
 - USDZ import (Crate + ASCII + UsdSkel animation). [More →](docs/usdz.md)
 - Conveyor belt that actually transports spawned bodies (speed-tunable −2 to +2 m/s).
-- Virtual capture camera (XYZ + target + FOV) with frustum gizmo.
+- Virtual capture camera (XYZ + FOV) with a draggable frustum gizmo; non-random batch trajectories expose a pink orbit-center marker that you can Shift+drag to retarget the path.
 - Single-shot capture downloads as a zip with the PNG + matching `bounding_boxes.labels` sidecar; batch capture randomizes camera / lighting / object positions and zips the whole batch.
 - Direct upload to EI with bounding boxes attached; one-click retrain.
 - **Realism post-process** — optional per-capture pass that narrows the sim-to-real gap. Five independent sliders (0–100%): **film grain**, **radial chromatic aberration** (zero at the optical center, max at the corners), **vignette**, **color jitter**, and a **JPEG round-trip** that injects real 8×8 DCT compression artifacts. Each effect is its own knob so you can dial them in independently (e.g., heavy grain + no vignette). All five run client-side — no API calls, no spend. Geometry never moves, so bounding boxes stay byte-perfect against the modified PNG. Per-effect intensities are recorded as `realism_*` metadata on every EI upload so you can ablate against them later. (A `Diffusion` mode is wired internally — Vercel Function → Hugging Face Inference — but hidden in the UI until a stable serverless image-to-image model is sourced.)
@@ -151,7 +151,7 @@ For the exact JSON / multipart payloads sent to the ingestion API, see [docs/int
 
 ## URL parameters
 
-The app reads ~30 query parameters at load so you can deep-link a configured studio, share-this-batch URLs, set up iframe embeds, lock down a single-mode demo, and reproduce datasets seed-for-seed. Full reference (every key, every allowed value, recipes): **[docs/url-parameters.md](docs/url-parameters.md)**.
+The app reads query parameters at load so you can deep-link a configured studio, share-this-batch URLs, set up iframe embeds, lock down a single-mode demo, and reproduce datasets seed-for-seed. Full reference (every key, every allowed value, recipes): **[docs/url-parameters.md](docs/url-parameters.md)**.
 
 A few common ones:
 
@@ -217,7 +217,7 @@ npm run preview
 
 The output in `dist/` is a static bundle — host on any static host. All processing is client-side.
 
-Regenerate screenshots with `npm run screenshot detection` / `motion` (requires Chrome at the standard macOS path; override with `CHROME_PATH=…`).
+Regenerate the main screenshots with `npm run screenshot -- all` and the sidebar-card screenshots with `node scripts/screenshot-cards.mjs all` while the Vite dev server is running on port 5173. Both scripts require Chrome at the standard macOS path; override with `CHROME_PATH=…`.
 
 ## License
 

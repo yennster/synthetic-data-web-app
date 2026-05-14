@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { Group } from 'three';
-import { useStore } from './useStore';
+import {
+  createDefaultCaptureSettings,
+  isDefaultCaptureSettings,
+  useStore,
+} from './useStore';
 import { ARM_PICKUP_SUCCESS_LIFT_M } from '../lib/armPickupOutcome';
 import { BRACCIO_REST_RAD } from '../lib/braccio';
 
@@ -25,6 +29,7 @@ beforeEach(() => {
     showConveyor: false,
     conveyorSpeed: 0.5,
     envPreset: 'studio',
+    capture: createDefaultCaptureSettings(),
     anomalyLabel: 'normal',
     status: { kind: 'idle', msg: '' },
     robotRunning: false,
@@ -450,6 +455,25 @@ describe('camera trajectory capture settings', () => {
     expect(cap.trajectoryRadius).toBe(7);
     expect(cap.fov).toBe(beforeFov);
   });
+
+  it('resetCapture restores camera pose and trajectory defaults', () => {
+    const { resetCapture, setCapture } = useStore.getState();
+    setCapture({
+      camPos: [10, 11, 12],
+      camTarget: [1, 2, 3],
+      cameraTrajectory: 'spiral',
+      trajectoryRadius: 9,
+      trajectoryHeight: 6,
+      fov: 70,
+      batchCount: 42,
+    });
+    expect(isDefaultCaptureSettings(useStore.getState().capture)).toBe(false);
+
+    resetCapture();
+
+    expect(useStore.getState().capture).toEqual(createDefaultCaptureSettings());
+    expect(isDefaultCaptureSettings(useStore.getState().capture)).toBe(true);
+  });
 });
 
 describe('scene-object selection', () => {
@@ -498,4 +522,3 @@ describe('scene-object selection', () => {
     expect(useStore.getState().selectedIds).toEqual([]);
   });
 });
-

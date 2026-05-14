@@ -268,6 +268,51 @@ export type CaptureSettings = {
   trajectoryHeight: number;
 };
 
+export const DEFAULT_CAPTURE_SETTINGS: CaptureSettings = {
+  width: 640,
+  height: 480,
+  camPos: [3.5, 3, 3.5],
+  camTarget: [0, 0.5, 0],
+  fov: 45,
+  randomizeCamera: true,
+  randomizeLighting: true,
+  randomizeObjects: false,
+  batchCount: 10,
+  lightIntensity: 1.1,
+  envRotation: 0,
+  cameraTrajectory: 'random',
+  trajectoryRadius: 4,
+  trajectoryHeight: 2,
+};
+
+export function createDefaultCaptureSettings(): CaptureSettings {
+  return {
+    ...DEFAULT_CAPTURE_SETTINGS,
+    camPos: [...DEFAULT_CAPTURE_SETTINGS.camPos],
+    camTarget: [...DEFAULT_CAPTURE_SETTINGS.camTarget],
+  };
+}
+
+export function isDefaultCaptureSettings(settings: CaptureSettings): boolean {
+  const defaults = DEFAULT_CAPTURE_SETTINGS;
+  return (
+    settings.width === defaults.width &&
+    settings.height === defaults.height &&
+    settings.camPos.every((v, i) => v === defaults.camPos[i]) &&
+    settings.camTarget.every((v, i) => v === defaults.camTarget[i]) &&
+    settings.fov === defaults.fov &&
+    settings.randomizeCamera === defaults.randomizeCamera &&
+    settings.randomizeLighting === defaults.randomizeLighting &&
+    settings.randomizeObjects === defaults.randomizeObjects &&
+    settings.batchCount === defaults.batchCount &&
+    settings.lightIntensity === defaults.lightIntensity &&
+    settings.envRotation === defaults.envRotation &&
+    settings.cameraTrajectory === defaults.cameraTrajectory &&
+    settings.trajectoryRadius === defaults.trajectoryRadius &&
+    settings.trajectoryHeight === defaults.trajectoryHeight
+  );
+}
+
 export type BoundingBox = {
   label: string;
   x: number;
@@ -725,6 +770,7 @@ type State = {
   // ---------- Virtual camera & capture ----------
   capture: CaptureSettings;
   setCapture: (patch: Partial<CaptureSettings>) => void;
+  resetCapture: () => void;
   captures: Capture[];
   addCapture: (c: Capture) => void;
   removeCapture: (id: string) => void;
@@ -1167,23 +1213,9 @@ export const useStore = create<State>()(
   setRestoringAssets: (p) => set({ restoringAssets: p }),
 
   // capture
-  capture: {
-    width: 640,
-    height: 480,
-    camPos: [3.5, 3, 3.5],
-    camTarget: [0, 0.5, 0],
-    fov: 45,
-    randomizeCamera: true,
-    randomizeLighting: true,
-    randomizeObjects: false,
-    batchCount: 10,
-    lightIntensity: 1.1,
-    envRotation: 0,
-    cameraTrajectory: 'random',
-    trajectoryRadius: 4,
-    trajectoryHeight: 2,
-  },
+  capture: createDefaultCaptureSettings(),
   setCapture: (patch) => set((s) => ({ capture: { ...s.capture, ...patch } })),
+  resetCapture: () => set({ capture: createDefaultCaptureSettings() }),
   captures: [],
   addCapture: (c) => set((s) => ({ captures: [...s.captures, c] })),
   removeCapture: (id) =>

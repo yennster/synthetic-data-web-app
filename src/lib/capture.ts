@@ -249,7 +249,7 @@ export async function saveBlob(filename: string, blob: Blob): Promise<void> {
 /**
  * Edge Impulse `bounding_boxes.labels` sidecar format. Used by the Studio
  * during data acquisition / upload.
- * https://docs.edgeimpulse.com/docs/edge-impulse-studio/data-acquisition/uploader#bounding-boxes
+ * https://docs.edgeimpulse.com/studio/projects/data-acquisition/uploader#bounding-boxes
  */
 export function buildBoundingBoxLabelsFile(
   captures: Capture[],
