@@ -56,7 +56,11 @@ const MIME = {
 const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
-  'Permissions-Policy': 'camera=(self), microphone=(), geolocation=()',
+  // camera=* (not camera=(self)) so a cross-origin parent can delegate
+  // camera to this app's iframe via <iframe allow="camera">. The user
+  // still has to grant the permission in the browser prompt; this just
+  // unblocks the iframe permission inheritance.
+  'Permissions-Policy': 'camera=*, microphone=(), geolocation=()',
   'Content-Security-Policy': [
     "default-src 'self'",
     "img-src 'self' blob: data:",
@@ -89,7 +93,7 @@ const SECURITY_HEADERS = {
     "script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval' 'unsafe-inline' blob: https://va.vercel-scripts.com https://cdn.jsdelivr.net",
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self' data:",
-    "connect-src 'self' https://*.edgeimpulse.com https://api-inference.huggingface.co https://va.vercel-scripts.com https://*.vercel-insights.com https://cdn.jsdelivr.net https://storage.googleapis.com https://raw.githubusercontent.com",
+    "connect-src 'self' https://*.edgeimpulse.com https://api-inference.huggingface.co https://va.vercel-scripts.com https://*.vercel-insights.com https://cdn.jsdelivr.net https://storage.googleapis.com",
     "worker-src 'self' blob:",
     "object-src 'none'",
     "base-uri 'self'",

@@ -442,6 +442,18 @@ function PinchMarker() {
   );
 }
 
+// Same HDR file drei's `preset="warehouse"` would load by default, but
+// served from jsdelivr's GitHub mirror instead of `raw.githubusercontent.com`.
+// raw.githubusercontent.com doesn't send `Cross-Origin-Resource-Policy`,
+// so under our `COEP: credentialless` (required for OpenUSD's
+// SharedArrayBuffer) the HDR fetch fails with "Load failed" — independent
+// of CSP. jsdelivr mirrors the same git ref AND sends `CORP: cross-origin`,
+// so the same file loads cleanly under COEP credentialless. Keep this URL
+// pinned to the same commit drei uses internally; if drei updates its
+// asset ref, bump the SHA here to stay in sync.
+const WAREHOUSE_HDR_URL =
+  'https://cdn.jsdelivr.net/gh/pmndrs/drei-assets@456060a26bbeb8fdf79326f224b6d99b8bcce736/hdri/empty_warehouse_01_1k.hdr';
+
 // Env + key light driven by store so batch capture can randomize them.
 function SceneLighting() {
   const intensity = useStore((s) => s.capture.lightIntensity);
@@ -466,7 +478,7 @@ function SceneLighting() {
         shadow-camera-top={10}
         shadow-camera-bottom={-10}
       />
-      <Environment preset="warehouse" environmentIntensity={0.7} />
+      <Environment files={WAREHOUSE_HDR_URL} environmentIntensity={0.7} />
     </>
   );
 }
