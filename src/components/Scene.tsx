@@ -1,5 +1,6 @@
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { ContactShadows } from '@react-three/drei/core/ContactShadows.js';
+import { Environment } from '@react-three/drei/core/Environment.js';
 import { Grid } from '@react-three/drei/core/Grid.js';
 import { OrbitControls } from '@react-three/drei/core/OrbitControls.js';
 import { SoftShadows } from '@react-three/drei/core/softShadows.js';
@@ -442,22 +443,12 @@ function PinchMarker() {
 }
 
 // Env + key light driven by store so batch capture can randomize them.
-//
-// Note: drei's `<Environment preset="…">` was removed here because it
-// fetches the HDR from `raw.githack.com`, which the production CSP
-// (`connect-src 'self' …edgeimpulse… …huggingface… …vercel…`) blocks.
-// On a fresh client the fetch errors, drei's loader throws inside
-// Suspense, and without a tree-level error boundary React unmounts —
-// the "UI flashes then black screen" regression. Ambient + directional
-// + the procedural skybox installed by SceneEnvironment already light
-// the scene; we lose a touch of IBL polish on shiny materials in
-// exchange for working offline / under strict CSP.
 function SceneLighting() {
   const intensity = useStore((s) => s.capture.lightIntensity);
   const envRot = useStore((s) => s.capture.envRotation);
   return (
     <>
-      <ambientLight intensity={0.55} />
+      <ambientLight intensity={0.35} />
       <directionalLight
         position={[
           5 * Math.cos(envRot),
@@ -475,6 +466,7 @@ function SceneLighting() {
         shadow-camera-top={10}
         shadow-camera-bottom={-10}
       />
+      <Environment preset="warehouse" environmentIntensity={0.7} />
     </>
   );
 }
