@@ -181,6 +181,69 @@ https://synthetic.jennyspeelman.dev/?apiKey=ei_abc123&eiCategory=split&autoUploa
 
 Unknown values are dropped silently — the app falls back to whatever was stored or the built-in default. Values are case-insensitive.
 
+## Embedding in an iframe
+
+The app is designed to be iframed from any origin (`frame-ancestors *`). Drop this into any page:
+
+```html
+<iframe
+  src="https://synthetic.jennyspeelman.dev/?embed=1&mode=detection&env=outdoor"
+  allow="camera; autoplay; fullscreen; cross-origin-isolated"
+  width="1200"
+  height="800"
+  style="border: 0; border-radius: 8px;">
+</iframe>
+```
+
+What each `allow` token enables:
+
+| Token | Why it's needed |
+| --- | --- |
+| `camera` | Motion-mode hand tracking needs the webcam. Without this, the parent can't delegate camera access to the iframe and `getUserMedia` fails. |
+| `autoplay` | The webcam `<video>.play()` call gets silently rejected in cross-origin iframes unless autoplay is delegated. |
+| `fullscreen` | Lets the parent offer an "expand the 3D canvas" control via `Element.requestFullscreen()`. |
+| `cross-origin-isolated` | Required for USDZ import to work inside the iframe (see below). Omit if you don't care about USDZ. |
+
+The user still gets the normal browser permission prompt for the webcam on first use — `allow="camera"` just unblocks the iframe-permission inheritance, it doesn't auto-grant.
+
+### USDZ import inside the iframe
+
+USDZ import uses `SharedArrayBuffer` (via OpenUSD's WASM), which only works when the iframe is **cross-origin-isolated**. For that, three things have to line up:
+
+1. **The iframe response** sends `COOP: same-origin` + `COEP: credentialless` + `CORP: cross-origin`. Already shipped.
+2. **The parent page** is itself cross-origin-isolated — set these headers on the parent's response:
+   ```
+   Cross-Origin-Opener-Policy: same-origin
+   Cross-Origin-Embedder-Policy: credentialless
+   ```
+3. **The parent delegates COI to us** via the `allow="cross-origin-isolated"` token in the example above. The browser default for cross-origin iframes is `cross-origin-isolated=(self)`, which excludes us unless the parent opts in.
+
+Drop any of (2) or (3) and USDZ import fails with `SharedArrayBuffer transfer requires self.crossOriginIsolated`. Everything else (object/anomaly capture, hand tracking, batch upload to Edge Impulse) keeps working — only USDZ needs COI.
+
+### Iframe URL recipes
+
+```html
+<!-- Locked-down "object detection only" embed, outdoor env, 20-shot batch -->
+<iframe
+  src="https://synthetic.jennyspeelman.dev/?onlyMode=detection&embed=1&env=outdoor&batchCount=20&seed=42"
+  allow="camera; autoplay; fullscreen"
+  width="1200" height="800"></iframe>
+
+<!-- Pre-authed embed that uploads straight to your EI project -->
+<iframe
+  src="https://synthetic.jennyspeelman.dev/?embed=1&apiKey=ei_abc123&autoUpload=1"
+  allow="camera; autoplay; fullscreen"
+  width="1200" height="800"></iframe>
+
+<!-- Motion-mode demo with a fixed theme and chrome stripped -->
+<iframe
+  src="https://synthetic.jennyspeelman.dev/?mode=motion&embed=1&theme=light&gizmos=0"
+  allow="camera; autoplay; fullscreen"
+  width="1200" height="800"></iframe>
+```
+
+Full URL-parameter reference: [docs/url-parameters.md](docs/url-parameters.md). Background on the cross-origin-isolation chain: [docs/usdz.md#cross-origin-isolation-requirement](docs/usdz.md#cross-origin-isolation-requirement).
+
 ## Privacy notes
 
 - The webcam stream **never leaves the browser** in any mode. MediaPipe runs locally; only data you explicitly capture/upload is sent anywhere.
