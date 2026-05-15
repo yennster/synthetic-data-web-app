@@ -1,5 +1,6 @@
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { ContactShadows } from '@react-three/drei/core/ContactShadows.js';
+import { Environment } from '@react-three/drei/core/Environment.js';
 import { Grid } from '@react-three/drei/core/Grid.js';
 import { OrbitControls } from '@react-three/drei/core/OrbitControls.js';
 import { SoftShadows } from '@react-three/drei/core/softShadows.js';
@@ -441,23 +442,25 @@ function PinchMarker() {
   );
 }
 
+// Same HDR file drei's `preset="warehouse"` would load by default, but
+// from jsdelivr's GitHub mirror instead of `raw.githubusercontent.com`.
+// raw.githubusercontent.com doesn't send `Cross-Origin-Resource-Policy`,
+// so under our `COEP: credentialless` (required for OpenUSD's
+// SharedArrayBuffer, which we keep enabled for USDZ import) the HDR
+// fetch fails with "Load failed". jsdelivr mirrors the same git ref AND
+// sends `CORP: cross-origin`, so the same file loads cleanly. Keep this
+// URL pinned to the same commit drei uses internally; if drei updates
+// its asset ref, bump the SHA here to stay in sync.
+const WAREHOUSE_HDR_URL =
+  'https://cdn.jsdelivr.net/gh/pmndrs/drei-assets@456060a26bbeb8fdf79326f224b6d99b8bcce736/hdri/empty_warehouse_01_1k.hdr';
+
 // Env + key light driven by store so batch capture can randomize them.
-//
-// Note: drei's `<Environment preset="…">` was removed here because it
-// fetches the HDR from `raw.githack.com`, which the production CSP
-// (`connect-src 'self' …edgeimpulse… …huggingface… …vercel…`) blocks.
-// On a fresh client the fetch errors, drei's loader throws inside
-// Suspense, and without a tree-level error boundary React unmounts —
-// the "UI flashes then black screen" regression. Ambient + directional
-// + the procedural skybox installed by SceneEnvironment already light
-// the scene; we lose a touch of IBL polish on shiny materials in
-// exchange for working offline / under strict CSP.
 function SceneLighting() {
   const intensity = useStore((s) => s.capture.lightIntensity);
   const envRot = useStore((s) => s.capture.envRotation);
   return (
     <>
-      <ambientLight intensity={0.55} />
+      <ambientLight intensity={0.35} />
       <directionalLight
         position={[
           5 * Math.cos(envRot),
@@ -475,6 +478,7 @@ function SceneLighting() {
         shadow-camera-top={10}
         shadow-camera-bottom={-10}
       />
+      <Environment files={WAREHOUSE_HDR_URL} environmentIntensity={0.7} />
     </>
   );
 }

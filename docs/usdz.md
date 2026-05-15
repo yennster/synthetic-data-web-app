@@ -102,3 +102,11 @@ The Vite dev server is preconfigured to send these. If you self-host the product
 - **Netlify / Cloudflare Pages** — pick up the `_headers` file shipped in the build output automatically.
 - **Vercel** — uses the `vercel.json` at the repo root. The committed copy already maps both headers to every path. (Note: Vercel does **not** read `_headers`, so the `_headers` file alone won't work there.)
 - **Other static hosts (Caddy, nginx, S3+CloudFront)** — set the two headers via your host's config.
+
+**Iframe embedders:** USDZ import inside an iframe needs three things working together — drop any one and you get `SharedArrayBuffer transfer requires self.crossOriginIsolated`:
+
+1. **Our iframe response** sends `COOP: same-origin` + `COEP: credentialless` + `CORP: cross-origin`. Already shipped.
+2. **The parent page itself is cross-origin-isolated** — its own response has `COOP: same-origin` and `COEP: credentialless` or `require-corp`. If the parent isn't COI, the iframe can't be COI either (this is a chain property, not a per-document one).
+3. **The parent delegates COI to the iframe** via `<iframe allow="cross-origin-isolated; camera; autoplay; fullscreen" src="…">`. The default Permissions-Policy for `cross-origin-isolated` is `(self)`, which excludes cross-origin iframes — so without the explicit `allow=` attribute, even a COI parent won't propagate isolation to us.
+
+If any of (2) or (3) is missing, USDZ import fails. Everything else in the app (object/anomaly capture, hand tracking, EI uploads, motion mode) still works fine without COI — only USDZ needs `SharedArrayBuffer`.

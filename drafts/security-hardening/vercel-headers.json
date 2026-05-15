@@ -1,0 +1,21 @@
+{
+  "$comment": "Paused defensive headers. Paste these `headers` entries into the `/(.*)` source block of vercel.json (alongside the active COOP/COEP/CORP block) to re-enable the strict security posture. The /assets/(.*) cache-control entry stays separate.",
+  "headers": [
+    {
+      "key": "X-Content-Type-Options",
+      "value": "nosniff"
+    },
+    {
+      "key": "Referrer-Policy",
+      "value": "strict-origin-when-cross-origin"
+    },
+    {
+      "key": "Permissions-Policy",
+      "value": "camera=*, autoplay=*, fullscreen=*, microphone=(), geolocation=()"
+    },
+    {
+      "key": "Content-Security-Policy",
+      "value": "default-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval' 'unsafe-inline' blob: https://va.vercel-scripts.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' https://*.edgeimpulse.com https://api-inference.huggingface.co https://va.vercel-scripts.com https://*.vercel-insights.com https://cdn.jsdelivr.net https://storage.googleapis.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors *"
+    }
+  ]
+}

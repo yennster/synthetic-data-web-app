@@ -8,8 +8,15 @@
 //   --port <n>   Listen on this port (default 5173, or $PORT)
 //   --host <h>   Bind to this host (default 127.0.0.1 — pass 0.0.0.0 to
 //                expose on the LAN)
-//   --no-coep    Disable cross-origin-isolation headers (USDZ import will not
-//                work, but everything else does)
+//   --no-coep    Disable cross-origin-isolation headers (USDZ import will
+//                not work but everything else does)
+//
+// Note: the strict defensive-headers block (CSP, Permissions-Policy,
+// X-Content-Type-Options, Referrer-Policy) is paused — see
+// drafts/security-hardening/ for the parked configuration. The COOP /
+// COEP / CORP headers below stayed because they're functional
+// requirements for SharedArrayBuffer (USDZ import), not defensive
+// overlays.
 
 import { createServer } from 'node:http';
 import { readFile, realpath, stat } from 'node:fs/promises';
@@ -34,6 +41,22 @@ const PORT = parseInt(arg('--port', process.env.PORT || '5173'), 10);
 const HOST = arg('--host', process.env.HOST || '127.0.0.1');
 const COEP = !args.includes('--no-coep');
 
+// Cross-origin isolation headers — required for SharedArrayBuffer (which
+// the OpenUSD WASM in `three-usdz-loader` needs for USDZ import).
+// `credentialless` is more permissive than `require-corp` and lets the
+// MediaPipe CDN load without setting CORP on every response.
+// CORP: cross-origin lets cross-origin iframe parents under strict
+// COEP embed this app.
+const COI_HEADERS = COEP
+  ? {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'credentialless',
+      'Cross-Origin-Resource-Policy': 'cross-origin',
+    }
+  : {
+      'Cross-Origin-Resource-Policy': 'cross-origin',
+    };
+
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'application/javascript',
@@ -50,73 +73,6 @@ const MIME = {
   '.task': 'application/octet-stream',
   '.map': 'application/json',
 };
-
-// Defense-in-depth response headers. CSP allows the WASM eval that the
-// OpenUSD + MuJoCo runtimes need; everything else stays on `'self'`.
-const SECURITY_HEADERS = {
-  'X-Content-Type-Options': 'nosniff',
-  'Referrer-Policy': 'strict-origin-when-cross-origin',
-  'Permissions-Policy': 'camera=(self), microphone=(), geolocation=()',
-  'Content-Security-Policy': [
-    "default-src 'self'",
-    "img-src 'self' blob: data:",
-    "media-src 'self' blob:",
-    // cdn.jsdelivr.net hosts the MediaPipe `tasks-vision` WASM loader
-    // that hand tracking calls via FilesetResolver. The loader script
-    // is fetched as code, so it needs script-src too — not just
-    // connect-src. storage.googleapis.com hosts the hand-landmarker
-    // model file (fetched as bytes only).
-    //
-    // 'unsafe-eval' is required by the @mujoco/mujoco Emscripten
-    // runtime, which uses `new Function(...)` for dynamic dispatch
-    // during init. 'wasm-unsafe-eval' alone covers WebAssembly
-    // compilation but not JS eval, so without 'unsafe-eval' MuJoCo
-    // refuses to load and Motion mode's cube physics is silently
-    // broken.
-    //
-    // 'unsafe-inline' is required because `index.html` runs two pre-
-    // paint bootstrap blocks inline (theme persistence + ?clearStore
-    // handler) that must execute synchronously before any module
-    // loads. Without it, the page reloads in dark mode briefly even
-    // when the user's persisted theme is light.
-    //
-    // blob: is required so `eiModel.ts` can dynamically `import()` a
-    // blob URL containing the user's Edge Impulse model JS (ESM
-    // fallback path C). Without it, ESM-style models silently fail.
-    //
-    // All three are tradeoffs against the original strict CSP but are
-    // necessary for the features this app actually ships.
-    "script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval' 'unsafe-inline' blob: https://va.vercel-scripts.com https://cdn.jsdelivr.net",
-    "style-src 'self' 'unsafe-inline'",
-    "font-src 'self' data:",
-    "connect-src 'self' https://*.edgeimpulse.com https://api-inference.huggingface.co https://va.vercel-scripts.com https://*.vercel-insights.com https://cdn.jsdelivr.net https://storage.googleapis.com",
-    "worker-src 'self' blob:",
-    "object-src 'none'",
-    "base-uri 'self'",
-    // The app ships a documented `?embed=1` mode (see
-    // docs/url-parameters.md) for being iframed from external sites.
-    // `frame-ancestors 'self'` would block every cross-origin
-    // embedder. Use `*` so the documented embed feature works; tighten
-    // to a specific allowlist if/when the set of embedders is known.
-    "frame-ancestors *",
-  ].join('; '),
-};
-
-const HEADERS = COEP
-  ? {
-      'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'credentialless',
-      // Lets a cross-origin parent with `Cross-Origin-Embedder-Policy:
-      // require-corp` embed this app in an iframe. Without it, strict-
-      // COEP parents would block the iframe entirely. Paired with the
-      // `frame-ancestors *` CSP for the documented `?embed=1` mode.
-      'Cross-Origin-Resource-Policy': 'cross-origin',
-      ...SECURITY_HEADERS,
-    }
-  : {
-      'Cross-Origin-Resource-Policy': 'cross-origin',
-      ...SECURITY_HEADERS,
-    };
 
 try {
   // realpath() throws when missing — same effect as the old stat() probe,
@@ -189,7 +145,7 @@ const server = createServer(async (req, res) => {
     res.writeHead(200, {
       'Content-Type': MIME[ext] || 'application/octet-stream',
       'Cache-Control': cacheControlFor(urlPath),
-      ...HEADERS,
+      ...COI_HEADERS,
     });
     res.end(data);
   } catch {
@@ -199,7 +155,7 @@ const server = createServer(async (req, res) => {
       res.writeHead(200, {
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'no-cache',
-        ...HEADERS,
+        ...COI_HEADERS,
       });
       res.end(data);
     } catch {

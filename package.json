@@ -49,6 +49,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:iframe": "node scripts/test-iframe-embed.mjs",
     "postinstall": "node scripts/setup-usdz-wasm.mjs",
     "prepublishOnly": "npm run build"
   },

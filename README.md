@@ -2,6 +2,7 @@
 
 [![Release](https://img.shields.io/github/v/release/yennster/synthetic-data-studio?label=release&color=5eead4)](https://github.com/yennster/synthetic-data-studio/releases)
 [![Tests](https://img.shields.io/github/actions/workflow/status/yennster/synthetic-data-studio/test.yml?label=tests&logo=vitest&logoColor=fff)](https://github.com/yennster/synthetic-data-studio/actions/workflows/test.yml)
+[![iframe embed](https://img.shields.io/github/actions/workflow/status/yennster/synthetic-data-studio/iframe-embed.yml?label=iframe%20embed)](https://github.com/yennster/synthetic-data-studio/actions/workflows/iframe-embed.yml)
 [![CI](https://img.shields.io/github/actions/workflow/status/yennster/synthetic-data-studio/release.yml?label=release%20pipeline)](https://github.com/yennster/synthetic-data-studio/actions/workflows/release.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/yennster/synthetic-data-studio?style=flat&color=f59e0b)](https://github.com/yennster/synthetic-data-studio/stargazers)
@@ -113,6 +114,8 @@ npx @yennster/synthetic-data-studio
 
 Opens on http://localhost:5173 with COOP/COEP preconfigured. Add `--port 8080` to change port, `--no-coep` to disable cross-origin isolation (USDZ import will then fail but everything else works).
 
+> Note: the strict defensive headers (CSP, Permissions-Policy, X-Content-Type-Options, Referrer-Policy) are paused — see [drafts/security-hardening/README.md](drafts/security-hardening/README.md). COOP/COEP/CORP stayed because USDZ needs them. To re-enable the defensive block on your self-host, paste the relevant parked blocks into `vercel.json` / `bin/serve.mjs`.
+
 ### Option B — download the release zip
 
 Grab the latest `synthetic-data-studio-vX.Y.Z.zip` from [Releases](https://github.com/yennster/synthetic-data-studio/releases), unzip, and serve from any static host. The bundle includes a `_headers` file preconfigured for Netlify and Cloudflare Pages, and a `vercel.json` at the repo root for Vercel deployments — both wire up the cross-origin-isolation headers that the USDZ WASM loader needs.
@@ -179,6 +182,71 @@ https://synthetic.jennyspeelman.dev/?apiKey=ei_abc123&eiCategory=split&autoUploa
 
 Unknown values are dropped silently — the app falls back to whatever was stored or the built-in default. Values are case-insensitive.
 
+## Embedding in an iframe
+
+The app is designed to be iframed from any origin (`frame-ancestors *`). Drop this into any page:
+
+```html
+<iframe
+  src="https://synthetic.jennyspeelman.dev/"
+  allow="camera; autoplay; fullscreen; cross-origin-isolated"
+  width="1200"
+  height="800"
+  style="border: 0; border-radius: 8px;">
+</iframe>
+```
+
+Verified end-to-end by [`scripts/test-iframe-embed.mjs`](scripts/test-iframe-embed.mjs) — runs on every PR via the `iframe-embed` GitHub Action above. It spins up six cross-origin parent servers (plain HTML, COI parent with + without `cross-origin-isolated` delegation, a `studio.edgeimpulse.com` header mimic with + without COI, and a sandboxed iframe) and asserts whether the iframe is COI, `SharedArrayBuffer` is available, and the 3D canvas mounts in each case. Run locally with `npm run test:iframe`. The recipes below are variations on this base embed — only the URL query string changes.
+
+What each `allow` token enables:
+
+| Token | Why it's needed |
+| --- | --- |
+| `camera` | Motion-mode hand tracking needs the webcam. Without this, the parent can't delegate camera access to the iframe and `getUserMedia` fails. |
+| `autoplay` | The webcam `<video>.play()` call gets silently rejected in cross-origin iframes unless autoplay is delegated. |
+| `fullscreen` | Lets the parent offer an "expand the 3D canvas" control via `Element.requestFullscreen()`. |
+| `cross-origin-isolated` | Required for USDZ import to work inside the iframe (see below). Omit if you don't care about USDZ. |
+
+The user still gets the normal browser permission prompt for the webcam on first use — `allow="camera"` just unblocks the iframe-permission inheritance, it doesn't auto-grant.
+
+### USDZ import inside the iframe
+
+USDZ import uses `SharedArrayBuffer` (via OpenUSD's WASM), which only works when the iframe is **cross-origin-isolated**. For that, three things have to line up:
+
+1. **The iframe response** sends `COOP: same-origin` + `COEP: credentialless` + `CORP: cross-origin`. Already shipped.
+2. **The parent page** is itself cross-origin-isolated — set these headers on the parent's response:
+   ```
+   Cross-Origin-Opener-Policy: same-origin
+   Cross-Origin-Embedder-Policy: credentialless
+   ```
+3. **The parent delegates COI to us** via the `allow="cross-origin-isolated"` token in the example above. The browser default for cross-origin iframes is `cross-origin-isolated=(self)`, which excludes us unless the parent opts in.
+
+Drop any of (2) or (3) and USDZ import fails with `SharedArrayBuffer transfer requires self.crossOriginIsolated`. Everything else (object/anomaly capture, hand tracking, batch upload to Edge Impulse) keeps working — only USDZ needs COI.
+
+### Iframe URL recipes
+
+```html
+<!-- Locked-down "object detection only" embed, outdoor env, 20-shot batch -->
+<iframe
+  src="https://synthetic.jennyspeelman.dev/?onlyMode=detection&embed=1&env=outdoor&batchCount=20&seed=42"
+  allow="camera; autoplay; fullscreen"
+  width="1200" height="800"></iframe>
+
+<!-- Pre-authed embed that uploads straight to your EI project -->
+<iframe
+  src="https://synthetic.jennyspeelman.dev/?embed=1&apiKey=ei_abc123&autoUpload=1"
+  allow="camera; autoplay; fullscreen"
+  width="1200" height="800"></iframe>
+
+<!-- Motion-mode demo with a fixed theme and chrome stripped -->
+<iframe
+  src="https://synthetic.jennyspeelman.dev/?mode=motion&embed=1&theme=light&gizmos=0"
+  allow="camera; autoplay; fullscreen"
+  width="1200" height="800"></iframe>
+```
+
+Full URL-parameter reference: [docs/url-parameters.md](docs/url-parameters.md). Background on the cross-origin-isolation chain: [docs/usdz.md#cross-origin-isolation-requirement](docs/usdz.md#cross-origin-isolation-requirement).
+
 ## Privacy notes
 
 - The webcam stream **never leaves the browser** in any mode. MediaPipe runs locally; only data you explicitly capture/upload is sent anywhere.
@@ -199,14 +267,32 @@ Unknown values are dropped silently — the app falls back to whatever was store
 ## Testing
 
 ```bash
-npm test               # one-shot run (CI mode)
+npm test               # one-shot vitest run (CI mode)
 npm run test:watch     # interactive watch mode
 npm run test:coverage  # with v8 coverage report
+npm run test:iframe    # all 6 iframe-embed scenarios (requires `npm run dev` running on :5173)
 ```
 
 Stack: **Vitest** + **happy-dom**. Pure-logic libraries (`handMath`, `beltDynamics`, `capture` helpers, `edgeImpulse` payload + HMAC + `info.labels`, arm pickup geometry / outcome metadata, store transitions, theme state, zip read/write, URL-param parsing) are covered, along with the MuJoCo MJCF generators (`braccioMjcf`, `roverMjcf`, `motionMjcf`) and the shared IMU sampler. The MediaPipe / OpenUSD / Rapier / MuJoCo WASM runtimes are stubbed in test config since they're browser-runtime-only — those are exercised in the headless screenshot script and end-to-end manual testing.
 
-A GitHub Actions workflow ([`.github/workflows/test.yml`](.github/workflows/test.yml)) runs `tsc --noEmit` + `npm test` on every push to `main` and every PR.
+### Iframe-embed scenarios
+
+`npm run test:iframe` spins up six cross-origin parent servers and drives a headless Chrome through each one, asserting `crossOriginIsolated`, `SharedArrayBuffer` availability, and that the 3D canvas mounts. Run one scenario by name:
+
+```bash
+npm run test:iframe -- studio-edgeimpulse-mimic
+```
+
+| Scenario | Parent posture |
+| --- | --- |
+| `plain-parent` | No security headers — minimal embedder. |
+| `coi-parent-delegates` | COOP+COEP + `allow="cross-origin-isolated"` — USDZ-ready chain. |
+| `coi-parent-no-delegation` | COI parent missing the `allow=` token — should not propagate isolation. |
+| `studio-edgeimpulse-mimic` | Mimics real `studio.edgeimpulse.com` headers (CSP, X-Content-Type-Options, X-Frame-Options, Referrer-Policy — no COOP/COEP). |
+| `studio-edgeimpulse-with-coi` | Studio-like CSP + the COOP/COEP it would need to add for USDZ inside its iframe. |
+| `sandboxed-iframe` | `<iframe sandbox>` with the typical relaxations a security-conscious embedder sets. |
+
+Two GitHub Actions workflows run on every push + PR: [`.github/workflows/test.yml`](.github/workflows/test.yml) runs `tsc --noEmit` + `npm test`, [`.github/workflows/iframe-embed.yml`](.github/workflows/iframe-embed.yml) runs the six iframe scenarios end-to-end.
 
 ## Build for production
 
@@ -221,6 +307,6 @@ Regenerate the main screenshots with `npm run screenshot -- all` and the sidebar
 
 ## License
 
-[Apache-2.0](LICENSE) — permissive open source. You can use, modify, and redistribute this code commercially, including as a service, provided you keep the copyright notice and `NOTICE` file (if any). Includes an explicit patent grant.
+[Apache-2.0](LICENSE) — permissive open source. You can use, modify, and redistribute this code commercially, including as a service, provided you keep the copyright notice and `NOTICE` file (if any).
 
 Note: this project depends on [`@needle-tools/usd`](https://www.npmjs.com/package/@needle-tools/usd) for USDZ rendering, which is **not** Apache-licensed and asks you to contact `hi@needle.tools` for commercial use of *that* package. That obligation is between you and Needle and does not affect the Apache-2.0 grant on the code in this repository.
