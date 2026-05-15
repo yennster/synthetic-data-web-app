@@ -187,13 +187,15 @@ The app is designed to be iframed from any origin (`frame-ancestors *`). Drop th
 
 ```html
 <iframe
-  src="https://synthetic.jennyspeelman.dev/?embed=1&mode=detection&env=outdoor"
+  src="https://synthetic.jennyspeelman.dev/"
   allow="camera; autoplay; fullscreen; cross-origin-isolated"
   width="1200"
   height="800"
   style="border: 0; border-radius: 8px;">
 </iframe>
 ```
+
+Verified end-to-end: `npm run test:iframe` spins up a cross-origin parent server, embeds the app, and asserts the iframe is cross-origin-isolated, `SharedArrayBuffer` is available, and the 3D canvas mounts. The recipes below are variations on this base embed — only the URL query string changes.
 
 What each `allow` token enables:
 

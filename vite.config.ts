@@ -17,6 +17,10 @@ export default defineConfig({
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'credentialless',
+      // Match production (vercel.json + bin/serve.mjs). Without CORP, a
+      // cross-origin parent with strict COEP can't iframe the dev build,
+      // and scripts/test-iframe-embed.mjs can't validate the embed flow.
+      'Cross-Origin-Resource-Policy': 'cross-origin',
     },
   },
   optimizeDeps: {

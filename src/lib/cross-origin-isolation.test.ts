@@ -35,13 +35,16 @@ describe('Cross-origin isolation headers (USDZ functional requirement)', () => {
     expect(byKey['Cross-Origin-Resource-Policy']).toBe('cross-origin');
   });
 
-  it('vite.config.ts dev server sends COOP and COEP', () => {
+  it('vite.config.ts dev server sends COOP, COEP, and CORP', () => {
     const src = readFileSync(join(repoRoot, 'vite.config.ts'), 'utf-8');
     expect(src).toMatch(
       /'Cross-Origin-Opener-Policy':\s*'same-origin'/,
     );
     expect(src).toMatch(
       /'Cross-Origin-Embedder-Policy':\s*'credentialless'/,
+    );
+    expect(src).toMatch(
+      /'Cross-Origin-Resource-Policy':\s*'cross-origin'/,
     );
   });
 
