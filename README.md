@@ -267,14 +267,32 @@ Full URL-parameter reference: [docs/url-parameters.md](docs/url-parameters.md). 
 ## Testing
 
 ```bash
-npm test               # one-shot run (CI mode)
+npm test               # one-shot vitest run (CI mode)
 npm run test:watch     # interactive watch mode
 npm run test:coverage  # with v8 coverage report
+npm run test:iframe    # all 6 iframe-embed scenarios (requires `npm run dev` running on :5173)
 ```
 
 Stack: **Vitest** + **happy-dom**. Pure-logic libraries (`handMath`, `beltDynamics`, `capture` helpers, `edgeImpulse` payload + HMAC + `info.labels`, arm pickup geometry / outcome metadata, store transitions, theme state, zip read/write, URL-param parsing) are covered, along with the MuJoCo MJCF generators (`braccioMjcf`, `roverMjcf`, `motionMjcf`) and the shared IMU sampler. The MediaPipe / OpenUSD / Rapier / MuJoCo WASM runtimes are stubbed in test config since they're browser-runtime-only — those are exercised in the headless screenshot script and end-to-end manual testing.
 
-A GitHub Actions workflow ([`.github/workflows/test.yml`](.github/workflows/test.yml)) runs `tsc --noEmit` + `npm test` on every push to `main` and every PR.
+### Iframe-embed scenarios
+
+`npm run test:iframe` spins up six cross-origin parent servers and drives a headless Chrome through each one, asserting `crossOriginIsolated`, `SharedArrayBuffer` availability, and that the 3D canvas mounts. Run one scenario by name:
+
+```bash
+npm run test:iframe -- studio-edgeimpulse-mimic
+```
+
+| Scenario | Parent posture |
+| --- | --- |
+| `plain-parent` | No security headers — minimal embedder. |
+| `coi-parent-delegates` | COOP+COEP + `allow="cross-origin-isolated"` — USDZ-ready chain. |
+| `coi-parent-no-delegation` | COI parent missing the `allow=` token — should not propagate isolation. |
+| `studio-edgeimpulse-mimic` | Mimics real `studio.edgeimpulse.com` headers (CSP, X-Content-Type-Options, X-Frame-Options, Referrer-Policy — no COOP/COEP). |
+| `studio-edgeimpulse-with-coi` | Studio-like CSP + the COOP/COEP it would need to add for USDZ inside its iframe. |
+| `sandboxed-iframe` | `<iframe sandbox>` with the typical relaxations a security-conscious embedder sets. |
+
+Two GitHub Actions workflows run on every push + PR: [`.github/workflows/test.yml`](.github/workflows/test.yml) runs `tsc --noEmit` + `npm test`, [`.github/workflows/iframe-embed.yml`](.github/workflows/iframe-embed.yml) runs the six iframe scenarios end-to-end.
 
 ## Build for production
 
