@@ -1,0 +1,82 @@
+name: iframe-embed
+
+# Exhaustive iframe-embedding verification. Spins up the dev server,
+# then runs scripts/test-iframe-embed.mjs which exercises six embedder
+# configurations against a headless Chrome (plain parent, COI parent
+# with + without `cross-origin-isolated` delegation, a studio.edgeimpulse.com
+# header mimic with + without COI, and a sandboxed iframe). Each
+# scenario asserts crossOriginIsolated, SharedArrayBuffer availability,
+# and that the app actually renders inside the iframe.
+#
+# Catches: COOP/COEP regression on any of the three surfaces (Vite dev
+# server, vercel.json, bin/serve.mjs), CORP missing, frame-ancestors
+# regression, accidental Permissions-Policy lockdown that breaks
+# camera/autoplay/fullscreen delegation, Scene.tsx HDR URL reverted to
+# a non-CORP host.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  iframe-embed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          NPM_CONFIG_LEGACY_PEER_DEPS: 'true'
+
+      - name: Install Chrome for puppeteer
+        id: setup-chrome
+        uses: browser-actions/setup-chrome@v2
+
+      - name: Start dev server
+        run: |
+          npm run dev > /tmp/dev-server.log 2>&1 &
+          echo $! > /tmp/dev-server.pid
+
+      - name: Wait for dev server (http://localhost:5173)
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:5173/ > /dev/null 2>&1; then
+              echo "Dev server ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::Dev server did not become ready in 60s"
+          echo "--- dev-server.log ---"
+          cat /tmp/dev-server.log || true
+          exit 1
+
+      - name: Run iframe-embed scenarios
+        env:
+          CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+          CI: 'true'
+        run: npm run test:iframe
+
+      - name: Dump dev-server log on failure
+        if: failure()
+        run: |
+          echo "--- dev-server.log ---"
+          cat /tmp/dev-server.log || true
+
+      - name: Stop dev server
+        if: always()
+        run: |
+          if [ -f /tmp/dev-server.pid ]; then
+            kill "$(cat /tmp/dev-server.pid)" 2>/dev/null || true
+          fi

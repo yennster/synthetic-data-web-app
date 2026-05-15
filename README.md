@@ -2,6 +2,7 @@
 
 [![Release](https://img.shields.io/github/v/release/yennster/synthetic-data-studio?label=release&color=5eead4)](https://github.com/yennster/synthetic-data-studio/releases)
 [![Tests](https://img.shields.io/github/actions/workflow/status/yennster/synthetic-data-studio/test.yml?label=tests&logo=vitest&logoColor=fff)](https://github.com/yennster/synthetic-data-studio/actions/workflows/test.yml)
+[![iframe embed](https://img.shields.io/github/actions/workflow/status/yennster/synthetic-data-studio/iframe-embed.yml?label=iframe%20embed)](https://github.com/yennster/synthetic-data-studio/actions/workflows/iframe-embed.yml)
 [![CI](https://img.shields.io/github/actions/workflow/status/yennster/synthetic-data-studio/release.yml?label=release%20pipeline)](https://github.com/yennster/synthetic-data-studio/actions/workflows/release.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/yennster/synthetic-data-studio?style=flat&color=f59e0b)](https://github.com/yennster/synthetic-data-studio/stargazers)
@@ -195,7 +196,7 @@ The app is designed to be iframed from any origin (`frame-ancestors *`). Drop th
 </iframe>
 ```
 
-Verified end-to-end: `npm run test:iframe` spins up a cross-origin parent server, embeds the app, and asserts the iframe is cross-origin-isolated, `SharedArrayBuffer` is available, and the 3D canvas mounts. The recipes below are variations on this base embed — only the URL query string changes.
+Verified end-to-end by [`scripts/test-iframe-embed.mjs`](scripts/test-iframe-embed.mjs) — runs on every PR via the `iframe-embed` GitHub Action above. It spins up six cross-origin parent servers (plain HTML, COI parent with + without `cross-origin-isolated` delegation, a `studio.edgeimpulse.com` header mimic with + without COI, and a sandboxed iframe) and asserts whether the iframe is COI, `SharedArrayBuffer` is available, and the 3D canvas mounts in each case. Run locally with `npm run test:iframe`. The recipes below are variations on this base embed — only the URL query string changes.
 
 What each `allow` token enables:
 
