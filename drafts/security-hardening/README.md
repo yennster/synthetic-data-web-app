@@ -94,8 +94,9 @@ A parent that wants the full feature set should embed like this:
 </iframe>
 ```
 
-For USDZ import in the iframe, the parent must also set
-`Cross-Origin-Opener-Policy: same-origin` and
-`Cross-Origin-Embedder-Policy: credentialless` (or `require-corp`) on its
-own document — otherwise the iframe loses cross-origin isolation and
-SharedArrayBuffer becomes unavailable, breaking the OpenUSD WASM worker.
+For USDZ import in the iframe, the parent must additionally:
+
+1. Set `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: credentialless` (or `require-corp`) on its own document, **and**
+2. Delegate COI to the iframe via `allow="cross-origin-isolated; camera; autoplay; fullscreen"`. The default Permissions-Policy for `cross-origin-isolated` is `(self)` — cross-origin iframes are excluded unless the parent explicitly delegates.
+
+Drop either (1) or (2) and the iframe loses isolation, SharedArrayBuffer becomes unavailable, and the OpenUSD WASM worker fails with `SharedArrayBuffer transfer requires self.crossOriginIsolated`.
