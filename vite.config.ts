@@ -12,7 +12,8 @@ export default defineConfig({
     // Required for SharedArrayBuffer (used by the OpenUSD WASM runtime in
     // three-usdz-loader). `credentialless` is more permissive than
     // `require-corp` and doesn't require external resources (like the
-    // MediaPipe CDN) to set CORP headers.
+    // MediaPipe CDN) to set CORP headers. These are NOT defensive
+    // overlays — they're functional requirements for USDZ import.
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'credentialless',

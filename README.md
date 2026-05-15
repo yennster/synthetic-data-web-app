@@ -113,6 +113,8 @@ npx @yennster/synthetic-data-studio
 
 Opens on http://localhost:5173 with COOP/COEP preconfigured. Add `--port 8080` to change port, `--no-coep` to disable cross-origin isolation (USDZ import will then fail but everything else works).
 
+> Note: the strict defensive headers (CSP, Permissions-Policy, X-Content-Type-Options, Referrer-Policy) are paused — see [drafts/security-hardening/README.md](drafts/security-hardening/README.md). COOP/COEP/CORP stayed because USDZ needs them. To re-enable the defensive block on your self-host, paste the relevant parked blocks into `vercel.json` / `bin/serve.mjs`.
+
 ### Option B — download the release zip
 
 Grab the latest `synthetic-data-studio-vX.Y.Z.zip` from [Releases](https://github.com/yennster/synthetic-data-studio/releases), unzip, and serve from any static host. The bundle includes a `_headers` file preconfigured for Netlify and Cloudflare Pages, and a `vercel.json` at the repo root for Vercel deployments — both wire up the cross-origin-isolation headers that the USDZ WASM loader needs.

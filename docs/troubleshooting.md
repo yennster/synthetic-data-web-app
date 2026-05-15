@@ -4,7 +4,7 @@
 
 **Bounding boxes look wrong** — Make sure the object is fully on-screen in the virtual camera preview. Boxes are clipped at image edges, and very small / occluded objects are dropped.
 
-**USDZ import: "module could not initialize"** — the page isn't cross-origin-isolated. Check that your static host is sending `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: credentialless`. The dev server already does. **Vercel users**: make sure `vercel.json` is at the repo root (not just `_headers` in `public/` — Vercel doesn't read that file). You can verify with `curl -I https://your-deployment.vercel.app/` and look for both headers in the response. See [docs/usdz.md](usdz.md#cross-origin-isolation-requirement) for full host setup.
+**USDZ import: "module could not initialize"** — the page isn't cross-origin-isolated. Check that your static host is sending `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: credentialless`. The dev server already does. **Vercel users**: make sure `vercel.json` is at the repo root (not just `_headers` in `public/` — Vercel doesn't read that file). You can verify with `curl -I https://your-deployment.vercel.app/` and look for both headers in the response. **Iframe embedders**: the parent page must also be cross-origin-isolated, otherwise the iframe loses isolation and `SharedArrayBuffer` is unavailable. See [docs/usdz.md](usdz.md#cross-origin-isolation-requirement) for full host setup.
 
 **USDZ import: file imported but invisible** — the asset may have been auto-scaled too small; drag the **Scale** slider in its row, or check the **Y** position (e.g. lift it onto the belt at `y = 0.1`).
 

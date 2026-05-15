@@ -102,3 +102,5 @@ The Vite dev server is preconfigured to send these. If you self-host the product
 - **Netlify / Cloudflare Pages** — pick up the `_headers` file shipped in the build output automatically.
 - **Vercel** — uses the `vercel.json` at the repo root. The committed copy already maps both headers to every path. (Note: Vercel does **not** read `_headers`, so the `_headers` file alone won't work there.)
 - **Other static hosts (Caddy, nginx, S3+CloudFront)** — set the two headers via your host's config.
+
+**Iframe embedders:** if you want USDZ import to work inside an iframe embed of this app, your parent page must also be cross-origin-isolated (the parent itself needs `COOP: same-origin` + `COEP: credentialless` or `require-corp`). Without parent-level COI, the iframe loses isolation and `SharedArrayBuffer` becomes unavailable — USDZ import fails with `SharedArrayBuffer transfer requires self.crossOriginIsolated`. Other features (object/anomaly capture, hand tracking, EI uploads) still work fine.
